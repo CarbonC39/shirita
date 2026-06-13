@@ -83,3 +83,17 @@ async fn set_and_read_mounts() {
     let got = state.storage.get_session(&s.id).await.unwrap().unwrap();
     assert_eq!(got.mounted_definitions, vec!["d1", "d2"]);
 }
+
+#[tokio::test]
+async fn mount_unknown_session_404() {
+    let (state, _) = state_with_assets().await;
+    let req = Request::builder()
+        .method("PUT")
+        .uri("/api/sessions/ghost/mounts")
+        .header(header::AUTHORIZATION, "Bearer secret-token")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(r#"{"definition_ids":["d1"]}"#))
+        .unwrap();
+    let res = app(state).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}

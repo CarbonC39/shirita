@@ -59,6 +59,15 @@ pub async fn set_mounts(
     Path(session_id): Path<String>,
     Json(body): Json<SetMounts>,
 ) -> Result<StatusCode, StatusCode> {
+    if state
+        .storage
+        .get_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
     state
         .storage
         .set_mounted_definitions(&session_id, &body.definition_ids)
