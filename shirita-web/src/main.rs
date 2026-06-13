@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use shirita_core::{Config, SqliteStorage, Storage};
+use shirita_core::{
+    Config, EchoProvider, ModelProvider, OpenAiProvider, SqliteStorage, Storage, TiktokenCounter,
+    TokenCounter,
+};
 use shirita_web::{app, AppState};
 
 #[tokio::main]
@@ -16,10 +19,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = SqliteStorage::connect(&config.database_path).await?;
     storage.run_migrations().await?;
 
+    // 无 API key → 离线 Echo；有 key → 真实 OpenAI 兼容接口。
+    let provider: Arc<dyn ModelProvider> = if config.openai_api_key.is_empty() {
+        tracing::info!("OPENAI_API_KEY empty: using offline EchoProvider");
+        Arc::new(EchoProvider)
+    } else {
+        tracing::info!("using OpenAiProvider at {}", config.openai_base_url);
+        Arc::new(OpenAiProvider::new(
+            config.openai_base_url.clone(),
+            config.openai_api_key.clone(),
+        ))
+    };
+
+    let model = config.openai_model.clone();
     let storage: Arc<dyn Storage> = Arc::new(storage);
+    let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     let state = AppState {
         storage,
         config: Arc::new(config),
+        provider,
+        token_counter,
+        model,
     };
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());

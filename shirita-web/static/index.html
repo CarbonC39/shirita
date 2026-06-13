@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Shirita M1 验证页</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    #log { white-space: pre-wrap; border: 1px solid #ccc; border-radius: 8px; padding: 1rem; min-height: 160px; }
+    input, button { font-size: 1rem; padding: .4rem .6rem; }
+    .row { display: flex; gap: .5rem; margin: .5rem 0; }
+    .row input { flex: 1; }
+  </style>
+</head>
+<body>
+  <h1>Shirita — M1 最小端到端对话</h1>
+  <div class="row">
+    <input id="token" placeholder="Bearer token" value="devtoken" />
+    <button onclick="createSession()">新建会话</button>
+  </div>
+  <div class="row">
+    <input id="msg" placeholder="说点什么…" value="hello" />
+    <button onclick="send()">发送</button>
+  </div>
+  <div id="log"></div>
+
+  <script>
+    let sessionId = null;
+    const log = (s) => { document.getElementById('log').textContent += s; };
+    const tok = () => document.getElementById('token').value;
+
+    async function createSession() {
+      const res = await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok() },
+        body: JSON.stringify({ name: 'web ' + new Date().toISOString() }),
+      });
+      const s = await res.json();
+      sessionId = s.id;
+      log('\n[会话已创建] ' + sessionId + '\n');
+    }
+
+    async function send() {
+      if (!sessionId) { await createSession(); }
+      const text = document.getElementById('msg').value;
+      log('\n你: ' + text + '\n助手: ');
+      const res = await fetch('/api/sessions/' + sessionId + '/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok() },
+        body: JSON.stringify({ text }),
+      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          for (const line of frame.split('\n')) {
+            if (!line.startsWith('data:')) continue;
+            const payload = JSON.parse(line.slice(5).trim());
+            if (payload.type === 'delta') log(payload.text);
+            else if (payload.type === 'done') log('\n[done ' + payload.message_id + ']\n');
+            else if (payload.type === 'error') log('\n[error] ' + payload.message + '\n');
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>
