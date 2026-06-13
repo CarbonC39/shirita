@@ -86,7 +86,16 @@ pub async fn update(
     Path(id): Path<String>,
     Json(body): Json<DefinitionBody>,
 ) -> Result<Json<Definition>, StatusCode> {
-    let def = build(id, body)?;
+    let def = build(id.clone(), body)?;
+    if state
+        .storage
+        .get_definition(&id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
     state
         .storage
         .update_definition(&def)

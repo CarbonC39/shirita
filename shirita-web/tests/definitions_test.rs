@@ -111,6 +111,19 @@ async fn definition_crud_over_http() {
 }
 
 #[tokio::test]
+async fn update_unknown_definition_404() {
+    let res = app(test_state().await)
+        .oneshot(req(
+            "PUT",
+            "/api/definitions/ghost",
+            Some(r#"{"type":"char","name":"x","content":"y"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn bad_type_is_rejected() {
     let res = app(test_state().await)
         .oneshot(req(
