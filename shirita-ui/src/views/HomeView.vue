@@ -19,7 +19,7 @@ onMounted(() => store.load())
     <router-link
       to="/new"
       aria-label="New chat"
-      class="absolute right-5 bottom-2 block"
+      class="fixed right-5 bottom-6 block z-20"
     >
       <svg
         width="54"

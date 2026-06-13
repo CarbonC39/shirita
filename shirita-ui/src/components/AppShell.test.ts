@@ -35,4 +35,14 @@ describe('AppShell', () => {
     const bookLink = wrapper.findAll('nav a')[1]
     expect(bookLink.classes()).toContain('text-ink')
   })
+
+  it('renders a footer with project name', async () => {
+    const router = makeRouter()
+    router.push('/')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+    const footer = wrapper.find('footer')
+    expect(footer.exists()).toBe(true)
+    expect(footer.text()).toContain('Shirita')
+  })
 })
