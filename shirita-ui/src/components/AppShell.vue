@@ -38,5 +38,13 @@ const section = computed(() => {
     <main class="flex-1">
       <slot />
     </main>
+    <footer class="text-center py-3 text-xs text-muted">
+      <a
+        href="https://github.com/CarbonC39/shirita"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="hover:text-primary transition-colors"
+      >Shirita</a>
+    </footer>
   </div>
 </template>
