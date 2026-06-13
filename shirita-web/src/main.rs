@@ -18,6 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     let storage = SqliteStorage::connect(&config.database_path).await?;
     storage.run_migrations().await?;
+    tokio::fs::create_dir_all(&config.assets_dir).await.ok();
 
     // 无 API key → 离线 Echo；有 key → 真实 OpenAI 兼容接口。
     let provider: Arc<dyn ModelProvider> = if config.openai_api_key.is_empty() {
