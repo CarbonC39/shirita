@@ -9,3 +9,4 @@
 shirita-ui/node_modules/
 shirita-ui/dist/
 shirita-ui/.env.local
+shirita-ui/*.tsbuildinfo
