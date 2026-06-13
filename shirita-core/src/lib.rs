@@ -16,6 +16,8 @@ pub use error::{Error, Result};
 pub use model::{ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider};
 pub use models::definition::{Definition, DefinitionType};
 pub use models::message::{Message, Role};
+pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
+pub use models::template::Template;
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
