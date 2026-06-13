@@ -6,6 +6,9 @@ pub struct Config {
     pub database_path: String,
     pub assets_dir: String,
     pub token_secret: String,
+    pub openai_base_url: String,
+    pub openai_api_key: String,
+    pub openai_model: String,
 }
 
 impl Config {
@@ -22,6 +25,9 @@ impl Config {
             database_path: database_path.into(),
             assets_dir: assets_dir.into(),
             token_secret,
+            openai_base_url: "https://api.openai.com/v1".into(),
+            openai_api_key: String::new(),
+            openai_model: "gpt-4o-mini".into(),
         })
     }
 
@@ -32,7 +38,16 @@ impl Config {
         let assets_dir = std::env::var("ASSETS_DIR").unwrap_or_else(|_| "./assets".into());
         let token_secret = std::env::var("TOKEN_SECRET")
             .map_err(|_| Error::Config("TOKEN_SECRET env var is required".into()))?;
-        Self::new(database_path, assets_dir, token_secret)
+
+        let mut cfg = Self::new(database_path, assets_dir, token_secret)?;
+        if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
+            cfg.openai_base_url = v;
+        }
+        cfg.openai_api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+        if let Ok(v) = std::env::var("OPENAI_MODEL") {
+            cfg.openai_model = v;
+        }
+        Ok(cfg)
     }
 }
 
