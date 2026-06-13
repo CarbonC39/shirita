@@ -48,3 +48,21 @@ pub async fn list_messages(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(msgs))
 }
+
+#[derive(Deserialize)]
+pub struct SetMounts {
+    pub definition_ids: Vec<String>,
+}
+
+pub async fn set_mounts(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<SetMounts>,
+) -> Result<StatusCode, StatusCode> {
+    state
+        .storage
+        .set_mounted_definitions(&session_id, &body.definition_ids)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
