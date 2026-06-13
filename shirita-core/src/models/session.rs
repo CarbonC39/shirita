@@ -8,6 +8,8 @@ pub struct Session {
     pub name: String,
     pub avatar: Option<String>,
     #[serde(default)]
+    pub template_id: Option<String>,
+    #[serde(default)]
     pub override_config: serde_json::Value,
     #[serde(default)]
     pub current_state: serde_json::Value,
@@ -21,6 +23,7 @@ impl Session {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
             avatar: None,
+            template_id: None,
             override_config: serde_json::json!({}),
             current_state: serde_json::json!({}),
             mounted_definitions: Vec::new(),

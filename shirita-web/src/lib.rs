@@ -35,6 +35,17 @@ pub fn app(state: AppState) -> Router {
                 .put(routes::definitions::update)
                 .delete(routes::definitions::delete),
         )
+        .route("/templates", get(routes::templates::list).post(routes::templates::create))
+        .route("/templates/{id}", get(routes::templates::get).put(routes::templates::update).delete(routes::templates::delete))
+        .route("/templates/{id}/duplicate", post(routes::templates::duplicate))
+        .route("/templates/{id}/nodes", get(routes::prompt_nodes::list_nodes).post(routes::prompt_nodes::create_node))
+        .route("/nodes/{id}", put(routes::prompt_nodes::update_node).delete(routes::prompt_nodes::delete_node))
+        .route("/templates/{id}/nodes/reorder", put(routes::prompt_nodes::reorder_nodes))
+        .route("/sessions/{id}/overrides", get(routes::overrides::list_overrides))
+        .route("/sessions/{id}/overrides/{def_id}", put(routes::overrides::set_override).delete(routes::overrides::reset_override))
+        .route("/sessions/{id}/overrides/{def_id}/promote", post(routes::overrides::promote_override))
+        .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
+        .route("/provider/test", post(routes::provider::test_connection))
         .route("/assets", post(routes::assets::upload))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
