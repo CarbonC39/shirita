@@ -1,0 +1,66 @@
+import { describe, it, expect } from 'vitest'
+import { mount } from '@vue/test-utils'
+import MessageList from './MessageList.vue'
+import type { Message } from '../api/types'
+
+function makeMsg(overrides: Partial<Message> = {}): Message {
+  return {
+    id: 'm1', session_id: 's1', parent_id: null, role: 'user',
+    raw_content: 'Hello', display_content: null, is_hidden: false,
+    snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+describe('MessageList', () => {
+  it('renders a MessageItem per message', () => {
+    const msgs = [makeMsg({ id: 'm1', role: 'user', raw_content: 'hi' }), makeMsg({ id: 'm2', role: 'assistant', raw_content: 'hello' })]
+    const wrapper = mount(MessageList, { props: { messages: msgs, style: 'bubble' } })
+    expect(wrapper.findAll('[data-test="msg-row"]')).toHaveLength(2)
+  })
+
+  it('shows empty state when no messages', () => {
+    const wrapper = mount(MessageList, { props: { messages: [], style: 'bubble' } })
+    expect(wrapper.text()).toContain('No messages yet.')
+  })
+
+  it('renders streaming ghost when streaming', () => {
+    const wrapper = mount(MessageList, {
+      props: { messages: [makeMsg({ id: 'm1', role: 'user', raw_content: 'hi' })], style: 'bubble', isStreaming: true, streamingText: 'partial reply...' },
+    })
+    expect(wrapper.findAll('[data-test="msg-row"]')).toHaveLength(2)
+    expect(wrapper.text()).toContain('partial reply...')
+    expect(wrapper.find('[data-test="streaming-cursor"]').exists()).toBe(true)
+  })
+
+  it('shows streaming error inline', () => {
+    const wrapper = mount(MessageList, {
+      props: { messages: [], style: 'bubble', streamingError: 'session not found' },
+    })
+    expect(wrapper.text()).toContain('session not found')
+  })
+
+  it('passes style prop to MessageItem', () => {
+    const wrapper = mount(MessageList, {
+      props: { messages: [makeMsg({ role: 'assistant' })], style: 'flat' },
+    })
+    expect(wrapper.text()).toContain('Assistant')
+  })
+
+  it('emits copy from MessageItem', async () => {
+    const wrapper = mount(MessageList, {
+      props: { messages: [makeMsg({ id: 'm1', role: 'assistant', raw_content: 'test' })], style: 'bubble' },
+    })
+    await wrapper.find('[data-test="copy-btn"]').trigger('click')
+    expect(wrapper.emitted('copy')).toBeTruthy()
+    expect(wrapper.emitted('copy')![0]).toEqual(['test'])
+  })
+
+  it('emits regenerate from MessageItem', async () => {
+    const wrapper = mount(MessageList, {
+      props: { messages: [makeMsg({ role: 'assistant' })], style: 'bubble' },
+    })
+    await wrapper.find('[data-test="regenerate-btn"]').trigger('click')
+    expect(wrapper.emitted('regenerate')).toBeTruthy()
+  })
+})
