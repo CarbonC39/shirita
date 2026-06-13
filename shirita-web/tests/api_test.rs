@@ -5,7 +5,9 @@ use axum::http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt; // oneshot
 
-use shirita_core::{Config, SqliteStorage, Storage};
+use shirita_core::{
+    Config, EchoProvider, ModelProvider, SqliteStorage, Storage, TiktokenCounter, TokenCounter,
+};
 use shirita_web::{app, AppState};
 
 async fn test_state() -> AppState {
@@ -16,7 +18,15 @@ async fn test_state() -> AppState {
     storage.run_migrations().await.unwrap();
     let storage: Arc<dyn Storage> = Arc::new(storage);
     let config = Arc::new(Config::new("ignored", "./assets", "secret-token").unwrap());
-    AppState { storage, config }
+    let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
+    let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+    AppState {
+        storage,
+        config,
+        provider,
+        token_counter,
+        model: "test-model".into(),
+    }
 }
 
 #[tokio::test]
