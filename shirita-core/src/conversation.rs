@@ -31,6 +31,13 @@ pub fn send_message(
     user_text: String,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
+        // 0) 校验会话存在（在任何写入之前，避免依赖 FK 约束兜底）。
+        let session = match storage.get_session(&session_id).await {
+            Ok(Some(s)) => s,
+            Ok(None) => { yield SendEvent::Error("session not found".into()); return; }
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+
         // 1) 落库 user 消息（parent = 当前末条消息）。
         let history = match storage.list_messages(&session_id).await {
             Ok(h) => h,
@@ -43,12 +50,7 @@ pub fn send_message(
             return;
         }
 
-        // 2) 载入会话以取挂载/覆盖/状态，并组装 system。
-        let session = match storage.get_session(&session_id).await {
-            Ok(Some(s)) => s,
-            Ok(None) => { yield SendEvent::Error("session not found".into()); return; }
-            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
-        };
+        // 2) 用已载入的 session 取挂载/覆盖/状态，组装 system。
         let mut mounted = Vec::new();
         for id in &session.mounted_definitions {
             match storage.get_definition(id).await {
@@ -264,5 +266,35 @@ mod tests {
         let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
         assert_eq!(assistant.raw_content, "helloSTOP");
         assert_eq!(assistant.display_content.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn send_to_unknown_session_errors_cleanly() {
+        let storage = Arc::new(temp_storage().await);
+        let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        let stream = send_message(
+            storage_dyn,
+            provider,
+            counter,
+            "m".into(),
+            "ghost-session".into(),
+            "hi".into(),
+        );
+        futures::pin_mut!(stream);
+
+        match stream.next().await.unwrap() {
+            SendEvent::Error(msg) => assert!(msg.contains("session not found"), "got: {msg}"),
+            other => panic!("expected clean Error, got {other:?}"),
+        }
+        assert!(stream.next().await.is_none(), "no events after error");
+        // 关键：未创建任何消息。
+        assert!(storage
+            .list_messages("ghost-session")
+            .await
+            .unwrap()
+            .is_empty());
     }
 }
