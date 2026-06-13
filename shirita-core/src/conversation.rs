@@ -43,12 +43,41 @@ pub fn send_message(
             return;
         }
 
-        // 2) 组装请求消息（含刚落库的 user，过滤隐藏）。
-        let mut chat_messages: Vec<ChatMessage> = history
+        // 2) 载入会话以取挂载/覆盖/状态，并组装 system。
+        let session = match storage.get_session(&session_id).await {
+            Ok(Some(s)) => s,
+            Ok(None) => { yield SendEvent::Error("session not found".into()); return; }
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+        let mut mounted = Vec::new();
+        for id in &session.mounted_definitions {
+            match storage.get_definition(id).await {
+                Ok(Some(d)) => mounted.push(d),
+                Ok(None) => {}
+                Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+            }
+        }
+        let local = session
+            .override_config
+            .get("local_definitions")
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({}));
+        let system = crate::assembly::assemble_system_prompt(&mounted, &local, &session.current_state);
+        let regex_rules: Vec<_> = mounted
             .iter()
-            .filter(|m| !m.is_hidden)
-            .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
+            .filter(|d| d.def_type == crate::models::definition::DefinitionType::RegexRule)
+            .cloned()
             .collect();
+
+        // 组装请求消息：system（若非空） + 历史（过滤隐藏） + 新 user。
+        let mut chat_messages: Vec<ChatMessage> = Vec::new();
+        if !system.is_empty() {
+            chat_messages.push(ChatMessage { role: Role::System, content: system });
+        }
+        chat_messages.extend(history.iter().filter(|m| !m.is_hidden).map(|m| ChatMessage {
+            role: m.role,
+            content: m.raw_content.clone(),
+        }));
         chat_messages.push(ChatMessage { role: Role::User, content: user_text.clone() });
 
         let prompt_text: String =
@@ -70,8 +99,9 @@ pub fn send_message(
             }
         }
 
-        // 4) 落库 assistant 消息，再 yield Done。
-        let assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
+        // 4) 落库 assistant 消息（含 regex 清洗后的 display_content），再 yield Done。
+        let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
+        assistant.display_content = crate::assembly::apply_regex_rules(&full, &regex_rules);
         if let Err(e) = storage.create_message(&assistant).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -137,5 +167,102 @@ mod tests {
         assert_eq!(msgs[1].role, Role::Assistant);
         assert_eq!(msgs[1].raw_content, "echo: hello");
         assert_eq!(msgs[1].parent_id.as_deref(), Some(msgs[0].id.as_str()));
+    }
+
+    use crate::model::{ChatRequest, ModelProvider};
+    use futures::stream::{self, BoxStream};
+    use std::sync::Mutex;
+
+    struct RecordingProvider {
+        seen: Arc<Mutex<Option<ChatRequest>>>,
+        reply: String,
+    }
+    #[async_trait::async_trait]
+    impl ModelProvider for RecordingProvider {
+        async fn stream_chat(
+            &self,
+            req: ChatRequest,
+        ) -> crate::Result<BoxStream<'static, crate::Result<String>>> {
+            *self.seen.lock().unwrap() = Some(req);
+            let reply = self.reply.clone();
+            Ok(Box::pin(stream::iter(vec![Ok(reply)])))
+        }
+    }
+
+    #[tokio::test]
+    async fn assembled_system_is_sent() {
+        let storage = Arc::new(temp_storage().await);
+        let mut session = Session::new("t");
+        let ch = crate::models::definition::Definition::new(
+            crate::models::definition::DefinitionType::Char,
+            "C",
+            "I am {{who}}",
+        );
+        storage.create_definition(&ch).await.unwrap();
+        session.mounted_definitions = vec![ch.id.clone()];
+        session.current_state = serde_json::json!({ "who": "Neo" });
+        storage.create_session(&session).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: seen.clone(),
+            reply: "ok".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        let stream = send_message(
+            storage_dyn,
+            provider,
+            counter,
+            "m".into(),
+            session.id.clone(),
+            "hi".into(),
+        );
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        assert_eq!(req.messages[0].role, Role::System);
+        assert!(req.messages[0].content.contains("<characters>"));
+        assert!(req.messages[0].content.contains("I am Neo"));
+    }
+
+    #[tokio::test]
+    async fn regex_rule_sets_display_content() {
+        let storage = Arc::new(temp_storage().await);
+        let mut session = Session::new("t");
+        let mut rule = crate::models::definition::Definition::new(
+            crate::models::definition::DefinitionType::RegexRule,
+            "R",
+            "",
+        );
+        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
+        storage.create_definition(&rule).await.unwrap();
+        session.mounted_definitions = vec![rule.id.clone()];
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "helloSTOP".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        let stream = send_message(
+            storage_dyn,
+            provider,
+            counter,
+            "m".into(),
+            session.id.clone(),
+            "hi".into(),
+        );
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(assistant.raw_content, "helloSTOP");
+        assert_eq!(assistant.display_content.as_deref(), Some("hello"));
     }
 }

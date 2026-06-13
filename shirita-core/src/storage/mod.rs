@@ -20,6 +20,8 @@ pub trait Storage: Send + Sync {
     async fn create_session(&self, session: &Session) -> Result<()>;
     async fn get_session(&self, id: &str) -> Result<Option<Session>>;
     async fn list_sessions(&self) -> Result<Vec<Session>>;
+    /// 整体替换会话的挂载定义 ID 列表。
+    async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()>;
 
     // --- messages ---
     async fn create_message(&self, message: &Message) -> Result<()>;

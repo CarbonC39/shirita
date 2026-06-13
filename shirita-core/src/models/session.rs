@@ -11,6 +11,8 @@ pub struct Session {
     pub override_config: serde_json::Value,
     #[serde(default)]
     pub current_state: serde_json::Value,
+    #[serde(default)]
+    pub mounted_definitions: Vec<String>,
 }
 
 impl Session {
@@ -21,6 +23,7 @@ impl Session {
             avatar: None,
             override_config: serde_json::json!({}),
             current_state: serde_json::json!({}),
+            mounted_definitions: Vec::new(),
         }
     }
 }

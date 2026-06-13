@@ -53,12 +53,14 @@ fn row_to_definition(row: &SqliteRow) -> Result<Definition> {
 fn row_to_session(row: &SqliteRow) -> Result<Session> {
     let override_config: String = row.try_get("override_config")?;
     let current_state: String = row.try_get("current_state")?;
+    let mounted: String = row.try_get("mounted_definitions")?;
     Ok(Session {
         id: row.try_get("id")?,
         name: row.try_get("name")?,
         avatar: row.try_get("avatar")?,
         override_config: serde_json::from_str(&override_config)?,
         current_state: serde_json::from_str(&current_state)?,
+        mounted_definitions: serde_json::from_str(&mounted)?,
     })
 }
 
@@ -141,15 +143,17 @@ impl Storage for SqliteStorage {
     async fn create_session(&self, session: &Session) -> Result<()> {
         let override_config = serde_json::to_string(&session.override_config)?;
         let current_state = serde_json::to_string(&session.current_state)?;
+        let mounted = serde_json::to_string(&session.mounted_definitions)?;
         sqlx::query(
-            "INSERT INTO chat_sessions (id, name, avatar, override_config, current_state) \
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO chat_sessions (id, name, avatar, override_config, current_state, mounted_definitions) \
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.name)
         .bind(&session.avatar)
         .bind(override_config)
         .bind(current_state)
+        .bind(mounted)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -157,7 +161,7 @@ impl Storage for SqliteStorage {
 
     async fn get_session(&self, id: &str) -> Result<Option<Session>> {
         let row = sqlx::query(
-            "SELECT id, name, avatar, override_config, current_state FROM chat_sessions WHERE id = ?",
+            "SELECT id, name, avatar, override_config, current_state, mounted_definitions FROM chat_sessions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -170,11 +174,21 @@ impl Storage for SqliteStorage {
 
     async fn list_sessions(&self) -> Result<Vec<Session>> {
         let rows = sqlx::query(
-            "SELECT id, name, avatar, override_config, current_state FROM chat_sessions ORDER BY name",
+            "SELECT id, name, avatar, override_config, current_state, mounted_definitions FROM chat_sessions ORDER BY name",
         )
         .fetch_all(&self.pool)
         .await?;
         rows.iter().map(row_to_session).collect()
+    }
+
+    async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()> {
+        let json = serde_json::to_string(ids)?;
+        sqlx::query("UPDATE chat_sessions SET mounted_definitions = ? WHERE id = ?")
+            .bind(json)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     async fn create_message(&self, message: &Message) -> Result<()> {
@@ -297,5 +311,23 @@ mod tests {
         assert_eq!(msgs[1].id, m2.id);
         assert_eq!(msgs[1].parent_id.as_deref(), Some(m1.id.as_str()));
         assert_eq!(msgs[1].role, Role::Assistant);
+    }
+
+    #[tokio::test]
+    async fn session_mounts_roundtrip() {
+        let storage = temp_storage().await;
+        let mut s = Sess::new("m");
+        s.mounted_definitions = vec!["a".into(), "b".into()];
+        storage.create_session(&s).await.unwrap();
+        assert_eq!(
+            storage.get_session(&s.id).await.unwrap().unwrap().mounted_definitions,
+            vec!["a", "b"]
+        );
+
+        storage.set_mounted_definitions(&s.id, &["x".into()]).await.unwrap();
+        assert_eq!(
+            storage.get_session(&s.id).await.unwrap().unwrap().mounted_definitions,
+            vec!["x"]
+        );
     }
 }
