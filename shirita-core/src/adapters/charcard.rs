@@ -1,6 +1,6 @@
 //! SillyTavern Character Card V2/V3 ↔ char 定义（+ 内嵌 character_book → world 定义）。
 
-use crate::adapters::worldinfo::worldinfo_to_defs;
+use crate::adapters::worldinfo::{defs_to_worldinfo, worldinfo_to_defs};
 use crate::models::definition::Definition;
 
 /// 解析 chara_card_v2/v3：返回 (char 定义, 内嵌世界书定义列表)。
@@ -29,6 +29,32 @@ pub fn charcard_to_defs(card: &serde_json::Value) -> (Definition, Vec<Definition
     (def, book_defs)
 }
 
+/// char 定义 (+ 关联世界书定义) → chara_card_v2 JSON。
+pub fn def_to_charcard(ch: &Definition, book: &[Definition]) -> serde_json::Value {
+    let st = ch.meta.get("st");
+    let pick = |k: &str| st.and_then(|s| s.get(k)).cloned().unwrap_or(serde_json::Value::String(String::new()));
+    serde_json::json!({
+        "spec": "chara_card_v2",
+        "spec_version": "2.0",
+        "data": {
+            "name": ch.name,
+            "description": ch.content,
+            "personality": pick("personality"),
+            "scenario": pick("scenario"),
+            "first_mes": pick("first_mes"),
+            "mes_example": pick("mes_example"),
+            "system_prompt": pick("system_prompt"),
+            "post_history_instructions": pick("post_history_instructions"),
+            "alternate_greetings": [],
+            "tags": [],
+            "creator": "",
+            "character_version": "",
+            "character_book": defs_to_worldinfo(book),
+            "extensions": {}
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -49,5 +75,18 @@ mod tests {
         assert_eq!(book.len(), 1);
         assert_eq!(book[0].def_type, "world");
         assert_eq!(book[0].meta["trigger"]["keys"][0], "zion");
+    }
+
+    #[test]
+    fn exports_char_with_book_to_v2() {
+        let ch = Definition::new("char", "Neo", "The One");
+        let mut lore = Definition::new("world", "Zion", "Last city");
+        lore.meta = serde_json::json!({ "trigger": { "mode": "keyword", "keys": ["zion"], "probability": 100 } });
+        let card = def_to_charcard(&ch, &[lore]);
+        assert_eq!(card["spec"], "chara_card_v2");
+        assert_eq!(card["data"]["name"], "Neo");
+        assert_eq!(card["data"]["description"], "The One");
+        // embedded book present (standalone WI map shape under character_book)
+        assert_eq!(card["data"]["character_book"]["entries"]["0"]["comment"], "Zion");
     }
 }
