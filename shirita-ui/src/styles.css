@@ -66,3 +66,35 @@ a {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* --- Shared controls ---------------------------------------------------- */
+/* One coherent look for every text field / select / textarea, and exactly
+   two button roles (primary pill, ghost outline). */
+@layer components {
+  .field {
+    @apply bg-white border border-line rounded-[10px] px-3 py-2 text-[14px] text-ink outline-none transition-colors;
+  }
+  .field:focus {
+    @apply border-primary/60;
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 14%, transparent);
+  }
+  .field::placeholder {
+    @apply text-muted/70;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-default;
+  }
+  .btn-primary {
+    @apply bg-primary text-white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-primary-strong;
+  }
+  .btn-ghost {
+    @apply border border-line text-ink/70;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply border-primary/50 text-ink;
+  }
+}
