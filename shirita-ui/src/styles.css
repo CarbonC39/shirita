@@ -31,6 +31,17 @@ a {
   text-decoration: none;
 }
 
+/* Drop the obtrusive native number-input spinners everywhere. */
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* --- Motion ------------------------------------------------------------- */
 /* Page route transition: a quick, soft cross-fade with a hair of lift. */
 .page-enter-active {

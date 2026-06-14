@@ -19,7 +19,13 @@ export const useLibraryStore = defineStore('library', () => {
   }
 
   async function loadTypes() {
-    try { containerTypes.value = await listTypes() } catch (e) { error.value = (e as Error).message }
+    // builtin types first, then custom ones (by sort) — keeps Character/User/World
+    // ahead of user-added types everywhere they're listed.
+    try {
+      const types = await listTypes()
+      types.sort((a, b) => Number(b.builtin) - Number(a.builtin) || a.sort - b.sort)
+      containerTypes.value = types
+    } catch (e) { error.value = (e as Error).message }
   }
 
   async function addType(id: string, label: string) {

@@ -40,8 +40,8 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
     const links = wrapper.findAll('nav a')
     expect(links[1].classes()).toContain('text-ink')      // active book
-    expect(links[0].classes()).toContain('text-ink/25')   // inactive chat
-    expect(links[2].classes()).toContain('text-ink/25')   // inactive settings
+    expect(links[0].classes()).toContain('text-muted')    // inactive chat
+    expect(links[2].classes()).toContain('text-muted')    // inactive settings
   })
 
   it('points the chat icon at the current conversation when inside one', async () => {

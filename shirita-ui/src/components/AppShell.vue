@@ -40,13 +40,13 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
           </template>
         </div>
         <nav class="flex items-center gap-8">
-          <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
+          <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
             <MessageCircle :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
+          <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
             <BookOpen :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
+          <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
             <Settings :size="22" :stroke-width="1.8" />
           </router-link>
         </nav>
