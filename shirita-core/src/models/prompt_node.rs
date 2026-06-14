@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub enum NodeKind {
     Folder,
     Ref,
+    History,
 }
 
 impl NodeKind {
@@ -13,6 +14,7 @@ impl NodeKind {
         match self {
             NodeKind::Folder => "folder",
             NodeKind::Ref => "ref",
+            NodeKind::History => "history",
         }
     }
 
@@ -20,6 +22,7 @@ impl NodeKind {
         Ok(match s {
             "folder" => NodeKind::Folder,
             "ref" => NodeKind::Ref,
+            "history" => NodeKind::History,
             other => return Err(crate::Error::InvalidDefinitionType(other.to_string())),
         })
     }
@@ -142,5 +145,11 @@ mod tests {
     fn owner_kind_roundtrip() {
         assert_eq!(OwnerKind::Template.as_str(), "template");
         assert_eq!(OwnerKind::Session.as_str(), "session");
+    }
+
+    #[test]
+    fn node_kind_history_roundtrip() {
+        assert_eq!(NodeKind::History.as_str(), "history");
+        assert_eq!(NodeKind::from_db("history").unwrap(), NodeKind::History);
     }
 }
