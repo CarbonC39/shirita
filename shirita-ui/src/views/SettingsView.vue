@@ -238,7 +238,7 @@ async function handleTestConnection() {
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5"><label class="text-[13px] text-ink">Custom CSS</label><button class="text-[12px] text-muted hover:text-ink" @click="cssFullscreen = true">Fullscreen</button></div>
-            <textarea :value="customCss" rows="6" class="w-full border border-line rounded-lg px-3.5 py-2.5 text-[13px] leading-relaxed font-mono bg-[#1e1e1e] text-[#d4d4d4] resize-y outline-none focus:border-primary/50" placeholder="/* custom CSS */" @input="customCss = ($event.target as HTMLTextAreaElement).value" />
+            <textarea :value="customCss" rows="6" class="field w-full text-[13px] leading-relaxed font-mono resize-y" placeholder="/* custom CSS */" @input="customCss = ($event.target as HTMLTextAreaElement).value" />
           </div>
           <FullscreenEditor :model-value="customCss" :open="cssFullscreen" @close="cssFullscreen = false" @update:model-value="customCss = $event" />
         </div>

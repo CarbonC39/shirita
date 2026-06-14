@@ -44,18 +44,9 @@ async function handleRegenerate() {
 
 <template>
   <div class="flex flex-col h-full max-w-[600px] mx-auto">
-    <div class="flex items-center justify-between px-5 pt-4 pb-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <router-link to="/" class="text-muted hover:text-ink shrink-0" aria-label="Back"><ArrowLeft :size="18" /></router-link>
-        <span class="font-semibold text-ink truncate">Chat</span>
-      </div>
-      <button
-        class="text-[12.5px] text-muted hover:text-ink border border-line rounded-full px-3 py-1 shrink-0 transition-colors"
-        :title="`Switch to ${ui.messageStyle === 'bubble' ? 'flat' : 'bubble'} style`"
-        @click="ui.setMessageStyle(ui.messageStyle === 'bubble' ? 'flat' : 'bubble')"
-      >
-        {{ ui.messageStyle === 'bubble' ? 'Flat' : 'Bubble' }}
-      </button>
+    <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
+      <router-link to="/" class="text-muted hover:text-ink shrink-0" aria-label="Back"><ArrowLeft :size="18" /></router-link>
+      <span class="font-semibold text-ink truncate">Chat</span>
     </div>
 
     <p v-if="chat.error" class="text-coral text-sm px-5 py-4">{{ chat.error }}</p>
