@@ -1,9 +1,10 @@
 //! Prompt 组装：局部覆盖 → 变量渲染 → XML 封包；以及 regex_rule 输出清洗。
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::keyword::KeywordIndex;
 use crate::models::definition::{Definition, DefinitionType};
+use crate::models::prompt_node::{NodeKind, PromptNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerMode {
@@ -204,6 +205,144 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
     Some(out)
 }
 
+/// 段落落点：历史消息节点之前 / 之后。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    BeforeHistory,
+    AfterHistory,
+}
+
+/// 组装产物中的一个 system 段落（未拼接，保留来源与落点）。
+#[derive(Debug, Clone)]
+pub struct PromptSegment {
+    pub placement: Placement,
+    pub content: String,
+    /// 来源标识（容器 tag 或定义 id），便于调试/导出。
+    pub source: String,
+}
+
+/// 树驱动组装的结构化结果：段落 + 是否启用真实历史。
+#[derive(Debug, Clone)]
+pub struct AssembledPlan {
+    pub segments: Vec<PromptSegment>,
+    pub history_enabled: bool,
+}
+
+/// 取定义的有效 trigger：会话局部覆盖优先，否则用 definition.meta。
+fn effective_trigger(def: &Definition, overrides: &serde_json::Value) -> Trigger {
+    if let Some(t) = overrides.get(&def.id).and_then(|o| o.get("trigger")) {
+        return parse_trigger(&serde_json::json!({ "trigger": t }));
+    }
+    parse_trigger(&def.meta)
+}
+
+/// 取定义的有效内容：会话局部覆盖（结构化 {content}）优先，否则用全局 content。
+fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> String {
+    overrides
+        .get(&def.id)
+        .and_then(|o| o.get("content"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| def.content.clone())
+}
+
+/// 树驱动组装：遍历节点树，按触发激活筛选 ref，容器封包，history 节点切分前后。
+///
+/// - 仅启用 + 激活的 ref 进入结果；空容器被省略。
+/// - history 节点（启用）把后续段落落点切到 `AfterHistory` 并置 `history_enabled`。
+#[allow(clippy::too_many_arguments)]
+pub fn assemble_from_nodes(
+    nodes: &[PromptNode],
+    definitions: &HashMap<String, Definition>,
+    overrides: &serde_json::Value,
+    state: &serde_json::Value,
+    recent_msgs: &[String],
+    recursive: bool,
+    _scan_depth: usize,
+    roll: &mut impl FnMut() -> f64,
+) -> AssembledPlan {
+    // 1) 从所有 ref 节点构建 Entry（用于激活计算）。
+    let mut entries: Vec<Entry> = Vec::new();
+    for n in nodes {
+        if n.kind != NodeKind::Ref {
+            continue;
+        }
+        let Some(def) = n.definition_id.as_ref().and_then(|id| definitions.get(id)) else {
+            continue;
+        };
+        entries.push(Entry {
+            id: def.id.clone(),
+            trigger: effective_trigger(def, overrides),
+            content: render_vars(&effective_def_content(def, overrides), state),
+        });
+    }
+
+    // 2) 计算激活集（聊天缓冲 + 可选递归扩充）。
+    let active = activate(&entries, &recent_msgs.join("\n"), recursive, roll);
+
+    // ref 是否纳入及其渲染内容。
+    let resolve = |n: &PromptNode| -> Option<String> {
+        if !n.enabled || n.kind != NodeKind::Ref {
+            return None;
+        }
+        let def = n.definition_id.as_ref().and_then(|id| definitions.get(id))?;
+        if !active.contains(&def.id) {
+            return None;
+        }
+        Some(render_vars(&effective_def_content(def, overrides), state))
+    };
+
+    // 3) 按 sort_order 遍历根节点；history 切换落点。
+    let mut roots: Vec<&PromptNode> = nodes.iter().filter(|n| n.parent_id.is_none()).collect();
+    roots.sort_by_key(|n| n.sort_order);
+
+    let mut segments: Vec<PromptSegment> = Vec::new();
+    let mut placement = Placement::BeforeHistory;
+    let mut history_enabled = false;
+
+    for root in roots {
+        match root.kind {
+            NodeKind::History => {
+                if root.enabled {
+                    placement = Placement::AfterHistory;
+                    history_enabled = true;
+                }
+            }
+            NodeKind::Folder => {
+                if !root.enabled {
+                    continue;
+                }
+                let tag = root.tag.clone().unwrap_or_default();
+                let mut children: Vec<&PromptNode> = nodes
+                    .iter()
+                    .filter(|n| n.parent_id.as_deref() == Some(root.id.as_str()))
+                    .collect();
+                children.sort_by_key(|n| n.sort_order);
+                let bodies: Vec<String> = children.iter().filter_map(|c| resolve(c)).collect();
+                if bodies.is_empty() {
+                    continue;
+                }
+                segments.push(PromptSegment {
+                    placement,
+                    content: format!("<{tag}>\n{}\n</{tag}>", bodies.join("\n")),
+                    source: tag,
+                });
+            }
+            NodeKind::Ref => {
+                if let Some(content) = resolve(root) {
+                    segments.push(PromptSegment {
+                        placement,
+                        content,
+                        source: root.definition_id.clone().unwrap_or_default(),
+                    });
+                }
+            }
+        }
+    }
+
+    AssembledPlan { segments, history_enabled }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -315,5 +454,73 @@ mod tests {
         ];
         assert!(!activate(&entries, "hi", false, &mut || 0.0).contains("zion"));
         assert!(activate(&entries, "hi", true, &mut || 0.0).contains("zion"));
+    }
+
+    use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
+
+    fn folder_node(owner: &str, sort: i64, tag: &str) -> PromptNode {
+        PromptNode::new_folder(OwnerKind::Template, owner, None, sort, tag)
+    }
+    fn child_ref(owner: &str, parent: &str, sort: i64, d: &str) -> PromptNode {
+        PromptNode::new_ref(OwnerKind::Template, owner, Some(parent.to_string()), sort, d)
+    }
+    fn root_ref(owner: &str, sort: i64, d: &str) -> PromptNode {
+        PromptNode::new_ref(OwnerKind::Template, owner, None, sort, d)
+    }
+    fn history_node(owner: &str, sort: i64) -> PromptNode {
+        let mut n = PromptNode::new_folder(OwnerKind::Template, owner, None, sort, "history");
+        n.kind = NodeKind::History;
+        n.tag = None;
+        n
+    }
+
+    #[test]
+    fn assemble_wraps_containers_splits_history() {
+        let neo = def(DefinitionType::Char, "Neo", "Neo body");
+        let jb = def(DefinitionType::Prompt, "JB", "Jailbreak body");
+        let charf = folder_node("t", 0, "char");
+        let cref = child_ref("t", &charf.id, 0, &neo.id);
+        let hist = history_node("t", 1);
+        let after = root_ref("t", 2, &jb.id);
+
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(neo.id.clone(), neo.clone());
+        defs.insert(jb.id.clone(), jb.clone());
+
+        let nodes = vec![charf, cref, hist, after];
+        let plan = assemble_from_nodes(
+            &nodes, &defs, &json!({}), &json!({}), &["hi".to_string()], true, 4, &mut || 0.0,
+        );
+        let before: Vec<_> = plan
+            .segments
+            .iter()
+            .filter(|s| s.placement == Placement::BeforeHistory)
+            .collect();
+        let after_s: Vec<_> = plan
+            .segments
+            .iter()
+            .filter(|s| s.placement == Placement::AfterHistory)
+            .collect();
+        assert_eq!(before.len(), 1);
+        assert!(before[0].content.contains("<char>\nNeo body\n</char>"));
+        assert_eq!(after_s.len(), 1);
+        assert_eq!(after_s[0].content, "Jailbreak body");
+        assert!(plan.history_enabled);
+    }
+
+    #[test]
+    fn assemble_omits_empty_container_and_inactive_refs() {
+        let mut lore = def(DefinitionType::World, "Zion", "Zion body");
+        lore.meta = json!({ "trigger": { "mode": "keyword", "keys": ["zion"] } });
+        let wf = folder_node("t", 0, "world");
+        let wref = child_ref("t", &wf.id, 0, &lore.id);
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(lore.id.clone(), lore.clone());
+        let nodes = vec![wf, wref];
+        // No "zion" in buffer → world container empty → omitted.
+        let plan = assemble_from_nodes(
+            &nodes, &defs, &json!({}), &json!({}), &["hi".into()], false, 4, &mut || 0.0,
+        );
+        assert!(plan.segments.is_empty());
     }
 }

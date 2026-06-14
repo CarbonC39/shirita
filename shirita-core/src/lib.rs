@@ -10,7 +10,10 @@ pub mod models;
 pub mod storage;
 pub mod tokenizer;
 
-pub use assembly::{apply_regex_rules, assemble_system_prompt, render_vars};
+pub use assembly::{
+    apply_regex_rules, assemble_from_nodes, assemble_system_prompt, render_vars, AssembledPlan,
+    Placement, PromptSegment,
+};
 pub use config::Config;
 pub use conversation::{send_message, SendEvent};
 pub use error::{Error, Result};
