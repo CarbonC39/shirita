@@ -43,7 +43,7 @@ function startNew() {
 
 <template>
   <div>
-    <h3 class="text-[11px] font-semibold text-muted uppercase tracking-[0.06em] mb-2.5 px-0.5">Definition</h3>
+    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">Definition</h3>
 
     <!-- merged search + name combobox + ops -->
     <div class="flex items-center gap-2 mb-3">
