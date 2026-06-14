@@ -28,6 +28,11 @@ export const useSettingsStore = defineStore('settings', () => {
     catch (e) { testStatus.value = 'fail'; testError.value = (e as Error).message }
   }
 
+  // Use a hardcoded list (no live fetch) — for sources with no API key.
+  function useFallbackModels(list: string[]) {
+    modelsLoading.value = false; modelsError.value = null; models.value = [...list]
+  }
+
   async function fetchModels() {
     modelsLoading.value = true; modelsError.value = null
     try {
@@ -46,5 +51,5 @@ export const useSettingsStore = defineStore('settings', () => {
     finally { modelsLoading.value = false }
   }
 
-  return { data, loading, error, testStatus, testError, models, modelsLoading, modelsError, load, save, testConnection, fetchModels }
+  return { data, loading, error, testStatus, testError, models, modelsLoading, modelsError, load, save, testConnection, fetchModels, useFallbackModels }
 })
