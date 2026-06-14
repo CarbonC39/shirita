@@ -3,7 +3,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::keyword::KeywordIndex;
+use crate::model::ChatMessage;
 use crate::models::definition::{Definition, DefinitionType};
+use crate::models::message::Role;
 use crate::models::prompt_node::{NodeKind, PromptNode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,6 +345,46 @@ pub fn assemble_from_nodes(
     AssembledPlan { segments, history_enabled }
 }
 
+/// 段 + 真实历史 → provider 消息数组；末了合并相邻同角色。
+///
+/// before-history 段作为 system 注入历史之前，after-history 段注入历史之后；
+/// `history_enabled`（调用方意图）与 `plan.history_enabled`（树是否含启用的 history
+/// 节点）皆为真时才插入真实历史，否则只输出 system 段。
+pub fn build_chat_messages(
+    plan: &AssembledPlan,
+    history: &[ChatMessage],
+    history_enabled: bool,
+) -> Vec<ChatMessage> {
+    let mut out: Vec<ChatMessage> = Vec::new();
+    let push_sys = |out: &mut Vec<ChatMessage>, c: &str| {
+        out.push(ChatMessage { role: Role::System, content: c.to_string() });
+    };
+
+    for s in plan.segments.iter().filter(|s| s.placement == Placement::BeforeHistory) {
+        push_sys(&mut out, &s.content);
+    }
+    if history_enabled && plan.history_enabled {
+        out.extend(history.iter().cloned());
+    }
+    for s in plan.segments.iter().filter(|s| s.placement == Placement::AfterHistory) {
+        push_sys(&mut out, &s.content);
+    }
+
+    // 合并相邻同角色（多个 system 合一；Claude 要求 system/user 不连发）。
+    let mut merged: Vec<ChatMessage> = Vec::new();
+    for m in out {
+        if let Some(last) = merged.last_mut() {
+            if last.role == m.role {
+                last.content.push('\n');
+                last.content.push_str(&m.content);
+                continue;
+            }
+        }
+        merged.push(m);
+    }
+    merged
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -522,5 +564,46 @@ mod tests {
             &nodes, &defs, &json!({}), &json!({}), &["hi".into()], false, 4, &mut || 0.0,
         );
         assert!(plan.segments.is_empty());
+    }
+
+    use crate::model::ChatMessage;
+    use crate::models::message::Role;
+
+    fn seg(p: Placement, content: &str) -> PromptSegment {
+        PromptSegment { placement: p, content: content.into(), source: content.into() }
+    }
+
+    #[test]
+    fn build_messages_merges_same_role_and_inserts_history() {
+        let plan = AssembledPlan {
+            segments: vec![
+                seg(Placement::BeforeHistory, "A"),
+                seg(Placement::BeforeHistory, "B"),
+                seg(Placement::AfterHistory, "JB"),
+            ],
+            history_enabled: true,
+        };
+        let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+        let msgs = build_chat_messages(&plan, &history, true);
+        // [system "A\nB", user "hi", system "JB"]
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[0].role, Role::System);
+        assert_eq!(msgs[0].content, "A\nB");
+        assert_eq!(msgs[1].role, Role::User);
+        assert_eq!(msgs[2].role, Role::System);
+        assert_eq!(msgs[2].content, "JB");
+    }
+
+    #[test]
+    fn build_messages_history_disabled_drops_history_and_merges() {
+        let plan = AssembledPlan {
+            segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "B")],
+            history_enabled: false,
+        };
+        let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+        let msgs = build_chat_messages(&plan, &history, false);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].role, Role::System);
+        assert_eq!(msgs[0].content, "A\nB");
     }
 }
