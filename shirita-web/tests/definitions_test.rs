@@ -135,3 +135,38 @@ async fn bad_type_is_rejected() {
         .unwrap();
     assert_eq!(res.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn custom_container_type_is_accepted_after_registration() {
+    let state = test_state().await;
+    // register a custom container type
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/types",
+            Some(r#"{"id":"faction","label":"Faction"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    // a definition of that type is now valid
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/definitions",
+            Some(r#"{"type":"faction","name":"Zion","content":"x"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    // an unregistered type is still rejected
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/definitions",
+            Some(r#"{"type":"bogus","name":"X","content":"x"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
