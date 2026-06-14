@@ -31,11 +31,16 @@ export const useSettingsStore = defineStore('settings', () => {
   async function fetchModels() {
     modelsLoading.value = true; modelsError.value = null
     try {
-      const result = await fetchProviderModels()
+      const result = await fetchProviderModels() as { data?: { id: string }[]; error?: unknown }
       if (result.data && Array.isArray(result.data)) {
-        models.value = result.data.map((m: { id: string }) => m.id).sort()
-      } else if (result.error) {
-        modelsError.value = result.error
+        models.value = result.data.map((m) => m.id).filter(Boolean).sort()
+        if (models.value.length === 0) modelsError.value = 'No models returned by this endpoint'
+      } else if (result.error != null) {
+        // upstream may return a string or a { message } error object
+        const e = result.error as { message?: string }
+        modelsError.value = typeof result.error === 'string' ? result.error : (e.message || JSON.stringify(result.error))
+      } else {
+        modelsError.value = 'Unexpected response from /models'
       }
     } catch (e) { modelsError.value = (e as Error).message }
     finally { modelsLoading.value = false }

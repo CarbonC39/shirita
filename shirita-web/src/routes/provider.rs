@@ -21,7 +21,11 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
             while let Some(item) = stream.next().await {
                 match item { Ok(_) => { received = true; break; } Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))) }
             }
-            Ok(Json(serde_json::json!({ "ok": received || true })))
+            if received {
+                Ok(Json(serde_json::json!({ "ok": true })))
+            } else {
+                Ok(Json(serde_json::json!({ "ok": false, "error": "no response from provider" })))
+            }
         }
         Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
     }
