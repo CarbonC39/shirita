@@ -30,3 +30,39 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* --- Motion ------------------------------------------------------------- */
+/* Page route transition: a quick, soft cross-fade with a hair of lift. */
+.page-enter-active {
+  transition: opacity 0.22s ease, transform 0.22s ease;
+}
+.page-leave-active {
+  transition: opacity 0.14s ease;
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(4px);
+}
+.page-leave-to {
+  opacity: 0;
+}
+
+/* Inline expand/collapse (node editors, pickers). */
+.expand-enter-active,
+.expand-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.expand-enter-from,
+.expand-leave-to {
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -10,6 +10,10 @@ const section = computed(() => {
   return 'chat'
 })
 
+// Inside a conversation the chat icon stays on that conversation rather than
+// jumping to the list — the logo (and the in-chat back arrow) lead home.
+const chatTo = computed(() => (route.name === 'chat' ? route.fullPath : '/'))
+
 type Crumb = { label: string; to?: string }
 const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 </script>
@@ -29,13 +33,13 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
           </template>
         </div>
         <nav class="flex items-center gap-8">
-          <router-link to="/" :class="['transition-colors', section === 'chat' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+          <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
             <MessageCircle :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/book" :class="['transition-colors', section === 'book' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+          <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
             <BookOpen :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/settings" :class="['transition-colors', section === 'settings' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+          <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-ink/25 hover:text-ink/55']">
             <Settings :size="22" :stroke-width="1.8" />
           </router-link>
         </nav>
@@ -43,16 +47,8 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
       </div>
       <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
     </header>
-    <main class="flex-1 min-h-0 overflow-hidden">
+    <main class="flex-1 min-h-0 overflow-y-auto">
       <slot />
     </main>
-    <footer class="text-center py-3 text-xs text-muted">
-      <a
-        href="https://github.com/CarbonC39/shirita"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="hover:text-primary transition-colors"
-      >Shirita</a>
-    </footer>
   </div>
 </template>
