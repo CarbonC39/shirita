@@ -137,7 +137,7 @@ async function duplicateDef() {
     <template v-else>
       <!-- template picker + ops -->
       <div class="flex items-center gap-2">
-        <select :value="selectedTemplateId ?? ''" class="flex-1 border border-line rounded-[10px] px-3.5 py-2.5 text-[14px] bg-white outline-none focus:border-primary/50" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
+        <select :value="selectedTemplateId ?? ''" class="field flex-1" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
           <option value="" disabled>Select a template…</option>
           <option value="__new__">+ New template</option>
           <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>

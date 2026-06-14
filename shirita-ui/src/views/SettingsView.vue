@@ -110,7 +110,7 @@ async function handleTestConnection() {
         <h2 class="text-lg font-semibold">Settings</h2>
         <div class="flex items-center gap-2">
           <span v-if="saveMessage" class="text-[12px] text-muted">{{ saveMessage }}</span>
-          <button class="px-5 py-1.5 text-[13px] font-medium bg-primary text-white rounded-full hover:bg-primary-strong transition-colors" @click="handleSave">Save</button>
+          <button class="btn btn-primary px-5" @click="handleSave">Save</button>
         </div>
       </div>
 
@@ -120,35 +120,35 @@ async function handleTestConnection() {
         <div class="space-y-4">
           <div>
             <label class="text-[13px] text-ink block mb-1.5">Source</label>
-            <select :value="providerSource" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50" @change="providerSource = ($event.target as HTMLSelectElement).value">
+            <select :value="providerSource" class="field w-full" @change="providerSource = ($event.target as HTMLSelectElement).value">
               <option v-for="src in providerSources" :key="src" :value="src">{{ sourceLabels[src] || src }}</option>
             </select>
           </div>
-          <div><label class="text-[13px] text-ink block mb-1.5">Base URL</label><input :value="providerBaseUrl" type="text" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] outline-none focus:border-primary/50 font-mono" @input="providerBaseUrl = ($event.target as HTMLInputElement).value" /></div>
+          <div><label class="text-[13px] text-ink block mb-1.5">Base URL</label><input :value="providerBaseUrl" type="text" class="field w-full font-mono" @input="providerBaseUrl = ($event.target as HTMLInputElement).value" /></div>
           <div>
             <label class="text-[13px] text-ink block mb-1.5">API Key</label>
             <div class="relative">
-              <input :value="providerApiKey" :type="showApiKey ? 'text' : 'password'" class="w-full border border-line rounded-lg px-3 py-2 pr-9 text-[14px] outline-none focus:border-primary/50 font-mono" @input="providerApiKey = ($event.target as HTMLInputElement).value" />
+              <input :value="providerApiKey" :type="showApiKey ? 'text' : 'password'" class="field w-full pr-9 font-mono" @input="providerApiKey = ($event.target as HTMLInputElement).value" />
               <button class="absolute right-2.5 top-2.5 text-muted hover:text-ink" @click="showApiKey = !showApiKey"><Eye v-if="!showApiKey" :size="16" /><EyeOff v-else :size="16" /></button>
             </div>
           </div>
           <div>
             <label class="text-[13px] text-ink block mb-1.5">Model</label>
             <div class="flex items-center gap-2">
-              <input :value="providerModel" type="text" placeholder="gpt-4o" class="flex-1 border border-line rounded-lg px-3 py-2 text-[14px] outline-none focus:border-primary/50" @input="providerModel = ($event.target as HTMLInputElement).value" />
+              <input :value="providerModel" type="text" placeholder="gpt-4o" class="field flex-1" @input="providerModel = ($event.target as HTMLInputElement).value" />
               <span v-if="settings.modelsLoading" class="text-[12px] text-muted">Fetching…</span>
             </div>
             <p v-if="settings.modelsError" class="text-[12px] text-coral mt-1">{{ settings.modelsError }}</p>
-            <select v-if="settings.models.length > 0" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50 mt-2" @change="providerModel = ($event.target as HTMLSelectElement).value">
-              <option value="">— select model —</option>
-              <option v-for="m in settings.models" :key="m" :value="m" :selected="m === providerModel">{{ m }}</option>
+            <select v-if="settings.models.length > 0" :value="providerModel" class="field w-full mt-2" @change="providerModel = ($event.target as HTMLSelectElement).value">
+              <option value="" disabled>— select model —</option>
+              <option v-for="m in settings.models" :key="m" :value="m">{{ m }}</option>
             </select>
           </div>
           <div class="flex items-center justify-between">
             <span class="text-[14px] text-ink">Stream responses</span>
             <ToggleSwitch :model-value="providerStream" @update:model-value="providerStream = $event" />
           </div>
-          <button class="flex items-center gap-2 px-4 py-2 text-[13px] border border-line rounded-lg hover:border-primary/50 transition-colors disabled:opacity-50" :disabled="settings.testStatus === 'testing'" @click="handleTestConnection">
+          <button class="btn btn-ghost" :disabled="settings.testStatus === 'testing'" @click="handleTestConnection">
             <span v-if="settings.testStatus === 'testing'" class="w-3 h-3 rounded-full border-2 border-muted border-t-transparent animate-spin" />
             <span v-else-if="settings.testStatus === 'ok'" class="w-3 h-3 rounded-full bg-green-500" />
             <span v-else-if="settings.testStatus === 'fail'" class="w-3 h-3 rounded-full bg-coral" />
@@ -173,7 +173,7 @@ async function handleTestConnection() {
             :value="genMaxTokens"
             type="number"
             min="1"
-            class="w-[88px] border border-line rounded-lg px-3 py-2 text-[14px] text-right tabular-nums outline-none focus:border-primary/50"
+            class="field w-[88px] text-right tabular-nums"
             @input="genMaxTokens = parseInt(($event.target as HTMLInputElement).value) || 0"
           />
         </div>
@@ -190,7 +190,7 @@ async function handleTestConnection() {
             data-test="scan-depth"
             :value="scanDepth"
             type="number" min="1" max="50"
-            class="w-[88px] border border-line rounded-lg px-3 py-2 text-[14px] text-right tabular-nums outline-none focus:border-primary/50"
+            class="field w-[88px] text-right tabular-nums"
             @input="scanDepth = parseInt(($event.target as HTMLInputElement).value) || 1"
           />
         </div>
@@ -255,7 +255,7 @@ async function handleTestConnection() {
       <!-- Language -->
       <section class="mb-8">
         <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Language</h3>
-        <select class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50">
+        <select class="field w-full">
           <option value="en">English</option><option value="zh">中文</option>
         </select>
       </section>
