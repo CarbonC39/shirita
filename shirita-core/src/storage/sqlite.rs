@@ -7,7 +7,7 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 
 use crate::models::def_type::DefType;
-use crate::models::definition::{Definition, DefinitionType};
+use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
@@ -44,11 +44,10 @@ impl SqliteStorage {
 }
 
 fn row_to_definition(row: &SqliteRow) -> Result<Definition> {
-    let type_str: String = row.try_get("type")?;
     let meta_str: String = row.try_get("meta")?;
     Ok(Definition {
         id: row.try_get("id")?,
-        def_type: DefinitionType::from_db(&type_str)?,
+        def_type: row.try_get("type")?,
         name: row.try_get("name")?,
         content: row.try_get("content")?,
         meta: serde_json::from_str(&meta_str)?,
@@ -459,7 +458,7 @@ mod tests {
         let storage = temp_storage().await;
 
         // create
-        let mut def = Definition::new(DefinitionType::Char, "Alice", "<char>hi</char>");
+        let mut def = Definition::new("char", "Alice", "<char>hi</char>");
         def.meta = serde_json::json!({ "avatar": "/a.png" });
         storage.create_definition(&def).await.unwrap();
 
@@ -475,11 +474,11 @@ mod tests {
         // update
         let mut updated = def.clone();
         updated.name = "Alicia".into();
-        updated.def_type = DefinitionType::Persona;
+        updated.def_type = "persona".into();
         storage.update_definition(&updated).await.unwrap();
         let got = storage.get_definition(&def.id).await.unwrap().unwrap();
         assert_eq!(got.name, "Alicia");
-        assert_eq!(got.def_type, DefinitionType::Persona);
+        assert_eq!(got.def_type, "persona");
 
         // delete
         storage.delete_definition(&def.id).await.unwrap();

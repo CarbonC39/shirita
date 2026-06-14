@@ -129,7 +129,7 @@ pub fn send_message(
         let regex_rules: Vec<_> = match storage.list_definitions().await {
             Ok(all) => all
                 .into_iter()
-                .filter(|d| d.def_type == crate::models::definition::DefinitionType::RegexRule)
+                .filter(|d| d.def_type == "regex_rule")
                 .collect(),
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -248,11 +248,7 @@ mod tests {
         use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
         use crate::models::template::Template;
         let storage = Arc::new(temp_storage().await);
-        let ch = crate::models::definition::Definition::new(
-            crate::models::definition::DefinitionType::Char,
-            "C",
-            "I am {{who}}",
-        );
+        let ch = crate::models::definition::Definition::new("char", "C", "I am {{who}}");
         storage.create_definition(&ch).await.unwrap();
 
         // 模板树：char 容器 → ref(char)，再加 history 魔法节点。
@@ -304,11 +300,7 @@ mod tests {
         let storage = Arc::new(temp_storage().await);
         let session = Session::new("t");
         // regex 规则现在是全局的（Settings 拥有），无需挂载即生效。
-        let mut rule = crate::models::definition::Definition::new(
-            crate::models::definition::DefinitionType::RegexRule,
-            "R",
-            "",
-        );
+        let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
         rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
         storage.create_definition(&rule).await.unwrap();
         storage.create_session(&session).await.unwrap();
