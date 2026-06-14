@@ -6,7 +6,7 @@ pub mod state;
 
 pub use state::AppState;
 
-use axum::routing::{post, put};
+use axum::routing::{delete, post, put};
 use axum::{middleware, routing::get, Router};
 use tower_http::services::ServeDir;
 
@@ -44,6 +44,8 @@ pub fn app(state: AppState) -> Router {
         .route("/sessions/{id}/overrides", get(routes::overrides::list_overrides))
         .route("/sessions/{id}/overrides/{def_id}", put(routes::overrides::set_override).delete(routes::overrides::reset_override))
         .route("/sessions/{id}/overrides/{def_id}/promote", post(routes::overrides::promote_override))
+        .route("/types", get(routes::types::list).post(routes::types::create))
+        .route("/types/{id}", delete(routes::types::delete))
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))
