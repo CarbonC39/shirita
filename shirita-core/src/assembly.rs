@@ -1,6 +1,121 @@
 //! Prompt 组装：局部覆盖 → 变量渲染 → XML 封包；以及 regex_rule 输出清洗。
 
+use std::collections::HashSet;
+
+use crate::keyword::KeywordIndex;
 use crate::models::definition::{Definition, DefinitionType};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TriggerMode {
+    Constant,
+    Keyword,
+    Random,
+}
+
+#[derive(Debug, Clone)]
+pub struct Trigger {
+    pub mode: TriggerMode,
+    pub keys: Vec<String>,
+    pub probability: u8, // 0..=100
+}
+
+/// 一个待激活条目（来自某 ref 节点解析后的定义）。
+#[derive(Debug, Clone)]
+pub struct Entry {
+    pub id: String,
+    pub trigger: Trigger,
+    pub content: String, // 已是有效内容（局部覆盖优先），用于递归扫描
+}
+
+/// 从 `definition.meta`（即整个 meta 对象）解析 trigger；缺省 constant。
+pub fn parse_trigger(meta: &serde_json::Value) -> Trigger {
+    let t = meta.get("trigger");
+    let mode = match t.and_then(|v| v.get("mode")).and_then(|v| v.as_str()) {
+        Some("keyword") => TriggerMode::Keyword,
+        Some("random") => TriggerMode::Random,
+        _ => TriggerMode::Constant,
+    };
+    let keys = t
+        .and_then(|v| v.get("keys"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let probability = t
+        .and_then(|v| v.get("probability"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(100)
+        .min(100) as u8;
+    Trigger { mode, keys, probability }
+}
+
+/// 计算激活集：constant 恒激活；random 按 roll；keyword 命中扫描缓冲；
+/// recursive 时把已激活内容并入缓冲再扫，直到收敛（限 3 轮）。
+/// `roll() -> f64 in [0,1)`。
+pub fn activate(
+    entries: &[Entry],
+    buffer: &str,
+    recursive: bool,
+    roll: &mut impl FnMut() -> f64,
+) -> HashSet<String> {
+    let mut active: HashSet<String> = HashSet::new();
+
+    // constant + random 先定。
+    for e in entries {
+        match e.trigger.mode {
+            TriggerMode::Constant => {
+                active.insert(e.id.clone());
+            }
+            TriggerMode::Random => {
+                if roll() < e.trigger.probability as f64 / 100.0 {
+                    active.insert(e.id.clone());
+                }
+            }
+            TriggerMode::Keyword => {}
+        }
+    }
+
+    // keyword：构建一次自动机，对缓冲（可递归扩充）扫描。
+    let kw: Vec<(String, Vec<String>)> = entries
+        .iter()
+        .filter(|e| e.trigger.mode == TriggerMode::Keyword)
+        .map(|e| (e.id.clone(), e.trigger.keys.clone()))
+        .collect();
+    let index = KeywordIndex::build(&kw);
+
+    let mut scan_text = buffer.to_string();
+    // 仅递归模式下把已激活条目内容并入缓冲（constant 也作为递归来源）；
+    // 非递归仅扫聊天缓冲。
+    if recursive {
+        for e in entries {
+            if active.contains(&e.id) {
+                scan_text.push('\n');
+                scan_text.push_str(&e.content);
+            }
+        }
+    }
+
+    let max_passes = if recursive { 3 } else { 1 };
+    for _ in 0..max_passes {
+        let hits = index.scan(&scan_text);
+        let mut grew = false;
+        for id in hits {
+            if active.insert(id.clone()) {
+                grew = true;
+                if recursive {
+                    if let Some(e) = entries.iter().find(|e| e.id == id) {
+                        scan_text.push('\n');
+                        scan_text.push_str(&e.content);
+                    }
+                }
+            }
+        }
+        if !grew || !recursive {
+            break;
+        }
+    }
+
+    active
+}
 
 /// 取定义的"有效内容"：若 local_overrides 含该 id 则用覆盖文本，否则用全局 content。
 fn effective_content(def: &Definition, local_overrides: &serde_json::Value) -> String {
@@ -140,5 +255,65 @@ mod tests {
             Some("ab")
         );
         assert_eq!(apply_regex_rules("abc", &[]), None);
+    }
+
+    fn ent(id: &str, mode: TriggerMode, keys: &[&str], content: &str) -> Entry {
+        Entry {
+            id: id.to_string(),
+            trigger: Trigger {
+                mode,
+                keys: keys.iter().map(|s| s.to_string()).collect(),
+                probability: 100,
+            },
+            content: content.to_string(),
+        }
+    }
+
+    #[test]
+    fn parse_trigger_defaults_to_constant() {
+        let t = parse_trigger(&json!({}));
+        assert_eq!(t.mode, TriggerMode::Constant);
+    }
+
+    #[test]
+    fn parse_trigger_reads_keyword() {
+        let t = parse_trigger(&json!({ "trigger": { "mode": "keyword", "keys": ["zion"] } }));
+        assert_eq!(t.mode, TriggerMode::Keyword);
+        assert_eq!(t.keys, vec!["zion".to_string()]);
+    }
+
+    #[test]
+    fn activate_constant_always_keyword_on_match() {
+        let entries = vec![
+            ent("neo", TriggerMode::Constant, &[], "Neo body"),
+            ent("zion", TriggerMode::Keyword, &["zion"], "Zion body"),
+            ent("trinity", TriggerMode::Keyword, &["trinity"], "Trinity body"),
+        ];
+        let active = activate(&entries, "tell me about zion", false, &mut || 0.0);
+        assert!(active.contains("neo"));
+        assert!(active.contains("zion"));
+        assert!(!active.contains("trinity"));
+    }
+
+    #[test]
+    fn activate_random_uses_roll() {
+        let entries = vec![Entry {
+            id: "r".into(),
+            trigger: Trigger { mode: TriggerMode::Random, keys: vec![], probability: 50 },
+            content: String::new(),
+        }];
+        assert!(activate(&entries, "", false, &mut || 0.2).contains("r")); // 0.2 < 0.5
+        assert!(!activate(&entries, "", false, &mut || 0.9).contains("r"));
+    }
+
+    #[test]
+    fn activate_recursive_chains() {
+        // "zion" not in chat, but "neo" constant content mentions zion → recursion activates zion.
+        let entries = vec![
+            ent("neo", TriggerMode::Constant, &[], "Neo lives in zion"),
+            ent("zion", TriggerMode::Keyword, &["zion"], "Zion body"),
+        ];
+        assert!(!activate(&entries, "hi", false, &mut || 0.0).contains("zion"));
+        assert!(activate(&entries, "hi", true, &mut || 0.0).contains("zion"));
     }
 }
