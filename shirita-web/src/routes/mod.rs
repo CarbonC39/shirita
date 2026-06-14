@@ -10,3 +10,4 @@ pub mod provider;
 pub mod sessions;
 pub mod settings;
 pub mod templates;
+pub mod types;
