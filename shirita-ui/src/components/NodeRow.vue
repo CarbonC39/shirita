@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ChevronRight, Folder, FileText, Check, Maximize2 } from 'lucide-vue-next'
+import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2 } from 'lucide-vue-next'
 import type { Definition, PromptNode } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
 
@@ -11,17 +11,28 @@ const props = defineProps<{
   isExpanded: boolean
 }>()
 
-const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string] }>()
+const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: [] }>()
 
 const isFolder = computed(() => props.node.kind === 'folder')
+const isHistory = computed(() => props.node.kind === 'history')
 
 const def = computed<Definition | null>(() =>
   props.node.definition_id ? props.definitions[props.node.definition_id] ?? null : null,
 )
 
 const label = computed(() => {
+  if (isHistory.value) return 'Chat history'
   if (isFolder.value) return props.node.tag || '(folder)'
   return def.value ? def.value.name : '(missing)'
+})
+
+// palette tint per definition/container type
+const typeTint: Record<string, string> = {
+  char: 'text-sky', persona: 'text-coral', world: 'text-mauve', prompt: 'text-muted',
+}
+const iconColor = computed(() => {
+  const t = isFolder.value ? (props.node.tag ?? '') : (def.value?.type ?? '')
+  return props.node.enabled ? (typeTint[t] ?? 'text-muted') : 'text-muted/40'
 })
 
 // Local editable copy of the referenced definition's content; persisted on blur.
@@ -52,10 +63,20 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       </button>
 
       <!-- type icon -->
-      <Folder v-if="isFolder" :size="17" class="text-mauve shrink-0" :stroke-width="1.8" />
-      <FileText v-else :size="16" :class="node.enabled ? 'text-muted' : 'text-muted/50'" class="shrink-0" :stroke-width="1.8" />
+      <History v-if="isHistory" :size="16" class="text-primary shrink-0" :stroke-width="1.8" />
+      <Folder v-else-if="isFolder" :size="17" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
+      <FileText v-else :size="16" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
 
       <span :class="['truncate flex-1', isFolder ? 'font-semibold' : '', node.enabled ? 'text-ink' : 'text-muted']">{{ label }}</span>
+
+      <!-- delete (history rows render none) -->
+      <button
+        v-if="!isHistory"
+        data-test="node-delete"
+        class="text-muted/0 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
+        title="Delete"
+        @click.stop="emit('delete')"
+      ><Trash2 :size="15" /></button>
 
       <!-- trailing expand chevron: folders expand children, refs expand content -->
       <button data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click="emit('toggleExpand')">
@@ -64,7 +85,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
     </div>
 
     <!-- inline content editor for ref nodes -->
-    <div v-if="!isFolder && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
+    <div v-if="!isFolder && !isHistory && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
       <div class="relative">
         <textarea
           v-model="draft"
