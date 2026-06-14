@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
-use shirita_core::models::definition::{Definition, DefinitionType};
+use shirita_core::models::definition::Definition;
 
 use crate::AppState;
 
@@ -17,20 +17,36 @@ pub struct DefinitionBody {
     pub meta: Value,
 }
 
-fn build(id: String, body: DefinitionBody) -> Result<Definition, StatusCode> {
-    let def_type = DefinitionType::from_db(&body.r#type).map_err(|_| StatusCode::BAD_REQUEST)?;
+fn build(id: String, body: DefinitionBody) -> Definition {
     let meta = if body.meta.is_null() {
         serde_json::json!({})
     } else {
         body.meta
     };
-    Ok(Definition {
+    Definition {
         id,
-        def_type,
+        def_type: body.r#type,
         name: body.name,
         content: body.content,
         meta,
-    })
+    }
+}
+
+/// type 必须是保留类型，或已注册的容器类型。
+async fn validate_type(state: &AppState, t: &str) -> Result<(), StatusCode> {
+    if shirita_core::is_reserved(t) {
+        return Ok(());
+    }
+    let containers = state
+        .storage
+        .list_container_types()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if containers.iter().any(|c| c.id == t) {
+        Ok(())
+    } else {
+        Err(StatusCode::BAD_REQUEST)
+    }
 }
 
 #[derive(Deserialize)]
@@ -57,7 +73,8 @@ pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<DefinitionBody>,
 ) -> Result<Json<Definition>, StatusCode> {
-    let def = build(uuid::Uuid::new_v4().to_string(), body)?;
+    validate_type(&state, &body.r#type).await?;
+    let def = build(uuid::Uuid::new_v4().to_string(), body);
     state
         .storage
         .create_definition(&def)
@@ -86,7 +103,8 @@ pub async fn update(
     Path(id): Path<String>,
     Json(body): Json<DefinitionBody>,
 ) -> Result<Json<Definition>, StatusCode> {
-    let def = build(id.clone(), body)?;
+    validate_type(&state, &body.r#type).await?;
+    let def = build(id.clone(), body);
     if state
         .storage
         .get_definition(&id)
