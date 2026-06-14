@@ -35,3 +35,17 @@ describe('PromptTree add flows', () => {
     expect(w.emitted('addContainer')![0]).toEqual(['char'])
   })
 })
+
+describe('PromptTree drag reorder', () => {
+  it('emits reorder with the new root order on drop', async () => {
+    const nodes = [
+      n({ id: 'a', kind: 'folder', tag: 'char', definition_id: null, sort_order: 0 }),
+      n({ id: 'b', kind: 'folder', tag: 'world', definition_id: null, sort_order: 1 }),
+    ]
+    const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
+    const rows = w.findAll('[data-test="row-wrap"]')
+    await rows[0].trigger('dragstart')
+    await rows[1].trigger('drop')
+    expect(w.emitted('reorder')![0]).toEqual([['b', 'a']])
+  })
+})
