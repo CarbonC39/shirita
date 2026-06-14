@@ -4,6 +4,7 @@ import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { listDefinitions, createDefinition, updateDefinition, deleteDefinition } from '../api/client'
 import type { Definition } from '../api/types'
+import { fallbackModels } from '../api/modelCatalog'
 import SliderControl from '../components/SliderControl.vue'
 import RegexRuleEditor from '../components/RegexRuleEditor.vue'
 import BackgroundPicker from '../components/BackgroundPicker.vue'
@@ -54,13 +55,17 @@ const customCss = computed({ get: () => (get('custom_css') as string) || '', set
 const scanDepth = computed({ get: () => (get('worldinfo_scan_depth') as number) ?? 4, set: (v: number) => set('worldinfo_scan_depth', v) })
 const recursiveScan = computed({ get: () => (get('worldinfo_recursive') as boolean) ?? true, set: (v: boolean) => set('worldinfo_recursive', v) })
 
-// Auto-fetch the model list once provider source + base URL + key are present (debounced).
+// Model list: with an API key we fetch the provider's live /models (debounced);
+// without one we fall back to a hardcoded per-source catalog.
 let modelsTimer: ReturnType<typeof setTimeout> | undefined
 watch(
   () => [providerSource.value, providerBaseUrl.value, providerApiKey.value],
   () => {
     clearTimeout(modelsTimer)
-    if (!providerBaseUrl.value) return // key may be empty for keyless/local endpoints
+    if (!providerApiKey.value || !providerBaseUrl.value) {
+      settings.useFallbackModels(fallbackModels[providerSource.value] ?? [])
+      return
+    }
     modelsTimer = setTimeout(async () => {
       // persist creds so the server's /models uses them, then fetch.
       await settings.save({
@@ -91,6 +96,9 @@ onMounted(async () => {
     if (typeof bg === 'string' && bg !== ui.background) ui.setBackground(bg)
     const allDefs = await listDefinitions()
     regexRules.value = allDefs.filter(d => d.type === 'regex_rule')
+    // seed the model list: live fetch needs a key, otherwise show the catalog
+    if (providerApiKey.value && providerBaseUrl.value) await settings.fetchModels()
+    else settings.useFallbackModels(fallbackModels[providerSource.value] ?? [])
   } catch (e) { error.value = (e as Error).message }
   finally { loading.value = false }
 })
