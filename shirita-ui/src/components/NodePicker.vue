@@ -1,45 +1,92 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Search } from 'lucide-vue-next'
+import { Search, Plus, LayoutGrid, ChevronRight } from 'lucide-vue-next'
 import type { Definition } from '../api/types'
 
 const props = defineProps<{ definitions: Definition[]; filterType: string | null }>()
-const emit = defineEmits<{ select: [definitionId: string]; createNew: []; changeType: [type: string] }>()
+const emit = defineEmits<{ select: [definitionId: string]; createNew: [type: string] }>()
 
 const query = ref('')
-const isOpen = ref(false)
+const showTypes = ref(false)
+// Local active type so "Other type" can switch the picker without round-tripping the parent.
+const activeType = ref<string | null>(props.filterType)
+
 const typeOptions = ['char', 'world', 'persona', 'item', 'prompt']
+
+// Friendly tint per definition type (keeps the picker playful, not technical).
+const typeTint: Record<string, string> = {
+  char: 'bg-sky/40', persona: 'bg-coral/40', world: 'bg-mauve/40',
+  item: 'bg-primary/30', prompt: 'bg-muted/30',
+}
 
 const filtered = computed(() => {
   let defs = props.definitions
-  if (props.filterType) defs = defs.filter(d => d.type === props.filterType)
-  if (query.value.trim()) { const q = query.value.toLowerCase(); defs = defs.filter(d => d.name.toLowerCase().includes(q)) }
-  return defs.slice(0, 8)
+  if (activeType.value) defs = defs.filter((d) => d.type === activeType.value)
+  if (query.value.trim()) {
+    const q = query.value.toLowerCase()
+    defs = defs.filter((d) => d.name.toLowerCase().includes(q))
+  }
+  return defs
 })
 
-function open() { isOpen.value = true; query.value = '' }
-function close() { isOpen.value = false }
-defineExpose({ open, close })
+const visible = computed(() => filtered.value.slice(0, 4))
+const moreCount = computed(() => Math.max(0, filtered.value.length - visible.value.length))
+const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…` : 'New definition…'))
 </script>
 
 <template>
-  <div v-if="isOpen" data-test="node-picker" class="bg-white border border-line rounded-xl shadow-lg p-3 w-72 z-20">
-    <div class="flex items-center gap-2 pb-2 mb-2 border-b border-line">
-      <Search :size="14" class="text-muted shrink-0" />
-      <input v-model="query" type="text" placeholder="Search definitions…" class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/50" />
+  <div data-test="node-picker" class="border border-line rounded-[10px] bg-surface/60 overflow-hidden">
+    <!-- search -->
+    <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+      <Search :size="15" class="text-muted shrink-0" />
+      <input
+        v-model="query"
+        type="text"
+        :placeholder="activeType ? `Search ${activeType}…` : 'Search…'"
+        class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/60"
+      />
     </div>
-    <div class="max-h-40 overflow-y-auto">
-      <button v-for="def in filtered" :key="def.id" class="w-full text-left px-2 py-1.5 text-[13px] hover:bg-surface rounded-md flex items-center gap-2" @click="emit('select', def.id); close()">
-        <span class="text-[11px] text-muted uppercase w-12 shrink-0">{{ def.type }}</span>
-        <span class="truncate">{{ def.name }}</span>
-      </button>
-    </div>
-    <p v-if="filtered.length === 0" class="text-muted text-xs py-2 text-center">No matching definitions</p>
-    <div class="border-t border-line my-2" />
-    <button class="w-full text-left px-2 py-1.5 text-[13px] text-primary hover:bg-surface rounded-md" @click="emit('createNew'); close()">+ New definition</button>
-    <div class="mt-1 text-[11px] text-muted px-2">Other type:</div>
-    <div class="flex flex-wrap gap-1 mt-1">
-      <button v-for="t in typeOptions" :key="t" :class="['px-2 py-0.5 text-[11px] rounded-full', props.filterType === t ? 'bg-primary/10 text-primary' : 'text-muted hover:text-ink bg-line/30']" @click="emit('changeType', t)">{{ t }}</button>
+
+    <!-- existing definitions of this type -->
+    <button
+      v-for="def in visible"
+      :key="def.id"
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white transition-colors"
+      @click="emit('select', def.id)"
+    >
+      <span :class="['w-5 h-5 rounded-full shrink-0', typeTint[def.type] || 'bg-muted/30']" />
+      <span class="flex-1 text-[13.5px] text-ink truncate">{{ def.name }}</span>
+    </button>
+    <div v-if="moreCount > 0" class="px-3 pb-1.5 -mt-0.5 text-[11px] text-muted/70">+{{ moreCount }} more</div>
+    <p v-if="filtered.length === 0" class="px-3 py-2 text-[12px] text-muted/70">No matching definitions</p>
+
+    <!-- new -->
+    <button
+      data-test="picker-new"
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink"
+      @click="emit('createNew', activeType || 'prompt')"
+    >
+      <Plus :size="15" class="shrink-0" />
+      <span class="text-[13.5px]">{{ newLabel }}</span>
+    </button>
+
+    <!-- other type -->
+    <button
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-muted"
+      @click="showTypes = !showTypes"
+    >
+      <LayoutGrid :size="15" class="shrink-0" />
+      <span class="flex-1 text-[13.5px]">Other type</span>
+      <ChevronRight :size="15" :class="showTypes ? 'rotate-90' : ''" class="transition-transform" />
+    </button>
+    <div v-if="showTypes" class="flex flex-wrap gap-1.5 px-3 py-2 border-t border-line bg-white/50">
+      <button
+        v-for="t in typeOptions"
+        :key="t"
+        :class="['px-2.5 py-1 text-[12px] rounded-full border transition-colors',
+                 activeType === t ? 'bg-primary/10 text-primary border-primary/30' : 'text-muted border-line hover:text-ink']"
+        @click="activeType = t; showTypes = false"
+      >{{ t }}</button>
     </div>
   </div>
 </template>

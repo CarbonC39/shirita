@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { MessageCircle, BookOpen, Settings } from 'lucide-vue-next'
+import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
 
 const route = useRoute()
 const section = computed(() => {
@@ -9,16 +9,24 @@ const section = computed(() => {
   if (route.path.startsWith('/settings')) return 'settings'
   return 'chat'
 })
+
+type Crumb = { label: string; to?: string }
+const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 </script>
 
 <template>
   <div class="h-full flex flex-col">
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
-        <div class="min-w-[120px]">
-          <div class="w-7 h-7 rounded-lg bg-ink text-white grid place-items-center font-bold text-sm">
+        <div class="flex items-center gap-2 min-w-[120px]">
+          <router-link to="/" class="w-7 h-7 rounded-lg bg-ink text-white grid place-items-center font-bold text-sm shrink-0">
             S
-          </div>
+          </router-link>
+          <template v-for="(c, i) in crumbs" :key="i">
+            <ChevronRight :size="13" class="text-muted/50 shrink-0" />
+            <router-link v-if="c.to" :to="c.to" class="text-[13px] text-muted hover:text-ink whitespace-nowrap">{{ c.label }}</router-link>
+            <span v-else class="text-[13px] text-ink whitespace-nowrap">{{ c.label }}</span>
+          </template>
         </div>
         <nav class="flex items-center gap-8">
           <router-link to="/" :class="['transition-colors', section === 'chat' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">

@@ -7,6 +7,8 @@ import type { Definition } from '../api/types'
 import SliderControl from '../components/SliderControl.vue'
 import RegexRuleEditor from '../components/RegexRuleEditor.vue'
 import FullscreenEditor from '../components/FullscreenEditor.vue'
+import ToggleSwitch from '../components/ToggleSwitch.vue'
+import SegmentedControl from '../components/SegmentedControl.vue'
 import { Eye, EyeOff } from 'lucide-vue-next'
 
 const settings = useSettingsStore()
@@ -19,6 +21,12 @@ const cssFullscreen = ref(false)
 const saveMessage = ref('')
 
 const providerSources = ['openai', 'anthropic', 'google', 'openrouter', 'mistral', 'deepseek', 'groq', 'xai', 'cohere', 'together', 'perplexity', 'custom']
+
+const sourceLabels: Record<string, string> = {
+  openai: 'OpenAI', anthropic: 'Anthropic', google: 'Google', openrouter: 'OpenRouter',
+  mistral: 'Mistral', deepseek: 'DeepSeek', groq: 'Groq', xai: 'xAI',
+  cohere: 'Cohere', together: 'Together', perplexity: 'Perplexity', custom: 'Custom…',
+}
 
 const defaultBaseUrls: Record<string, string> = {
   openai: 'https://api.openai.com/v1', anthropic: 'https://api.anthropic.com/v1', google: 'https://generativelanguage.googleapis.com/v1beta',
@@ -90,7 +98,7 @@ async function handleTestConnection() {
           <div>
             <label class="text-[13px] text-ink block mb-1.5">Source</label>
             <select :value="providerSource" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50" @change="providerSource = ($event.target as HTMLSelectElement).value">
-              <option v-for="src in providerSources" :key="src" :value="src">{{ src }}</option>
+              <option v-for="src in providerSources" :key="src" :value="src">{{ sourceLabels[src] || src }}</option>
             </select>
           </div>
           <div><label class="text-[13px] text-ink block mb-1.5">Base URL</label><input :value="providerBaseUrl" type="text" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] outline-none focus:border-primary/50 font-mono" @input="providerBaseUrl = ($event.target as HTMLInputElement).value" /></div>
@@ -115,7 +123,10 @@ async function handleTestConnection() {
               <option v-for="m in settings.models" :key="m" :value="m" :selected="m === providerModel">{{ m }}</option>
             </select>
           </div>
-          <label class="flex items-center gap-2"><input type="checkbox" :checked="providerStream" class="w-4 h-4 rounded accent-primary" @change="providerStream = ($event.target as HTMLInputElement).checked" /> <span class="text-[14px]">Stream</span></label>
+          <div class="flex items-center justify-between">
+            <span class="text-[14px] text-ink">Stream responses</span>
+            <ToggleSwitch :model-value="providerStream" @update:model-value="providerStream = $event" />
+          </div>
           <button class="flex items-center gap-2 px-4 py-2 text-[13px] border border-line rounded-lg hover:border-primary/50 transition-colors disabled:opacity-50" :disabled="settings.testStatus === 'testing'" @click="handleTestConnection">
             <span v-if="settings.testStatus === 'testing'" class="w-3 h-3 rounded-full border-2 border-muted border-t-transparent animate-spin" />
             <span v-else-if="settings.testStatus === 'ok'" class="w-3 h-3 rounded-full bg-green-500" />
@@ -135,7 +146,16 @@ async function handleTestConnection() {
         <SliderControl v-model="genTopP" label="Top P" :min="0" :max="1" :step="0.01" />
         <SliderControl v-model="genFreqPenalty" label="Frequency penalty" :min="-2" :max="2" :step="0.01" />
         <SliderControl v-model="genPresPenalty" label="Presence penalty" :min="-2" :max="2" :step="0.01" />
-        <SliderControl v-model="genMaxTokens" label="Max response tokens" :min="64" :max="131072" :step="64" />
+        <div class="flex items-center justify-between">
+          <span class="text-[14px] text-ink">Max response tokens</span>
+          <input
+            :value="genMaxTokens"
+            type="number"
+            min="1"
+            class="w-[88px] border border-line rounded-lg px-3 py-2 text-[14px] text-right tabular-nums outline-none focus:border-primary/50"
+            @input="genMaxTokens = parseInt(($event.target as HTMLInputElement).value) || 0"
+          />
+        </div>
       </section>
 
       <div class="border-t border-line my-6" />
@@ -144,14 +164,22 @@ async function handleTestConnection() {
       <section class="mb-8">
         <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Appearance</h3>
         <div class="space-y-4">
-          <div><label class="text-[13px] text-ink block mb-1.5">Message style</label>
-            <select :value="ui.messageStyle" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50" @change="ui.setMessageStyle(($event.target as HTMLSelectElement).value as 'bubble' | 'flat')">
-              <option value="bubble">Bubble</option><option value="flat">Flat</option>
-            </select></div>
-          <div><label class="text-[13px] text-ink block mb-1.5">Theme</label>
-            <select :value="ui.theme" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50" @change="ui.setTheme(($event.target as HTMLSelectElement).value as 'light' | 'dark' | 'system')">
-              <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
-            </select></div>
+          <div class="flex items-center justify-between">
+            <span class="text-[14px] text-ink">Message style</span>
+            <SegmentedControl
+              :model-value="ui.messageStyle"
+              :options="[{ value: 'bubble', label: 'Bubble' }, { value: 'flat', label: 'Flat' }]"
+              @update:model-value="ui.setMessageStyle($event as 'bubble' | 'flat')"
+            />
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-[14px] text-ink">Theme</span>
+            <SegmentedControl
+              :model-value="ui.theme"
+              :options="[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]"
+              @update:model-value="ui.setTheme($event as 'light' | 'dark' | 'system')"
+            />
+          </div>
           <div>
             <div class="flex items-center justify-between mb-1.5"><label class="text-[13px] text-ink">Custom CSS</label><button class="text-[12px] text-muted hover:text-ink" @click="cssFullscreen = true">Fullscreen</button></div>
             <textarea :value="customCss" rows="6" class="w-full border border-line rounded-lg px-3.5 py-2.5 text-[13px] leading-relaxed font-mono bg-[#1e1e1e] text-[#d4d4d4] resize-y outline-none focus:border-primary/50" placeholder="/* custom CSS */" @input="customCss = ($event.target as HTMLTextAreaElement).value" />

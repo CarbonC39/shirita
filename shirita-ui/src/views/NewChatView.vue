@@ -17,11 +17,8 @@ function proceed() {
 </script>
 
 <template>
-  <div class="max-w-[480px] mx-auto px-5 pt-10">
-    <div class="flex items-center gap-1.5 text-[13px] text-muted mb-8">
-      <router-link to="/" class="hover:text-ink">Chat</router-link> <span>/</span> <span class="text-ink">New</span>
-    </div>
-    <div class="flex flex-col items-center gap-6">
+  <div class="max-w-[380px] mx-auto px-5 pt-8">
+    <div class="flex flex-col items-center gap-5">
       <AvatarPicker @select="avatar = $event" />
       <div class="w-full">
         <input v-model="name" type="text" placeholder="Name" class="w-full text-center text-xl font-semibold bg-transparent border-b-2 border-line focus:border-primary outline-none pb-2 placeholder:text-muted/50" @keydown.enter="proceed()" />
