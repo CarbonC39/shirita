@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Session } from '../api/types'
-import { listSessions } from '../api/client'
+import { listSessions, deleteSession, duplicateSession } from '../api/client'
 
 export const useSessionsStore = defineStore('sessions', () => {
   const items = ref<Session[]>([])
@@ -20,5 +20,15 @@ export const useSessionsStore = defineStore('sessions', () => {
     }
   }
 
-  return { items, loading, error, load }
+  async function remove(id: string) {
+    try { await deleteSession(id); items.value = items.value.filter((s) => s.id !== id) }
+    catch (e) { error.value = (e as Error).message }
+  }
+
+  async function duplicate(id: string) {
+    try { await duplicateSession(id); await load() }
+    catch (e) { error.value = (e as Error).message }
+  }
+
+  return { items, loading, error, load, remove, duplicate }
 })

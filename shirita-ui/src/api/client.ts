@@ -79,6 +79,31 @@ export async function createSession(name: string, templateId?: string | null): P
   return res.json()
 }
 
+export async function deleteSession(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${id}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Delete session failed: ${res.status}`)
+}
+
+export async function duplicateSession(id: string): Promise<Session> {
+  const res = await fetch(`${BASE}/api/sessions/${id}/duplicate`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Duplicate session failed: ${res.status}`)
+  return res.json()
+}
+
+export function exportSession(id: string): Promise<unknown> {
+  return apiGet<unknown>(`/sessions/${id}/export`)
+}
+
+export async function importSession(body: unknown): Promise<Session> {
+  const res = await fetch(`${BASE}/api/sessions/import`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Import session failed: ${res.status}`)
+  return res.json()
+}
+
 // --- Definitions ---
 export function listDefinitions(type?: string): Promise<Definition[]> {
   const qs = type ? `?type=${encodeURIComponent(type)}` : ''
