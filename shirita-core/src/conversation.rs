@@ -6,8 +6,25 @@ use futures::{Stream, StreamExt};
 
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::message::{Message, Role};
+use crate::models::prompt_node::{OwnerKind, PromptNode};
+use crate::models::session::Session;
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
+
+/// 会话有效节点树：自有节点优先（fork 后），否则引用模板。
+pub async fn effective_nodes(
+    storage: &dyn Storage,
+    session: &Session,
+) -> crate::Result<Vec<PromptNode>> {
+    let own = storage.list_nodes(&OwnerKind::Session, &session.id).await?;
+    if !own.is_empty() {
+        return Ok(own);
+    }
+    if let Some(tid) = &session.template_id {
+        return storage.list_nodes(&OwnerKind::Template, tid).await;
+    }
+    Ok(Vec::new())
+}
 
 /// 流式发送过程对外暴露的事件。
 #[derive(Debug, Clone, PartialEq)]
@@ -296,5 +313,26 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn effective_nodes_prefers_session_else_template() {
+        use crate::models::prompt_node::{OwnerKind, PromptNode};
+        use crate::models::template::Template;
+        let storage = temp_storage().await;
+        // template with one folder node
+        let t = Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let f = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "char");
+        storage.create_node(&f).await.unwrap();
+
+        // session references template, has no own nodes
+        let mut sess = Session::new("s");
+        sess.template_id = Some(t.id.clone());
+        storage.create_session(&sess).await.unwrap();
+
+        let nodes = super::effective_nodes(&storage, &sess).await.unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].tag.as_deref(), Some("char"));
     }
 }

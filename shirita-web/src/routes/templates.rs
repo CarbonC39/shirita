@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
-use shirita_core::{OwnerKind, Template};
+use shirita_core::{NodeKind, OwnerKind, PromptNode, Template};
 
 use crate::AppState;
 
@@ -19,6 +19,11 @@ pub async fn create(State(state): State<AppState>, Json(body): Json<TemplateBody
     let mut t = Template::new(body.name);
     if !body.meta.is_null() { t.meta = body.meta; }
     state.storage.create_template(&t).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // 自动加一个不可删的「历史消息」魔法节点（默认启用）。
+    let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "history");
+    hist.kind = NodeKind::History;
+    hist.tag = None;
+    state.storage.create_node(&hist).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(t))
 }
 
