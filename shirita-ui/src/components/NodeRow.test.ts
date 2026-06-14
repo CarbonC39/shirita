@@ -24,4 +24,11 @@ describe('NodeRow', () => {
     expect(w.text()).toContain('Chat history')
     expect(w.find('[data-test="node-delete"]').exists()).toBe(false)
   })
+
+  it('shows the trigger editor in an expanded container ref', () => {
+    const worldDefs = { d1: { id: 'd1', type: 'world', name: 'Zion', content: 'b', meta: { trigger: { mode: 'keyword', keys: ['zion'], probability: 100 } } } }
+    const ref = node({ kind: 'ref', definition_id: 'd1' })
+    const w = mount(NodeRow, { props: { node: ref, definitions: worldDefs, depth: 1, isExpanded: true } })
+    expect(w.find('[data-test="trigger-editor"]').exists()).toBe(true)
+  })
 })

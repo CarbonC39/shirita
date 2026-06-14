@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
 import { createSession, createNode, updateNode, deleteNode, reorderNodes, listNodes, updateDefinition, createDefinition } from '../api/client'
 import PromptTree from '../components/PromptTree.vue'
-import type { PromptNode } from '../api/types'
+import type { PromptNode, Trigger } from '../api/types'
 
 const route = useRoute()
 const router = useRouter()
@@ -88,6 +88,12 @@ async function handleReorder(orderedIds: string[]) {
   try { await reorderNodes('template', selectedTemplateId.value, orderedIds); await reload() } catch (e) { error.value = (e as Error).message }
 }
 
+async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
+  const def = library.definitions.find(d => d.id === definitionId)
+  if (!def) return
+  try { await updateDefinition(definitionId, { meta: { ...def.meta, trigger } }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
+}
+
 async function createChat() {
   creating.value = true; error.value = null
   try {
@@ -113,7 +119,7 @@ async function createChat() {
       @toggle-enabled="handleToggleEnabled"
       @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
       @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
-      @update-content="handleUpdateContent" @delete-node="handleDeleteNode" @reorder="handleReorder" />
+      @update-content="handleUpdateContent" @update-trigger="handleUpdateTrigger" @delete-node="handleDeleteNode" @reorder="handleReorder" />
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
     <div class="mt-8">
       <button :disabled="creating" class="w-full py-2.5 rounded-full font-medium bg-primary text-white hover:bg-primary-strong transition-colors disabled:opacity-50" @click="createChat">{{ creating ? 'Creating…' : 'Create conversation' }}</button>
