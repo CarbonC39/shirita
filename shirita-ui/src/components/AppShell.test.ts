@@ -8,6 +8,7 @@ function makeRouter() {
     history: createMemoryHistory(),
     routes: [
       { path: '/', component: { template: '<div />' } },
+      { path: '/chat/:id', name: 'chat', component: { template: '<div />' } },
       { path: '/book', component: { template: '<div />' } },
       { path: '/settings', component: { template: '<div />' } },
     ],
@@ -27,24 +28,40 @@ describe('AppShell', () => {
     expect(wrapper.text()).toContain('content')
   })
 
-  it('marks the book section active in grayscale and others muted', async () => {
+  it('marks the active section dark and inactive ones in lighter grayscale', async () => {
     const router = makeRouter()
     router.push('/book')
     await router.isReady()
     const wrapper = mount(AppShell, { global: { plugins: [router] } })
     const links = wrapper.findAll('nav a')
-    expect(links[1].classes()).toContain('text-ink')        // active book
-    expect(links[0].classes()).toContain('text-muted/40')   // inactive chat
-    expect(links[2].classes()).toContain('text-muted/40')   // inactive settings
+    expect(links[1].classes()).toContain('text-ink')      // active book
+    expect(links[0].classes()).toContain('text-ink/25')   // inactive chat
+    expect(links[2].classes()).toContain('text-ink/25')   // inactive settings
   })
 
-  it('renders a footer with project name', async () => {
+  it('points the chat icon at the current conversation when inside one', async () => {
+    const router = makeRouter()
+    router.push('/chat/abc')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+    const chatLink = wrapper.findAll('nav a')[0]
+    expect(chatLink.attributes('href')).toContain('/chat/abc')
+  })
+
+  it('points the chat icon at the list when not in a conversation', async () => {
+    const router = makeRouter()
+    router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: [router] } })
+    const chatLink = wrapper.findAll('nav a')[0]
+    expect(chatLink.attributes('href')).toBe('/')
+  })
+
+  it('has no footer', async () => {
     const router = makeRouter()
     router.push('/')
     await router.isReady()
     const wrapper = mount(AppShell, { global: { plugins: [router] } })
-    const footer = wrapper.find('footer')
-    expect(footer.exists()).toBe(true)
-    expect(footer.text()).toContain('Shirita')
+    expect(wrapper.find('footer').exists()).toBe(false)
   })
 })
