@@ -6,6 +6,7 @@
 /assets/
 .env
 .superpowers/
+node_modules/
 shirita-ui/node_modules/
 shirita-ui/dist/
 shirita-ui/.env.local

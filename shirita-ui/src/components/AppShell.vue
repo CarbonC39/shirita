@@ -12,7 +12,7 @@ const section = computed(() => {
 </script>
 
 <template>
-  <div class="min-h-full flex flex-col">
+  <div class="h-full flex flex-col">
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
         <div class="min-w-[120px]">
@@ -21,21 +21,21 @@ const section = computed(() => {
           </div>
         </div>
         <nav class="flex items-center gap-8">
-          <router-link to="/" :class="section === 'chat' ? 'text-ink' : 'text-mauve/60'">
-            <MessageCircle :size="22" />
+          <router-link to="/" :class="['transition-colors', section === 'chat' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
+            <MessageCircle :size="22" :stroke-width="section === 'chat' ? 2.5 : 1.5" />
           </router-link>
-          <router-link to="/book" :class="section === 'book' ? 'text-ink' : 'text-mauve/60'">
-            <BookOpen :size="22" />
+          <router-link to="/book" :class="['transition-colors', section === 'book' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
+            <BookOpen :size="22" :stroke-width="section === 'book' ? 2.5 : 1.5" />
           </router-link>
-          <router-link to="/settings" :class="section === 'settings' ? 'text-ink' : 'text-mauve/60'">
-            <Settings :size="22" />
+          <router-link to="/settings" :class="['transition-colors', section === 'settings' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
+            <Settings :size="22" :stroke-width="section === 'settings' ? 2.5 : 1.5" />
           </router-link>
         </nav>
         <div class="min-w-[120px]" />
       </div>
       <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
     </header>
-    <main class="flex-1">
+    <main class="flex-1 min-h-0 overflow-hidden">
       <slot />
     </main>
     <footer class="text-center py-3 text-xs text-muted">

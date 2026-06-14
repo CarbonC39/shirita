@@ -46,6 +46,7 @@ pub fn app(state: AppState) -> Router {
         .route("/sessions/{id}/overrides/{def_id}/promote", post(routes::overrides::promote_override))
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
+        .route("/provider/models", get(routes::provider::list_models))
         .route("/assets", post(routes::assets::upload))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
