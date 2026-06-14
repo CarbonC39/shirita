@@ -3,7 +3,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { Check, Upload, Download, Copy, Trash2 } from 'lucide-vue-next'
 import { useLibraryStore } from '../stores/library'
 import {
-  listNodes, createNode, updateNode, updateDefinition, createDefinition, deleteDefinition,
+  listNodes, createNode, updateNode, deleteNode, reorderNodes, updateDefinition, createDefinition, deleteDefinition,
   createTemplate, duplicateTemplate, deleteTemplate,
 } from '../api/client'
 import type { PromptNode, Definition } from '../api/types'
@@ -21,7 +21,7 @@ const editDef = reactive<Definition>(blankDef())
 function loadDef(d: Definition) { Object.assign(editDef, { id: d.id, type: d.type, name: d.name, content: d.content, meta: { ...d.meta } }) }
 
 onMounted(async () => {
-  try { await Promise.all([library.loadTemplates(), library.loadDefinitions()]) } catch (e) { error.value = (e as Error).message }
+  try { await Promise.all([library.loadTemplates(), library.loadDefinitions(), library.loadTypes()]) } catch (e) { error.value = (e as Error).message }
   finally { loading.value = false }
 })
 
@@ -37,7 +37,7 @@ async function newTemplate() {
     const t = await createTemplate('New template')
     await library.loadTemplates()
     selectedTemplateId.value = t.id
-    nodes.value = []
+    nodes.value = await listNodes('template', t.id)
   } catch (e) { error.value = (e as Error).message }
 }
 async function dupTemplate() {
@@ -50,9 +50,38 @@ async function delTemplate() {
 }
 
 // ── tree ───────────────────────────────────────────────────
-async function handleAddNode(parentId: string | null, definitionId: string) {
+async function reload() {
+  if (selectedTemplateId.value) nodes.value = await listNodes('template', selectedTemplateId.value)
+}
+async function addPrompt(definitionId: string) {
   if (!selectedTemplateId.value) return
-  try { const node = await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId }); nodes.value = [...nodes.value, node] } catch (e) { error.value = (e as Error).message }
+  try { await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function addContainer(typeId: string) {
+  if (!selectedTemplateId.value) return
+  try { await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'folder', tag: typeId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function addRefToContainer(parentId: string, definitionId: string) {
+  if (!selectedTemplateId.value) return
+  try { await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function createNewPrompt() {
+  if (!selectedTemplateId.value) return
+  try {
+    const def = await createDefinition({ type: 'prompt', name: 'New prompt', content: '', meta: {} })
+    await library.loadDefinitions()
+    await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: def.id })
+    await reload()
+  } catch (e) { error.value = (e as Error).message }
+}
+async function createNewInContainer(parentId: string, typeId: string) {
+  if (!selectedTemplateId.value) return
+  try {
+    const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: '', meta: {} })
+    await library.loadDefinitions()
+    await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: def.id })
+    await reload()
+  } catch (e) { error.value = (e as Error).message }
 }
 async function handleToggleEnabled(nodeId: string) {
   const node = nodes.value.find((n) => n.id === nodeId)
@@ -62,14 +91,17 @@ async function handleToggleEnabled(nodeId: string) {
 async function handleUpdateContent(definitionId: string, content: string) {
   try { await updateDefinition(definitionId, { content }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
 }
-async function handleCreateNew(parentId: string | null, type: string) {
+async function handleDeleteNode(nodeId: string) {
+  const node = nodes.value.find((n) => n.id === nodeId)
+  if (!node) return
+  const childCount = nodes.value.filter((n) => n.parent_id === nodeId).length
+  if (node.kind === 'folder' && childCount > 0
+      && !confirm(`Delete this container and its ${childCount} item(s)?`)) return
+  try { await deleteNode(nodeId); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function handleReorder(orderedIds: string[]) {
   if (!selectedTemplateId.value) return
-  try {
-    const def = await createDefinition({ type, name: `New ${type}`, content: '', meta: {} })
-    await library.loadDefinitions()
-    const node = await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: def.id })
-    nodes.value = [...nodes.value, node]
-  } catch (e) { error.value = (e as Error).message }
+  try { await reorderNodes('template', selectedTemplateId.value, orderedIds); await reload() } catch (e) { error.value = (e as Error).message }
 }
 
 // ── definition editor ──────────────────────────────────────
@@ -117,8 +149,11 @@ async function duplicateDef() {
         <span class="text-[11.5px] text-muted">Saved</span>
       </div>
 
-      <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions"
-        @add-node="handleAddNode" @toggle-enabled="handleToggleEnabled" @update-content="handleUpdateContent" @create-new="handleCreateNew" />
+      <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" :types="library.containerTypes"
+        @toggle-enabled="handleToggleEnabled"
+        @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
+        @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
+        @update-content="handleUpdateContent" @delete-node="handleDeleteNode" @reorder="handleReorder" />
       <p v-else class="text-muted text-[13px] py-4">Select or create a template to edit its node tree.</p>
 
       <div class="h-px bg-line my-6" />
