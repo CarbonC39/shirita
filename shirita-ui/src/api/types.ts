@@ -59,6 +59,22 @@ export interface DefType {
   created_at: string
 }
 
+export interface Trigger {
+  mode: 'constant' | 'keyword' | 'random'
+  keys: string[]
+  probability: number
+}
+
+/** Read a normalized Trigger out of a definition's meta.trigger (lenient). */
+export function triggerFromMeta(meta: Record<string, unknown>): Trigger {
+  const t = (meta?.trigger ?? {}) as Partial<Trigger>
+  return {
+    mode: t.mode === 'keyword' || t.mode === 'random' ? t.mode : 'constant',
+    keys: Array.isArray(t.keys) ? t.keys.filter((k): k is string => typeof k === 'string') : [],
+    probability: typeof t.probability === 'number' ? t.probability : 100,
+  }
+}
+
 export interface RegexRule {
   id: string
   name: string
