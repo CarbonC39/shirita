@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { ChevronDown, Trash2 } from 'lucide-vue-next'
 import type { RegexRule } from '../api/types'
+import ToggleSwitch from './ToggleSwitch.vue'
 
 defineProps<{ rule: RegexRule }>()
 const emit = defineEmits<{
@@ -15,8 +16,8 @@ function toggleExpand() { expanded.value = !expanded.value }
 
 <template>
   <div class="border border-line rounded-lg bg-white mb-2">
-    <div class="flex items-center gap-2 px-3 py-2.5">
-      <input type="checkbox" :checked="rule.enabled" class="w-3.5 h-3.5 rounded accent-primary shrink-0" @change="emit('update:enabled', ($event.target as HTMLInputElement).checked)" />
+    <div class="flex items-center gap-2.5 px-3 py-2.5">
+      <ToggleSwitch :model-value="rule.enabled" @update:model-value="emit('update:enabled', $event)" />
       <span class="flex-1 text-[14px] truncate">{{ rule.name || 'Unnamed rule' }}</span>
       <button class="text-muted hover:text-ink shrink-0" @click="toggleExpand">
         <ChevronDown :size="16" :class="expanded ? '' : '-rotate-90'" class="transition-transform" />

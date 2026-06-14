@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
-import { createSession, createNode, updateNode, listNodes } from '../api/client'
+import { createSession, createNode, updateNode, listNodes, updateDefinition, createDefinition } from '../api/client'
 import PromptTree from '../components/PromptTree.vue'
 import type { PromptNode } from '../api/types'
 
@@ -41,6 +41,23 @@ async function handleToggleEnabled(nodeId: string) {
   } catch (e) { error.value = (e as Error).message }
 }
 
+async function handleUpdateContent(definitionId: string, content: string) {
+  try {
+    await updateDefinition(definitionId, { content })
+    await library.loadDefinitions()
+  } catch (e) { error.value = (e as Error).message }
+}
+
+async function handleCreateNew(parentId: string | null, type: string) {
+  if (!selectedTemplateId.value) return
+  try {
+    const def = await createDefinition({ type, name: `New ${type}`, content: '', meta: {} })
+    await library.loadDefinitions()
+    const node = await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: def.id })
+    nodes.value = [...nodes.value, node]
+  } catch (e) { error.value = (e as Error).message }
+}
+
 async function createChat() {
   creating.value = true; error.value = null
   try {
@@ -52,12 +69,7 @@ async function createChat() {
 </script>
 
 <template>
-  <div class="max-w-[560px] mx-auto px-5 pt-8 pb-12">
-    <div class="flex items-center gap-1.5 text-[13px] text-muted mb-6">
-      <router-link to="/" class="hover:text-ink">Chat</router-link> <span>/</span>
-      <router-link to="/new" class="hover:text-ink">New</router-link> <span>/</span>
-      <span class="text-ink">Prompt</span>
-    </div>
+  <div class="max-w-[480px] mx-auto px-5 pt-6 pb-12">
     <h2 class="text-lg font-semibold mb-1">{{ sessionName }}</h2>
     <p class="text-[13px] text-muted mb-6">Choose a prompt template and configure the tree.</p>
     <div class="mb-4">
@@ -67,7 +79,7 @@ async function createChat() {
         <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
     </div>
-    <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" @add-node="handleAddNode" @toggle-enabled="handleToggleEnabled" />
+    <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" @add-node="handleAddNode" @toggle-enabled="handleToggleEnabled" @update-content="handleUpdateContent" @create-new="handleCreateNew" />
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
     <div class="mt-8">
       <button :disabled="creating" class="w-full py-2.5 rounded-full font-medium bg-primary text-white hover:bg-primary-strong transition-colors disabled:opacity-50" @click="createChat">{{ creating ? 'Creating…' : 'Create conversation' }}</button>

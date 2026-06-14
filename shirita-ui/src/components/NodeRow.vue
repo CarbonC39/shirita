@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { ChevronDown, GripVertical, Plus } from 'lucide-vue-next'
+import { ref, computed, watch } from 'vue'
+import { ChevronRight, Folder, FileText, Check, Maximize2 } from 'lucide-vue-next'
 import type { Definition, PromptNode } from '../api/types'
+import FullscreenEditor from './FullscreenEditor.vue'
 
 const props = defineProps<{
   node: PromptNode
@@ -10,29 +11,85 @@ const props = defineProps<{
   isExpanded: boolean
 }>()
 
-const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; addChild: [] }>()
-
-const label = computed(() => {
-  if (props.node.kind === 'folder') return props.node.tag || '(folder)'
-  const def = props.node.definition_id ? props.definitions[props.node.definition_id] : null
-  return def ? def.name : '(missing)'
-})
+const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string] }>()
 
 const isFolder = computed(() => props.node.kind === 'folder')
+
+const def = computed<Definition | null>(() =>
+  props.node.definition_id ? props.definitions[props.node.definition_id] ?? null : null,
+)
+
+const label = computed(() => {
+  if (isFolder.value) return props.node.tag || '(folder)'
+  return def.value ? def.value.name : '(missing)'
+})
+
+// Local editable copy of the referenced definition's content; persisted on blur.
+const draft = ref(def.value?.content ?? '')
+watch(def, (d) => { draft.value = d?.content ?? '' })
+
+const fullscreenOpen = ref(false)
+function commit() { if (draft.value !== (def.value?.content ?? '')) emit('updateContent', draft.value) }
+function closeFullscreen() { fullscreenOpen.value = false; commit() }
 </script>
 
 <template>
-  <div data-test="node-row" :style="{ paddingLeft: `${depth * 20}px` }" class="flex items-center gap-1.5 py-1.5 group text-[14px]">
-    <GripVertical :size="14" class="text-muted/40 shrink-0" />
-    <input type="checkbox" :checked="node.enabled" class="w-3.5 h-3.5 rounded accent-primary shrink-0" data-test="enable-checkbox" @change="emit('toggleEnabled')" />
-    <button v-if="isFolder" data-test="expand-btn" class="text-muted hover:text-ink shrink-0" @click="emit('toggleExpand')">
-      <ChevronDown :size="14" :class="isExpanded ? '' : '-rotate-90'" class="transition-transform" />
-    </button>
-    <span v-else class="w-[14px] shrink-0" />
-    <span :class="['truncate flex-1', isFolder ? 'font-semibold text-mauve' : 'text-ink', !node.enabled ? 'line-through text-muted/50' : '']">{{ label }}</span>
-    <button v-if="isFolder" data-test="add-child-btn" class="text-muted hover:text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0" @click="emit('addChild')">
-      <Plus :size="16" />
-    </button>
-    <span v-else class="w-[24px] shrink-0" />
+  <div>
+    <div
+      data-test="node-row"
+      :style="{ paddingLeft: `${8 + depth * 26}px` }"
+      class="flex items-center gap-2.5 py-2 pr-2 rounded-lg hover:bg-surface/70 group text-[14px]"
+    >
+      <!-- enable checkbox: rounded square, teal when on -->
+      <button
+        data-test="enable-checkbox"
+        :aria-pressed="node.enabled"
+        :class="['w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 transition-colors',
+                 node.enabled ? 'bg-primary' : 'bg-white border border-[#d4d6da]']"
+        @click="emit('toggleEnabled')"
+      >
+        <Check v-if="node.enabled" :size="12" class="text-white" :stroke-width="3" />
+      </button>
+
+      <!-- type icon -->
+      <Folder v-if="isFolder" :size="17" class="text-mauve shrink-0" :stroke-width="1.8" />
+      <FileText v-else :size="16" :class="node.enabled ? 'text-muted' : 'text-muted/50'" class="shrink-0" :stroke-width="1.8" />
+
+      <span :class="['truncate flex-1', isFolder ? 'font-semibold' : '', node.enabled ? 'text-ink' : 'text-muted']">{{ label }}</span>
+
+      <!-- trailing expand chevron: folders expand children, refs expand content -->
+      <button data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click="emit('toggleExpand')">
+        <ChevronRight :size="16" :class="isExpanded ? 'rotate-90' : ''" class="transition-transform" />
+      </button>
+    </div>
+
+    <!-- inline content editor for ref nodes -->
+    <div v-if="!isFolder && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
+      <div class="relative">
+        <textarea
+          v-model="draft"
+          rows="3"
+          data-test="node-content"
+          class="w-full resize-y rounded-[9px] border border-line bg-white px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-[#5c6166] outline-none focus:border-primary/50"
+          placeholder="Definition content…"
+          @blur="commit"
+        />
+        <button
+          data-test="node-fullscreen"
+          class="absolute right-2 top-2 text-muted/70 hover:text-ink"
+          title="Fullscreen"
+          @click="fullscreenOpen = true"
+        >
+          <Maximize2 :size="15" />
+        </button>
+      </div>
+    </div>
+
+    <FullscreenEditor
+      :model-value="draft"
+      :open="fullscreenOpen"
+      @update:model-value="draft = $event"
+      @close="closeFullscreen"
+    />
   </div>
 </template>
