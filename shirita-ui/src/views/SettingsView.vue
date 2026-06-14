@@ -73,6 +73,16 @@ watch(
   },
 )
 
+// Persist a regex rule's name + meta, debounced so typing doesn't fire a
+// request per keystroke. The whole rule object is the source of truth.
+const ruleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+function persistRule(rule: Definition) {
+  clearTimeout(ruleTimers.get(rule.id))
+  ruleTimers.set(rule.id, setTimeout(() => {
+    updateDefinition(rule.id, { name: rule.name, meta: rule.meta })
+  }, 500))
+}
+
 onMounted(async () => {
   try {
     await settings.load()
@@ -255,10 +265,11 @@ async function handleTestConnection() {
           enabled: !!(rule.meta as any).enabled,
           scope: (rule.meta as any).scope as any || { ai_output: true, user_input: false, display_only: true },
         }"
-          @update:enabled="(enabled: boolean) => { const meta = { ...rule.meta as any, enabled }; updateDefinition(rule.id, { meta }) }"
-          @update:pattern="(p: string) => { (rule.meta as any).pattern = p }"
-          @update:replacement="(r: string) => { (rule.meta as any).replacement = r }"
-          @update:scope="(s: any) => { (rule.meta as any).scope = s }"
+          @update:enabled="(enabled: boolean) => { (rule.meta as any).enabled = enabled; persistRule(rule) }"
+          @update:name="(n: string) => { rule.name = n; (rule.meta as any).name = n; persistRule(rule) }"
+          @update:pattern="(p: string) => { (rule.meta as any).pattern = p; persistRule(rule) }"
+          @update:replacement="(r: string) => { (rule.meta as any).replacement = r; persistRule(rule) }"
+          @update:scope="(s: any) => { (rule.meta as any).scope = s; persistRule(rule) }"
           @delete="async () => { await deleteDefinition(rule.id); regexRules = regexRules.filter(r => r.id !== rule.id) }" />
         <button class="w-full py-2 border-2 border-dashed border-line rounded-xl text-muted text-[13px] hover:text-primary hover:border-primary/30 transition-colors mt-2"
           @click="async () => { const created = await createDefinition({ type: 'regex_rule', name: 'New rule', content: '', meta: { pattern: '', replacement: '', enabled: true, name: 'New rule', scope: { ai_output: true, user_input: false, display_only: true } } }); regexRules = [...regexRules, created] }">+ Add rule</button>

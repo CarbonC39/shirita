@@ -6,7 +6,8 @@ import ToggleSwitch from './ToggleSwitch.vue'
 
 defineProps<{ rule: RegexRule }>()
 const emit = defineEmits<{
-  'update:enabled': [enabled: boolean]; 'update:pattern': [pattern: string]; 'update:replacement': [replacement: string]
+  'update:enabled': [enabled: boolean]; 'update:name': [name: string]
+  'update:pattern': [pattern: string]; 'update:replacement': [replacement: string]
   'update:scope': [scope: RegexRule['scope']]; delete: []
 }>()
 
@@ -24,6 +25,8 @@ function toggleExpand() { expanded.value = !expanded.value }
       </button>
     </div>
     <div v-if="expanded" class="px-3 pb-3 border-t border-line pt-3 space-y-3">
+      <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">Name</label>
+        <input :value="rule.name" type="text" class="w-full border border-line rounded-md px-2.5 py-1.5 text-[13px] outline-none focus:border-primary/50" placeholder="rule name" @input="emit('update:name', ($event.target as HTMLInputElement).value)" /></div>
       <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">Find</label>
         <input :value="rule.pattern" type="text" class="w-full border border-line rounded-md px-2.5 py-1.5 text-[13px] font-mono outline-none focus:border-primary/50" placeholder="regex pattern" @input="emit('update:pattern', ($event.target as HTMLInputElement).value)" /></div>
       <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">Replace</label>
