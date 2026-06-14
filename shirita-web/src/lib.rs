@@ -46,6 +46,8 @@ pub fn app(state: AppState) -> Router {
         .route("/sessions/{id}/overrides/{def_id}/promote", post(routes::overrides::promote_override))
         .route("/types", get(routes::types::list).post(routes::types::create))
         .route("/types/{id}", delete(routes::types::delete))
+        .route("/import/worldinfo", post(routes::import_export::import_worldinfo))
+        .route("/import/charcard", post(routes::import_export::import_charcard))
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))
