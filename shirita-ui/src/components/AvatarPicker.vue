@@ -26,7 +26,7 @@ function selectAvatar(path: string | null) { selectedPath.value = path; emit('se
     </button>
 
     <!-- inline avatar library, expands below -->
-    <div v-if="isOpen" class="w-full mt-4 bg-white border border-line rounded-xl p-3.5">
+    <div v-if="isOpen" class="w-full mt-4 bg-card border border-line rounded-xl p-3.5">
       <p class="text-[12px] text-muted mb-3">Avatar library · pick an existing one, or upload new</p>
       <div class="flex flex-wrap gap-3.5">
         <button

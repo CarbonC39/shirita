@@ -58,7 +58,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         data-test="enable-checkbox"
         :aria-pressed="node.enabled"
         :class="['w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 transition-colors',
-                 node.enabled ? 'bg-primary' : 'bg-white border border-[#d4d6da]']"
+                 node.enabled ? 'bg-primary' : 'bg-card border border-[#d4d6da]']"
         @click="emit('toggleEnabled')"
       >
         <Check v-if="node.enabled" :size="12" class="text-white" :stroke-width="3" />
@@ -103,7 +103,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
           v-model="draft"
           rows="3"
           data-test="node-content"
-          class="w-full resize-y rounded-[9px] border border-line bg-white px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-[#5c6166] outline-none focus:border-primary/50"
+          class="w-full resize-y rounded-[9px] border border-line bg-card px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-ink/75 outline-none focus:border-primary/50"
           placeholder="Definition content…"
           @blur="commit"
         />

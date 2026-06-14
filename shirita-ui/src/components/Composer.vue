@@ -27,7 +27,7 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="border-t border-line bg-white px-4 py-3">
+  <div class="border-t border-line bg-card px-4 py-3">
     <div class="max-w-[600px] mx-auto flex items-end gap-2.5">
       <button type="button" class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5" title="Attach">
         <Plus :size="20" />

@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
+/* Make the `dark:` variant follow our `.dark` class on <html> (set by the theme
+   toggle) instead of the OS-only prefers-color-scheme default. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-surface: #f8f7f6;
+  --color-card: #ffffff;
   --color-primary: #459797;
   --color-primary-strong: #3a8181;
   --color-coral: #f2a7a4;
@@ -10,6 +15,19 @@
   --color-ink: #1b1b1b;
   --color-muted: #9aa0a6;
   --color-line: #e7e6e4;
+}
+
+/* Dark theme: flip the neutral ramp (surface/card/ink/muted/line) while the
+   brand accents (primary/coral/sky/mauve) stay constant — they're light
+   pastels that always carry dark text. Applied when <html> gets `.dark`
+   (see composables/useTheme.ts). Unlayered so it overrides @theme's :root. */
+.dark {
+  --color-surface: #16161a;
+  --color-card: #212127;
+  --color-ink: #ececee;
+  --color-muted: #9a9aa3;
+  --color-line: #32323b;
+  color-scheme: dark;
 }
 
 html,
@@ -94,7 +112,7 @@ input[type='number'] {
    two button roles (primary pill, ghost outline). */
 @layer components {
   .field {
-    @apply bg-white border border-line rounded-[10px] px-3 py-2 text-[14px] text-ink outline-none transition-colors;
+    @apply bg-card border border-line rounded-[10px] px-3 py-2 text-[14px] text-ink outline-none transition-colors;
   }
   .field:focus {
     @apply border-primary/60;

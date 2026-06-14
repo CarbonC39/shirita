@@ -49,7 +49,7 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
     <button
       v-for="def in visible"
       :key="def.id"
-      class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white transition-colors"
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-card transition-colors"
       @click="emit('select', def.id)"
     >
       <span :class="['w-5 h-5 rounded-full shrink-0', typeTint[def.type] || 'bg-muted/30']" />
@@ -61,7 +61,7 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
     <!-- new -->
     <button
       data-test="picker-new"
-      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink"
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink"
       @click="emit('createNew', activeType || 'prompt')"
     >
       <Plus :size="15" class="shrink-0" />
@@ -70,14 +70,14 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
 
     <!-- other type -->
     <button
-      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-muted"
+      class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-muted"
       @click="showTypes = !showTypes"
     >
       <LayoutGrid :size="15" class="shrink-0" />
       <span class="flex-1 text-[13.5px]">Other type</span>
       <ChevronRight :size="15" :class="showTypes ? 'rotate-90' : ''" class="transition-transform" />
     </button>
-    <div v-if="showTypes" class="flex flex-wrap gap-1.5 px-3 py-2 border-t border-line bg-white/50">
+    <div v-if="showTypes" class="flex flex-wrap gap-1.5 px-3 py-2 border-t border-line bg-card/50">
       <button
         v-for="t in types"
         :key="t.id"

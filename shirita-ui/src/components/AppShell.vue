@@ -40,7 +40,7 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
         <div class="flex items-center gap-2 min-w-[120px]">
-          <router-link to="/" class="w-7 h-7 rounded-lg bg-ink text-white grid place-items-center font-bold text-sm shrink-0">
+          <router-link to="/" class="w-7 h-7 rounded-lg bg-primary text-white grid place-items-center font-bold text-sm shrink-0">
             S
           </router-link>
           <template v-for="(c, i) in crumbs" :key="i">
