@@ -1,3 +1,4 @@
+pub mod def_type;
 pub mod definition;
 pub mod message;
 pub mod prompt_node;
