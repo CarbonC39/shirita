@@ -97,7 +97,7 @@ async function handleTestConnection() {
 
       <!-- Provider -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Provider</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Provider</h3>
         <div class="space-y-4">
           <div>
             <label class="text-[13px] text-ink block mb-1.5">Source</label>
@@ -145,7 +145,7 @@ async function handleTestConnection() {
 
       <!-- Generation -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Generation</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Generation</h3>
         <SliderControl v-model="genTemp" label="Temperature" :min="0" :max="2" :step="0.01" />
         <SliderControl v-model="genTopP" label="Top P" :min="0" :max="1" :step="0.01" />
         <SliderControl v-model="genFreqPenalty" label="Frequency penalty" :min="-2" :max="2" :step="0.01" />
@@ -166,7 +166,7 @@ async function handleTestConnection() {
 
       <!-- World Info -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">World Info</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">World Info</h3>
         <div class="flex items-center justify-between mb-4">
           <span class="text-[14px] text-ink">Scan depth</span>
           <input
@@ -187,7 +187,7 @@ async function handleTestConnection() {
 
       <!-- Appearance -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Appearance</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Appearance</h3>
         <div class="space-y-4">
           <div class="flex items-center justify-between">
             <span class="text-[14px] text-ink">Message style</span>
@@ -217,7 +217,7 @@ async function handleTestConnection() {
 
       <!-- Regex -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Regex</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Regex</h3>
         <RegexRuleEditor v-for="rule in regexRules" :key="rule.id" :rule="{
           id: rule.id, name: rule.name,
           pattern: (rule.meta as any).pattern as string || '', replacement: (rule.meta as any).replacement as string || '',
@@ -237,7 +237,7 @@ async function handleTestConnection() {
 
       <!-- Language -->
       <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">Language</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">Language</h3>
         <select class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50">
           <option value="en">English</option><option value="zh">中文</option>
         </select>
@@ -247,7 +247,7 @@ async function handleTestConnection() {
 
       <!-- About -->
       <section>
-        <h3 class="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">About</h3>
+        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">About</h3>
         <div class="text-[14px] text-muted space-y-2">
           <p>Shirita — a SillyTavern alternative.</p>
           <p class="flex items-center gap-3"><button class="hover:text-ink underline underline-offset-2">Export all data</button><button class="hover:text-ink underline underline-offset-2">Import all data</button></p>
