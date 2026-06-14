@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { listSessions, listMessages, sendMessage } from './client'
+import { listSessions, listMessages, sendMessage, listTypes, reorderNodes } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -55,6 +55,31 @@ describe('api client', () => {
     expect(fm).toHaveBeenCalledWith('/api/sessions/s1/messages', {
       headers: { Authorization: 'Bearer test-token' },
     })
+  })
+})
+
+describe('types + reorder client', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('listTypes GETs /api/types', async () => {
+    const data = [{ id: 'char', label: 'Character', sort: 0, builtin: true, created_at: '' }]
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => data })
+    vi.stubGlobal('fetch', fetchMock)
+    const out = await listTypes()
+    expect(out).toEqual(data)
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/types')
+  })
+
+  it('reorderNodes PUTs ordered ids', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    await reorderNodes('template', 'tpl1', ['a', 'b'])
+    const [url, opts] = fetchMock.mock.calls[0]
+    expect(url).toContain('/api/templates/tpl1/nodes/reorder?owner_kind=template')
+    expect(opts.method).toBe('PUT')
+    expect(JSON.parse(opts.body)).toEqual({ ordered_ids: ['a', 'b'] })
   })
 })
 

@@ -44,10 +44,18 @@ export interface PromptNode {
   owner_id: string
   parent_id: string | null
   sort_order: number
-  kind: 'folder' | 'ref'
+  kind: 'folder' | 'ref' | 'history'
   tag: string | null
   definition_id: string | null
   enabled: boolean
+  created_at: string
+}
+
+export interface DefType {
+  id: string
+  label: string
+  sort: number
+  builtin: boolean
   created_at: string
 }
 
