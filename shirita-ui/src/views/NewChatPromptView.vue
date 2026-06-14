@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
-import { createSession, createNode, updateNode, listNodes, updateDefinition, createDefinition } from '../api/client'
+import { createSession, createNode, updateNode, deleteNode, reorderNodes, listNodes, updateDefinition, createDefinition } from '../api/client'
 import PromptTree from '../components/PromptTree.vue'
 import type { PromptNode } from '../api/types'
 
@@ -23,11 +23,37 @@ async function selectTemplate(templateId: string) {
   try { nodes.value = await listNodes('template', templateId) } catch { nodes.value = [] }
 }
 
-async function handleAddNode(parentId: string | null, definitionId: string) {
+async function reload() {
+  if (selectedTemplateId.value) nodes.value = await listNodes('template', selectedTemplateId.value)
+}
+async function addPrompt(definitionId: string) {
+  if (!selectedTemplateId.value) return
+  try { await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function addContainer(typeId: string) {
+  if (!selectedTemplateId.value) return
+  try { await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'folder', tag: typeId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function addRefToContainer(parentId: string, definitionId: string) {
+  if (!selectedTemplateId.value) return
+  try { await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
+}
+async function createNewPrompt() {
   if (!selectedTemplateId.value) return
   try {
-    const node = await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId })
-    nodes.value = [...nodes.value, node]
+    const def = await createDefinition({ type: 'prompt', name: 'New prompt', content: '', meta: {} })
+    await library.loadDefinitions()
+    await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: def.id })
+    await reload()
+  } catch (e) { error.value = (e as Error).message }
+}
+async function createNewInContainer(parentId: string, typeId: string) {
+  if (!selectedTemplateId.value) return
+  try {
+    const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: '', meta: {} })
+    await library.loadDefinitions()
+    await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: def.id })
+    await reload()
   } catch (e) { error.value = (e as Error).message }
 }
 
@@ -48,14 +74,18 @@ async function handleUpdateContent(definitionId: string, content: string) {
   } catch (e) { error.value = (e as Error).message }
 }
 
-async function handleCreateNew(parentId: string | null, type: string) {
+async function handleDeleteNode(nodeId: string) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node) return
+  const childCount = nodes.value.filter(n => n.parent_id === nodeId).length
+  if (node.kind === 'folder' && childCount > 0
+      && !confirm(`Delete this container and its ${childCount} item(s)?`)) return
+  try { await deleteNode(nodeId); await reload() } catch (e) { error.value = (e as Error).message }
+}
+
+async function handleReorder(orderedIds: string[]) {
   if (!selectedTemplateId.value) return
-  try {
-    const def = await createDefinition({ type, name: `New ${type}`, content: '', meta: {} })
-    await library.loadDefinitions()
-    const node = await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: def.id })
-    nodes.value = [...nodes.value, node]
-  } catch (e) { error.value = (e as Error).message }
+  try { await reorderNodes('template', selectedTemplateId.value, orderedIds); await reload() } catch (e) { error.value = (e as Error).message }
 }
 
 async function createChat() {
@@ -79,7 +109,11 @@ async function createChat() {
         <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
     </div>
-    <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" @add-node="handleAddNode" @toggle-enabled="handleToggleEnabled" @update-content="handleUpdateContent" @create-new="handleCreateNew" />
+    <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" :types="library.containerTypes"
+      @toggle-enabled="handleToggleEnabled"
+      @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
+      @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
+      @update-content="handleUpdateContent" @delete-node="handleDeleteNode" @reorder="handleReorder" />
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
     <div class="mt-8">
       <button :disabled="creating" class="w-full py-2.5 rounded-full font-medium bg-primary text-white hover:bg-primary-strong transition-colors disabled:opacity-50" @click="createChat">{{ creating ? 'Creating…' : 'Create conversation' }}</button>
