@@ -29,14 +29,14 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
           </template>
         </div>
         <nav class="flex items-center gap-8">
-          <router-link to="/" :class="['transition-colors', section === 'chat' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
-            <MessageCircle :size="22" :stroke-width="section === 'chat' ? 2.5 : 1.5" />
+          <router-link to="/" :class="['transition-colors', section === 'chat' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+            <MessageCircle :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/book" :class="['transition-colors', section === 'book' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
-            <BookOpen :size="22" :stroke-width="section === 'book' ? 2.5 : 1.5" />
+          <router-link to="/book" :class="['transition-colors', section === 'book' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+            <BookOpen :size="22" :stroke-width="1.8" />
           </router-link>
-          <router-link to="/settings" :class="['transition-colors', section === 'settings' ? 'text-ink [&_svg]:stroke-[2.5]' : 'text-mauve/30 hover:text-mauve/50']">
-            <Settings :size="22" :stroke-width="section === 'settings' ? 2.5 : 1.5" />
+          <router-link to="/settings" :class="['transition-colors', section === 'settings' ? 'text-ink' : 'text-muted/40 hover:text-muted/70']">
+            <Settings :size="22" :stroke-width="1.8" />
           </router-link>
         </nav>
         <div class="min-w-[120px]" />

@@ -27,13 +27,15 @@ describe('AppShell', () => {
     expect(wrapper.text()).toContain('content')
   })
 
-  it('marks the book section active on /book', async () => {
+  it('marks the book section active in grayscale and others muted', async () => {
     const router = makeRouter()
     router.push('/book')
     await router.isReady()
     const wrapper = mount(AppShell, { global: { plugins: [router] } })
-    const bookLink = wrapper.findAll('nav a')[1]
-    expect(bookLink.classes()).toContain('text-ink')
+    const links = wrapper.findAll('nav a')
+    expect(links[1].classes()).toContain('text-ink')        // active book
+    expect(links[0].classes()).toContain('text-muted/40')   // inactive chat
+    expect(links[2].classes()).toContain('text-muted/40')   // inactive settings
   })
 
   it('renders a footer with project name', async () => {
