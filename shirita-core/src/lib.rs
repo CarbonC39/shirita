@@ -1,5 +1,6 @@
 //! shirita-core: 业务核心库（存储、模型、上下文工程……）
 
+pub mod adapters;
 pub mod assembly;
 pub mod config;
 pub mod conversation;
