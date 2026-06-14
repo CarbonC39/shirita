@@ -8,6 +8,7 @@ pub mod error;
 pub mod keyword;
 pub mod model;
 pub mod models;
+pub mod seed;
 pub mod storage;
 pub mod tokenizer;
 
@@ -28,5 +29,6 @@ pub use models::message::{Message, Role};
 pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::template::Template;
+pub use seed::ensure_default_template;
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
