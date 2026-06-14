@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Plus, FileText, Folder } from 'lucide-vue-next'
-import type { Definition, DefType, PromptNode } from '../api/types'
+import type { Definition, DefType, PromptNode, Trigger } from '../api/types'
 import NodeRow from './NodeRow.vue'
 import NodePicker from './NodePicker.vue'
 
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   createNewInContainer: [parentId: string, typeId: string]
   createNewPrompt: []
   updateContent: [definitionId: string, content: string]
+  updateTrigger: [definitionId: string, trigger: Trigger]
   deleteNode: [nodeId: string]
   reorder: [orderedIds: string[]]
 }>()
@@ -91,6 +92,7 @@ function onDrop(targetId: string) {
         @toggle-enabled="emit('toggleEnabled', node.id)"
         @toggle-expand="toggleExpand(node.id)"
         @update-content="(c) => node.definition_id && emit('updateContent', node.definition_id, c)"
+        @update-trigger="(t) => node.definition_id && emit('updateTrigger', node.definition_id, t)"
         @delete="emit('deleteNode', node.id)"
       />
 
@@ -113,6 +115,7 @@ function onDrop(targetId: string) {
             @toggle-enabled="emit('toggleEnabled', child.id)"
             @toggle-expand="toggleExpand(child.id)"
             @update-content="(c) => child.definition_id && emit('updateContent', child.definition_id, c)"
+            @update-trigger="(t) => child.definition_id && emit('updateTrigger', child.definition_id, t)"
             @delete="emit('deleteNode', child.id)"
           />
         </div>

@@ -6,7 +6,7 @@ import {
   listNodes, createNode, updateNode, deleteNode, reorderNodes, updateDefinition, createDefinition, deleteDefinition,
   createTemplate, duplicateTemplate, deleteTemplate,
 } from '../api/client'
-import type { PromptNode, Definition } from '../api/types'
+import type { PromptNode, Definition, Trigger } from '../api/types'
 import PromptTree from '../components/PromptTree.vue'
 import DefinitionEditor from '../components/DefinitionEditor.vue'
 
@@ -103,6 +103,11 @@ async function handleReorder(orderedIds: string[]) {
   if (!selectedTemplateId.value) return
   try { await reorderNodes('template', selectedTemplateId.value, orderedIds); await reload() } catch (e) { error.value = (e as Error).message }
 }
+async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
+  const def = library.definitions.find((d) => d.id === definitionId)
+  if (!def) return
+  try { await updateDefinition(definitionId, { meta: { ...def.meta, trigger } }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
+}
 
 // ── definition editor ──────────────────────────────────────
 function selectDefinition(id: string) {
@@ -153,7 +158,7 @@ async function duplicateDef() {
         @toggle-enabled="handleToggleEnabled"
         @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
         @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
-        @update-content="handleUpdateContent" @delete-node="handleDeleteNode" @reorder="handleReorder" />
+        @update-content="handleUpdateContent" @update-trigger="handleUpdateTrigger" @delete-node="handleDeleteNode" @reorder="handleReorder" />
       <p v-else class="text-muted text-[13px] py-4">Select or create a template to edit its node tree.</p>
 
       <div class="h-px bg-line my-6" />

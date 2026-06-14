@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2 } from 'lucide-vue-next'
-import type { Definition, PromptNode } from '../api/types'
+import type { Definition, PromptNode, Trigger } from '../api/types'
+import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
+import TriggerEditor from './TriggerEditor.vue'
 
 const props = defineProps<{
   node: PromptNode
@@ -11,7 +13,7 @@ const props = defineProps<{
   isExpanded: boolean
 }>()
 
-const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: [] }>()
+const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: []; updateTrigger: [trigger: Trigger] }>()
 
 const isFolder = computed(() => props.node.kind === 'folder')
 const isHistory = computed(() => props.node.kind === 'history')
@@ -103,6 +105,14 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         >
           <Maximize2 :size="15" />
         </button>
+      </div>
+
+      <!-- inline world-book trigger (container refs only) -->
+      <div v-if="def && !['prompt','regex_rule','tool'].includes(def.type)" class="mt-2.5">
+        <TriggerEditor
+          :model-value="triggerFromMeta(def.meta)"
+          @update:model-value="emit('updateTrigger', $event)"
+        />
       </div>
     </div>
 
