@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Search, Plus, LayoutGrid, ChevronRight } from 'lucide-vue-next'
-import type { Definition } from '../api/types'
+import type { Definition, DefType } from '../api/types'
 
-const props = defineProps<{ definitions: Definition[]; filterType: string | null }>()
+const props = defineProps<{ definitions: Definition[]; filterType: string | null; types: DefType[] }>()
 const emit = defineEmits<{ select: [definitionId: string]; createNew: [type: string] }>()
 
 const query = ref('')
@@ -11,12 +11,10 @@ const showTypes = ref(false)
 // Local active type so "Other type" can switch the picker without round-tripping the parent.
 const activeType = ref<string | null>(props.filterType)
 
-const typeOptions = ['char', 'world', 'persona', 'item', 'prompt']
-
 // Friendly tint per definition type (keeps the picker playful, not technical).
 const typeTint: Record<string, string> = {
   char: 'bg-sky/40', persona: 'bg-coral/40', world: 'bg-mauve/40',
-  item: 'bg-primary/30', prompt: 'bg-muted/30',
+  prompt: 'bg-muted/30',
 }
 
 const filtered = computed(() => {
@@ -81,12 +79,12 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
     </button>
     <div v-if="showTypes" class="flex flex-wrap gap-1.5 px-3 py-2 border-t border-line bg-white/50">
       <button
-        v-for="t in typeOptions"
-        :key="t"
+        v-for="t in types"
+        :key="t.id"
         :class="['px-2.5 py-1 text-[12px] rounded-full border transition-colors',
-                 activeType === t ? 'bg-primary/10 text-primary border-primary/30' : 'text-muted border-line hover:text-ink']"
-        @click="activeType = t; showTypes = false"
-      >{{ t }}</button>
+                 activeType === t.id ? 'bg-primary/10 text-primary border-primary/30' : 'text-muted border-line hover:text-ink']"
+        @click="activeType = t.id; showTypes = false"
+      >{{ t.label }}</button>
     </div>
   </div>
 </template>
