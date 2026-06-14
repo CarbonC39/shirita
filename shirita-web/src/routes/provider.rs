@@ -27,6 +27,21 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
     }
 }
 
+pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
+    let source = state.storage.get_setting("provider_source").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "openai".into());
+    let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
+    let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+    let client = reqwest::Client::new();
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+    match client.get(&url).header("Authorization", format!("Bearer {}", api_key)).send().await {
+        Ok(resp) => {
+            let json: Value = resp.json().await.unwrap_or_default();
+            Ok(Json(json))
+        }
+        Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
+    }
+}
+
 fn default_base_url(source: &str) -> &str {
     match source {
         "openai" => "https://api.openai.com/v1", "anthropic" => "https://api.anthropic.com/v1",

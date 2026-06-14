@@ -183,3 +183,9 @@ export async function testProviderConnection(): Promise<{ ok: boolean; error?: s
   if (!res.ok) throw new Error(`Provider test failed: ${res.status}`)
   return res.json()
 }
+
+export async function fetchProviderModels(): Promise<{ data?: Array<{ id: string }>; error?: string }> {
+  const res = await fetch(`${BASE}/api/provider/models`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Fetch models failed: ${res.status}`)
+  return res.json()
+}

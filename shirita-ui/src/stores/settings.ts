@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { getSettings, updateSettings, testProviderConnection } from '../api/client'
+import { getSettings, updateSettings, testProviderConnection, fetchProviderModels } from '../api/client'
 
 export const useSettingsStore = defineStore('settings', () => {
   const data = ref<Record<string, unknown>>({})
@@ -8,6 +8,9 @@ export const useSettingsStore = defineStore('settings', () => {
   const error = ref<string | null>(null)
   const testStatus = ref<'idle' | 'testing' | 'ok' | 'fail'>('idle')
   const testError = ref<string | null>(null)
+  const models = ref<string[]>([])
+  const modelsLoading = ref(false)
+  const modelsError = ref<string | null>(null)
 
   async function load() {
     loading.value = true; error.value = null
@@ -25,5 +28,18 @@ export const useSettingsStore = defineStore('settings', () => {
     catch (e) { testStatus.value = 'fail'; testError.value = (e as Error).message }
   }
 
-  return { data, loading, error, testStatus, testError, load, save, testConnection }
+  async function fetchModels() {
+    modelsLoading.value = true; modelsError.value = null
+    try {
+      const result = await fetchProviderModels()
+      if (result.data && Array.isArray(result.data)) {
+        models.value = result.data.map((m: { id: string }) => m.id).sort()
+      } else if (result.error) {
+        modelsError.value = result.error
+      }
+    } catch (e) { modelsError.value = (e as Error).message }
+    finally { modelsLoading.value = false }
+  }
+
+  return { data, loading, error, testStatus, testError, models, modelsLoading, modelsError, load, save, testConnection, fetchModels }
 })
