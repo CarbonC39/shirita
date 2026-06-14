@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { listDefinitions, createDefinition, updateDefinition, deleteDefinition } from '../api/client'
@@ -52,6 +52,25 @@ const genMaxTokens = computed({ get: () => (get('gen_max_response_tokens') as nu
 const customCss = computed({ get: () => (get('custom_css') as string) || '', set: (v: string) => set('custom_css', v) })
 const scanDepth = computed({ get: () => (get('worldinfo_scan_depth') as number) ?? 4, set: (v: number) => set('worldinfo_scan_depth', v) })
 const recursiveScan = computed({ get: () => (get('worldinfo_recursive') as boolean) ?? true, set: (v: boolean) => set('worldinfo_recursive', v) })
+
+// Auto-fetch the model list once provider source + base URL + key are present (debounced).
+let modelsTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [providerSource.value, providerBaseUrl.value, providerApiKey.value],
+  () => {
+    clearTimeout(modelsTimer)
+    if (!providerBaseUrl.value || !providerApiKey.value) return
+    modelsTimer = setTimeout(async () => {
+      // persist creds so the server's /models uses them, then fetch.
+      await settings.save({
+        provider_source: providerSource.value,
+        provider_base_url: providerBaseUrl.value,
+        provider_api_key: providerApiKey.value,
+      })
+      await settings.fetchModels()
+    }, 800)
+  },
+)
 
 onMounted(async () => {
   try {
@@ -115,11 +134,9 @@ async function handleTestConnection() {
           </div>
           <div>
             <label class="text-[13px] text-ink block mb-1.5">Model</label>
-            <div class="flex gap-2">
+            <div class="flex items-center gap-2">
               <input :value="providerModel" type="text" placeholder="gpt-4o" class="flex-1 border border-line rounded-lg px-3 py-2 text-[14px] outline-none focus:border-primary/50" @input="providerModel = ($event.target as HTMLInputElement).value" />
-              <button class="shrink-0 px-3 py-2 text-[13px] border border-line rounded-lg hover:border-primary/50 transition-colors disabled:opacity-50 text-muted hover:text-ink" :disabled="settings.modelsLoading" @click="settings.fetchModels()">
-                {{ settings.modelsLoading ? 'Fetching…' : 'Fetch models' }}
-              </button>
+              <span v-if="settings.modelsLoading" class="text-[12px] text-muted">Fetching…</span>
             </div>
             <p v-if="settings.modelsError" class="text-[12px] text-coral mt-1">{{ settings.modelsError }}</p>
             <select v-if="settings.models.length > 0" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50 mt-2" @change="providerModel = ($event.target as HTMLSelectElement).value">
