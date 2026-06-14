@@ -339,10 +339,10 @@ pub fn build_chat_messages(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::definition::{Definition, DefinitionType};
+    use crate::models::definition::Definition;
     use serde_json::json;
 
-    fn def(t: DefinitionType, name: &str, content: &str) -> Definition {
+    fn def(t: &str, name: &str, content: &str) -> Definition {
         Definition::new(t, name, content)
     }
 
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn regex_rules_clean_text() {
-        let mut r = def(DefinitionType::RegexRule, "r", "");
+        let mut r = def("regex_rule", "r", "");
         r.meta = json!({ "pattern": "<think>.*?</think>", "replacement": "" });
         assert_eq!(
             apply_regex_rules("a<think>x</think>b", &[r]).as_deref(),
@@ -446,8 +446,8 @@ mod tests {
 
     #[test]
     fn assemble_wraps_containers_splits_history() {
-        let neo = def(DefinitionType::Char, "Neo", "Neo body");
-        let jb = def(DefinitionType::Prompt, "JB", "Jailbreak body");
+        let neo = def("char", "Neo", "Neo body");
+        let jb = def("prompt", "JB", "Jailbreak body");
         let charf = folder_node("t", 0, "char");
         let cref = child_ref("t", &charf.id, 0, &neo.id);
         let hist = history_node("t", 1);
@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn assemble_omits_empty_container_and_inactive_refs() {
-        let mut lore = def(DefinitionType::World, "Zion", "Zion body");
+        let mut lore = def("world", "Zion", "Zion body");
         lore.meta = json!({ "trigger": { "mode": "keyword", "keys": ["zion"] } });
         let wf = folder_node("t", 0, "world");
         let wref = child_ref("t", &wf.id, 0, &lore.id);
