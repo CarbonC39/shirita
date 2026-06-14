@@ -216,3 +216,12 @@ export async function fetchProviderModels(): Promise<{ data?: Array<{ id: string
   if (!res.ok) throw new Error(`Fetch models failed: ${res.status}`)
   return res.json()
 }
+
+// Upload an image (or any file) to the asset store; returns its relative path.
+export async function uploadAsset(file: File): Promise<{ path: string; url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/api/assets`, { method: 'POST', headers: authHeaders(), body: form })
+  if (!res.ok) throw new Error(`Asset upload failed: ${res.status}`)
+  return res.json()
+}

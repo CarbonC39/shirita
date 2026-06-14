@@ -6,10 +6,11 @@ import { listDefinitions, createDefinition, updateDefinition, deleteDefinition }
 import type { Definition } from '../api/types'
 import SliderControl from '../components/SliderControl.vue'
 import RegexRuleEditor from '../components/RegexRuleEditor.vue'
+import BackgroundPicker from '../components/BackgroundPicker.vue'
 import FullscreenEditor from '../components/FullscreenEditor.vue'
 import ToggleSwitch from '../components/ToggleSwitch.vue'
 import SegmentedControl from '../components/SegmentedControl.vue'
-import { Eye, EyeOff } from 'lucide-vue-next'
+import { Eye, EyeOff, Check } from 'lucide-vue-next'
 
 const settings = useSettingsStore()
 const ui = useUiStore()
@@ -59,7 +60,7 @@ watch(
   () => [providerSource.value, providerBaseUrl.value, providerApiKey.value],
   () => {
     clearTimeout(modelsTimer)
-    if (!providerBaseUrl.value || !providerApiKey.value) return
+    if (!providerBaseUrl.value) return // key may be empty for keyless/local endpoints
     modelsTimer = setTimeout(async () => {
       // persist creds so the server's /models uses them, then fetch.
       await settings.save({
@@ -75,11 +76,19 @@ watch(
 onMounted(async () => {
   try {
     await settings.load()
+    // server is the source of truth for the background; sync the UI store cache
+    const bg = settings.data.appearance_background
+    if (typeof bg === 'string' && bg !== ui.background) ui.setBackground(bg)
     const allDefs = await listDefinitions()
     regexRules.value = allDefs.filter(d => d.type === 'regex_rule')
   } catch (e) { error.value = (e as Error).message }
   finally { loading.value = false }
 })
+
+function onBackgroundChange(path: string) {
+  ui.setBackground(path)
+  settings.save({ appearance_background: path }).catch((e) => { error.value = (e as Error).message })
+}
 
 async function handleSave() {
   try {
@@ -136,7 +145,8 @@ async function handleTestConnection() {
             <label class="text-[13px] text-ink block mb-1.5">Model</label>
             <div class="flex items-center gap-2">
               <input :value="providerModel" type="text" placeholder="gpt-4o" class="field flex-1" @input="providerModel = ($event.target as HTMLInputElement).value" />
-              <span v-if="settings.modelsLoading" class="text-[12px] text-muted">Fetching…</span>
+              <span v-if="settings.modelsLoading" class="flex items-center gap-1.5 text-[12px] text-muted whitespace-nowrap"><span class="w-2.5 h-2.5 rounded-full border-2 border-muted border-t-transparent animate-spin" />Fetching…</span>
+              <span v-else-if="settings.models.length && !settings.modelsError" class="flex items-center gap-1 text-[12px] text-primary whitespace-nowrap"><Check :size="13" :stroke-width="2.6" />{{ settings.models.length }} models</span>
             </div>
             <p v-if="settings.modelsError" class="text-[12px] text-coral mt-1">{{ settings.modelsError }}</p>
             <select v-if="settings.models.length > 0" :value="providerModel" class="field w-full mt-2" @change="providerModel = ($event.target as HTMLSelectElement).value">
@@ -221,6 +231,10 @@ async function handleTestConnection() {
               :options="[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]"
               @update:model-value="ui.setTheme($event as 'light' | 'dark' | 'system')"
             />
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-[14px] text-ink">Background</span>
+            <BackgroundPicker :model-value="ui.background" @update:model-value="onBackgroundChange" />
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5"><label class="text-[13px] text-ink">Custom CSS</label><button class="text-[12px] text-muted hover:text-ink" @click="cssFullscreen = true">Fullscreen</button></div>

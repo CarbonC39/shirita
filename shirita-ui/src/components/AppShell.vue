@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
+import { useUiStore } from '../stores/ui'
 
+const ui = useUiStore()
 const route = useRoute()
 const section = computed(() => {
   if (route.path.startsWith('/book')) return 'book'
@@ -20,6 +22,11 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 
 <template>
   <div class="h-full flex flex-col">
+    <!-- app-wide background image + readability scrim -->
+    <template v-if="ui.background">
+      <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="{ backgroundImage: `url(/assets/${ui.background})` }" />
+      <div class="fixed inset-0 -z-10 bg-surface/75" />
+    </template>
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
         <div class="flex items-center gap-2 min-w-[120px]">
