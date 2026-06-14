@@ -148,6 +148,16 @@ export async function createTemplate(name: string): Promise<Template> {
   return res.json()
 }
 
+export async function updateTemplate(id: string, name: string): Promise<Template> {
+  const res = await fetch(`${BASE}/api/templates/${id}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Update template failed: ${res.status}`)
+  return res.json()
+}
+
 export async function deleteTemplate(id: string): Promise<void> {
   const res = await fetch(`${BASE}/api/templates/${id}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`Delete template failed: ${res.status}`)

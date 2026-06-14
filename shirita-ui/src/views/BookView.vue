@@ -4,7 +4,7 @@ import { Check, Upload, Download, Copy, Trash2 } from 'lucide-vue-next'
 import { useLibraryStore } from '../stores/library'
 import {
   listNodes, createNode, updateNode, deleteNode, reorderNodes, updateDefinition, createDefinition, deleteDefinition,
-  createTemplate, duplicateTemplate, deleteTemplate,
+  createTemplate, updateTemplate, duplicateTemplate, deleteTemplate,
 } from '../api/client'
 import type { PromptNode, Definition, Trigger } from '../api/types'
 import PromptTree from '../components/PromptTree.vue'
@@ -15,6 +15,10 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const selectedTemplateId = ref<string | null>(null)
 const nodes = ref<PromptNode[]>([])
+// A new template is composed as a local draft and only persisted on first
+// manual Save — so picking "+ New template" never litters the list.
+const isDraft = ref(false)
+const templateName = ref('')
 
 function blankDef(): Definition { return { id: '', type: 'char', name: '', content: '', meta: {} } }
 const editDef = reactive<Definition>(blankDef())
@@ -27,18 +31,36 @@ onMounted(async () => {
 
 // ── templates ──────────────────────────────────────────────
 async function selectTemplate(id: string) {
-  if (id === '__new__') { await newTemplate(); return }
+  if (id === '__new__') { startDraft(); return }
+  isDraft.value = false
   selectedTemplateId.value = id || null
+  templateName.value = library.templates.find((t) => t.id === id)?.name ?? ''
   if (id) { try { nodes.value = await listNodes('template', id) } catch { nodes.value = [] } }
   else { nodes.value = [] }
 }
-async function newTemplate() {
+function startDraft() {
+  isDraft.value = true
+  selectedTemplateId.value = null
+  templateName.value = 'New template'
+  nodes.value = []
+}
+async function saveDraft() {
   try {
-    const t = await createTemplate('New template')
+    const t = await createTemplate(templateName.value.trim() || 'New template')
     await library.loadTemplates()
+    isDraft.value = false
     selectedTemplateId.value = t.id
+    templateName.value = t.name
     nodes.value = await listNodes('template', t.id)
   } catch (e) { error.value = (e as Error).message }
+}
+async function renameTemplate() {
+  if (!selectedTemplateId.value) return
+  const name = templateName.value.trim()
+  const current = library.templates.find((t) => t.id === selectedTemplateId.value)
+  if (!name || !current || name === current.name) { templateName.value = current?.name ?? name; return }
+  try { await updateTemplate(selectedTemplateId.value, name); await library.loadTemplates() }
+  catch (e) { error.value = (e as Error).message }
 }
 async function dupTemplate() {
   if (!selectedTemplateId.value) return
@@ -46,7 +68,7 @@ async function dupTemplate() {
 }
 async function delTemplate() {
   if (!selectedTemplateId.value) return
-  try { await deleteTemplate(selectedTemplateId.value); selectedTemplateId.value = null; nodes.value = []; await library.loadTemplates() } catch (e) { error.value = (e as Error).message }
+  try { await deleteTemplate(selectedTemplateId.value); selectedTemplateId.value = null; isDraft.value = false; templateName.value = ''; nodes.value = []; await library.loadTemplates() } catch (e) { error.value = (e as Error).message }
 }
 
 // ── tree ───────────────────────────────────────────────────
@@ -158,7 +180,7 @@ async function duplicateDef() {
     <template v-else>
       <!-- template picker + ops -->
       <div class="flex items-center gap-2">
-        <select :value="selectedTemplateId ?? ''" class="field flex-1" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
+        <select :value="isDraft ? '__new__' : (selectedTemplateId ?? '')" class="field flex-1" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
           <option value="" disabled>Select a template…</option>
           <option value="__new__">+ New template</option>
           <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
@@ -170,11 +192,19 @@ async function duplicateDef() {
           <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-40" title="Delete" :disabled="!selectedTemplateId" @click="delTemplate"><Trash2 :size="16" /></button>
         </div>
       </div>
-      <div v-if="selectedTemplateId" class="flex items-center gap-1.5 mt-2 mb-3.5 ml-0.5 text-primary">
-        <Check :size="13" :stroke-width="2.4" />
-        <span class="text-[11.5px] text-muted">Saved</span>
+
+      <!-- name + save/saved state -->
+      <div v-if="isDraft || selectedTemplateId" class="flex items-center gap-2 mt-2 mb-3.5">
+        <input v-model="templateName" type="text" class="field flex-1" placeholder="Template name"
+          @change="renameTemplate" @keydown.enter="(($event.target as HTMLInputElement).blur())" />
+        <button v-if="isDraft" class="btn btn-primary shrink-0" @click="saveDraft">Save</button>
+        <span v-else class="flex items-center gap-1.5 text-primary shrink-0">
+          <Check :size="13" :stroke-width="2.4" />
+          <span class="text-[11.5px] text-muted">Saved</span>
+        </span>
       </div>
 
+      <p v-if="isDraft" class="text-muted text-[13px] py-4">Save this template to start building its node tree.</p>
       <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" :types="library.containerTypes"
         @toggle-enabled="handleToggleEnabled"
         @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
