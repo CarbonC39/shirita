@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, watch } from 'vue'
+import { onMounted, watch, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
+import { estimateTokens, formatTokens } from '../utils/tokens'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import { ArrowLeft } from 'lucide-vue-next'
@@ -12,6 +13,11 @@ const chat = useChatStore()
 const ui = useUiStore()
 
 const sessionId = route.params.id as string
+
+// Rough running total of the transcript, for context budgeting.
+const convoTokens = computed(() =>
+  chat.messages.reduce((sum, m) => sum + estimateTokens(m.raw_content), 0),
+)
 
 onMounted(() => {
   chat.loadMessages(sessionId)
@@ -47,6 +53,7 @@ async function handleRegenerate() {
     <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" aria-label="Back"><ArrowLeft :size="18" /></router-link>
       <span class="font-semibold text-ink truncate">Chat</span>
+      <span v-if="chat.messages.length" class="ml-auto text-[11.5px] text-muted tabular-nums shrink-0">~{{ formatTokens(convoTokens) }} tokens</span>
     </div>
 
     <p v-if="chat.error" class="text-coral text-sm px-5 py-4">{{ chat.error }}</p>

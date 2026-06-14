@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { ArrowUp, Plus } from 'lucide-vue-next'
+import { estimateTokens, formatTokens } from '../utils/tokens'
 
 const props = defineProps<{ disabled: boolean }>()
 
@@ -10,6 +11,7 @@ const emit = defineEmits<{
 
 const text = ref('')
 const hasText = computed(() => text.value.trim().length > 0)
+const draftTokens = computed(() => estimateTokens(text.value))
 
 function submit() {
   const trimmed = text.value.trim()
@@ -53,6 +55,9 @@ function onKeydown(e: KeyboardEvent) {
       >
         <ArrowUp :size="18" />
       </button>
+    </div>
+    <div v-if="hasText" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pt-1">
+      <span class="text-[11px] text-muted tabular-nums">~{{ formatTokens(draftTokens) }} tokens</span>
     </div>
   </div>
 </template>

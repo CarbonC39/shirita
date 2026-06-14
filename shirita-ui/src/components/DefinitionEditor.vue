@@ -3,6 +3,7 @@ import { ref, computed } from 'vue'
 import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
 import type { Definition, DefType } from '../api/types'
 import { triggerFromMeta } from '../api/types'
+import { estimateTokens, formatTokens } from '../utils/tokens'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
 
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 
 const fullscreenOpen = ref(false)
 const open = ref(false)
+const contentTokens = computed(() => estimateTokens(props.definition.content))
 
 // Registered container types + the reserved `prompt`, tinted per the palette.
 // Builtin types can't be deleted; custom ones can.
@@ -167,7 +169,8 @@ function startNew() {
       <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" title="Fullscreen" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
     </div>
 
-    <div class="flex justify-end mt-3">
+    <div class="flex items-center justify-between mt-3">
+      <span class="text-[11.5px] text-muted tabular-nums">~{{ formatTokens(contentTokens) }} tokens</span>
       <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">Save</button>
     </div>
 

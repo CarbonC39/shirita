@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { Check, Upload, Download, Copy, Trash2 } from 'lucide-vue-next'
 import { useLibraryStore } from '../stores/library'
+import { estimateTokens, formatTokens } from '../utils/tokens'
 import {
   listNodes, createNode, updateNode, deleteNode, reorderNodes, updateDefinition, createDefinition, deleteDefinition,
   createTemplate, updateTemplate, duplicateTemplate, deleteTemplate,
@@ -19,6 +20,16 @@ const nodes = ref<PromptNode[]>([])
 // manual Save — so picking "+ New template" never litters the list.
 const isDraft = ref(false)
 const templateName = ref('')
+
+// Rough token total for the template: sum the content of every enabled ref
+// node's definition. Display-only estimate (real assembly happens server-side).
+const templateTokens = computed(() => {
+  const byId = new Map(library.definitions.map((d) => [d.id, d]))
+  return nodes.value.reduce((sum, n) => {
+    if (n.kind !== 'ref' || !n.enabled || !n.definition_id) return sum
+    return sum + estimateTokens(byId.get(n.definition_id)?.content ?? '')
+  }, 0)
+})
 
 function blankDef(): Definition { return { id: '', type: 'char', name: '', content: '', meta: {} } }
 const editDef = reactive<Definition>(blankDef())
@@ -198,9 +209,12 @@ async function duplicateDef() {
         <input v-model="templateName" type="text" class="field flex-1" placeholder="Template name"
           @change="renameTemplate" @keydown.enter="(($event.target as HTMLInputElement).blur())" />
         <button v-if="isDraft" class="btn btn-primary shrink-0" @click="saveDraft">Save</button>
-        <span v-else class="flex items-center gap-1.5 text-primary shrink-0">
-          <Check :size="13" :stroke-width="2.4" />
-          <span class="text-[11.5px] text-muted">Saved</span>
+        <span v-else class="flex items-center gap-2.5 shrink-0">
+          <span class="text-[11.5px] text-muted tabular-nums">~{{ formatTokens(templateTokens) }} tokens</span>
+          <span class="flex items-center gap-1.5 text-primary">
+            <Check :size="13" :stroke-width="2.4" />
+            <span class="text-[11.5px] text-muted">Saved</span>
+          </span>
         </span>
       </div>
 
