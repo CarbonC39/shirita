@@ -96,6 +96,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
     </div>
 
     <!-- inline content editor for ref nodes -->
+    <transition name="expand">
     <div v-if="!isFolder && !isHistory && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
       <div class="relative">
         <textarea
@@ -124,6 +125,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         />
       </div>
     </div>
+    </transition>
 
     <FullscreenEditor
       :model-value="draft"

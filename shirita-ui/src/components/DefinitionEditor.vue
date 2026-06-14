@@ -84,6 +84,7 @@ function startNew() {
           />
           <button class="text-muted shrink-0" tabindex="-1" @mousedown.prevent="open = !open"><ChevronDown :size="16" /></button>
         </div>
+        <transition name="expand">
         <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-white border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
           <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @mousedown.prevent="startNew">+ New definition</button>
           <button
@@ -96,6 +97,7 @@ function startNew() {
             <span class="text-[11px] text-muted uppercase">{{ d.type }}</span>
           </button>
         </div>
+        </transition>
       </div>
       <div class="flex items-center">
         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" title="Import" @click="emit('import')"><Upload :size="16" /></button>
