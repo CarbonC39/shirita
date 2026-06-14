@@ -58,6 +58,17 @@ a {
   transform: translateY(-3px);
 }
 
+/* One-shot entrance for list items (staggered via inline animation-delay). */
+@keyframes reveal {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.reveal {
+  animation: reveal 0.32s ease both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -83,7 +94,10 @@ a {
   }
 
   .btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-50 disabled:cursor-default;
+    @apply inline-flex items-center justify-center gap-2 rounded-full px-4 py-1.5 text-[13px] font-medium transition disabled:opacity-50 disabled:cursor-default;
+  }
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .btn-primary {
     @apply bg-primary text-white;

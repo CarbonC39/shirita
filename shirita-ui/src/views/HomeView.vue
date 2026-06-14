@@ -70,9 +70,11 @@ async function onImportFile(e: Event) {
         No conversations yet.
       </p>
       <ChatCard
-        v-for="s in sortedItems"
+        v-for="(s, i) in sortedItems"
         :key="s.id"
         :session="s"
+        class="reveal"
+        :style="{ animationDelay: `${Math.min(i, 8) * 45}ms` }"
         @duplicate="onDuplicate"
         @export="onExport"
         @delete="onDelete"
