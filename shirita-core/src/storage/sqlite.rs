@@ -6,6 +6,7 @@ use sqlx::{Row, SqlitePool};
 
 use std::collections::HashMap;
 
+use crate::models::def_type::DefType;
 use crate::models::definition::{Definition, DefinitionType};
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
@@ -360,6 +361,46 @@ impl Storage for SqliteStorage {
         sqlx::query("DELETE FROM settings WHERE key = ?").bind(key).execute(&self.pool).await?;
         Ok(())
     }
+
+    async fn list_container_types(&self) -> Result<Vec<DefType>> {
+        let rows = sqlx::query_as::<_, (String, String, i64, i64, String)>(
+            "SELECT id, label, sort, builtin, created_at FROM def_types ORDER BY sort ASC, id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, label, sort, builtin, created_at)| DefType {
+                id,
+                label,
+                sort,
+                builtin: builtin != 0,
+                created_at,
+            })
+            .collect())
+    }
+
+    async fn create_def_type(&self, ty: &DefType) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO def_types (id, label, sort, builtin, created_at) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&ty.id)
+        .bind(&ty.label)
+        .bind(ty.sort)
+        .bind(ty.builtin as i64)
+        .bind(&ty.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_def_type(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM def_types WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 // --- Row mappers ---
@@ -444,6 +485,27 @@ mod tests {
         storage.delete_definition(&def.id).await.unwrap();
         assert!(storage.get_definition(&def.id).await.unwrap().is_none());
         assert!(storage.list_definitions().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn def_types_seed_and_crud() {
+        let storage = temp_storage().await;
+        // migration seeds 3 builtin containers
+        let types = storage.list_container_types().await.unwrap();
+        assert_eq!(types.len(), 3);
+        assert!(types.iter().all(|t| t.builtin));
+        assert_eq!(types[0].id, "char"); // ordered by sort
+
+        // create a custom type
+        let faction = crate::models::def_type::DefType::new("faction", "Faction", 9);
+        storage.create_def_type(&faction).await.unwrap();
+        let types = storage.list_container_types().await.unwrap();
+        assert_eq!(types.len(), 4);
+        assert!(types.iter().any(|t| t.id == "faction" && !t.builtin));
+
+        // delete it
+        storage.delete_def_type("faction").await.unwrap();
+        assert_eq!(storage.list_container_types().await.unwrap().len(), 3);
     }
 
     use crate::models::message::Message as Msg;
