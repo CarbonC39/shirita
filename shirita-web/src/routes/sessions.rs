@@ -5,7 +5,6 @@ use serde::Deserialize;
 
 use shirita_core::models::message::Message;
 use shirita_core::models::session::Session;
-use shirita_core::OwnerKind;
 
 use crate::AppState;
 
@@ -20,13 +19,9 @@ pub async fn create_session(
     Json(body): Json<CreateSession>,
 ) -> Result<Json<Session>, StatusCode> {
     let mut session = Session::new(body.name);
+    // 会话引用模板，不再深拷贝节点；组装时按 effective_nodes 解析（自有优先，否则引用模板）。
     session.template_id = body.template_id.clone();
     state.storage.create_session(&session).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(tid) = body.template_id {
-        if state.storage.get_template(&tid).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.is_some() {
-            state.storage.copy_nodes(&OwnerKind::Template, &tid, &OwnerKind::Session, &session.id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        }
-    }
     Ok(Json(session))
 }
 
