@@ -187,6 +187,13 @@ impl Storage for SqliteStorage {
         rows.iter().map(row_to_session).collect()
     }
 
+    async fn delete_session(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM messages WHERE session_id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM chat_sessions WHERE id = ?").bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()> {
         let json = serde_json::to_string(ids)?;
         sqlx::query("UPDATE chat_sessions SET mounted_definitions = ? WHERE id = ?")

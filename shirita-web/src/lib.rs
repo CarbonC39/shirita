@@ -20,6 +20,10 @@ pub fn app(state: AppState) -> Router {
             "/sessions",
             get(routes::sessions::list_sessions).post(routes::sessions::create_session),
         )
+        .route("/sessions/import", post(routes::sessions::import_session))
+        .route("/sessions/{id}", delete(routes::sessions::delete_session))
+        .route("/sessions/{id}/duplicate", post(routes::sessions::duplicate_session))
+        .route("/sessions/{id}/export", get(routes::sessions::export_session))
         .route(
             "/sessions/{id}/messages",
             get(routes::sessions::list_messages).post(routes::chat::send),
