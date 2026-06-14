@@ -17,3 +17,16 @@ describe('DefinitionEditor trigger', () => {
     expect(w.find('[data-test="trigger-editor"]').exists()).toBe(false)
   })
 })
+
+describe('DefinitionEditor type chips', () => {
+  it('renders type chips from the provided types plus prompt', () => {
+    const types = [
+      { id: 'char', label: 'Character', sort: 0, builtin: true, created_at: '' },
+      { id: 'world', label: 'World', sort: 1, builtin: true, created_at: '' },
+    ]
+    const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types } })
+    const chips = w.findAll('[data-test="type-chip"]').map((b) => b.text())
+    expect(chips).toEqual(['Character', 'World', 'Prompt'])
+  })
+})

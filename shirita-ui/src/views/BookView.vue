@@ -166,6 +166,7 @@ async function duplicateDef() {
       <DefinitionEditor
         :definition="editDef"
         :all-definitions="library.definitions"
+        :types="library.containerTypes"
         @select-definition="selectDefinition"
         @update:name="editDef.name = $event"
         @update:type="editDef.type = $event as Definition['type']"
