@@ -40,7 +40,7 @@ function removeKey(k: string) {
     </div>
 
     <div v-if="modelValue.mode === 'keyword'" data-test="trigger-keys">
-      <div class="flex flex-wrap items-center gap-1.5 border border-line rounded-[9px] bg-white px-2.5 py-2">
+      <div class="flex flex-wrap items-center gap-1.5 border border-line rounded-[9px] bg-card px-2.5 py-2">
         <span
           v-for="k in modelValue.keys"
           :key="k"

@@ -10,7 +10,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
       :key="opt.value"
       type="button"
       :class="['text-[13px] rounded-[7px] px-3.5 py-1 transition-colors',
-               modelValue === opt.value ? 'bg-white text-ink shadow-sm' : 'text-muted hover:text-ink']"
+               modelValue === opt.value ? 'bg-card text-ink shadow-sm dark:ring-1 dark:ring-inset dark:ring-white/10' : 'text-muted hover:text-ink']"
       @click="emit('update:modelValue', opt.value)"
     >{{ opt.label }}</button>
   </div>

@@ -72,7 +72,7 @@ function startNew() {
     <!-- merged search + name combobox + ops -->
     <div class="flex items-center gap-2 mb-3">
       <div class="flex-1 relative" @focusout="open = false">
-        <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-white px-3 py-2.5 focus-within:border-primary/50">
+        <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-card px-3 py-2.5 focus-within:border-primary/50">
           <Search :size="16" class="text-muted shrink-0" />
           <input
             :value="definition.name"
@@ -85,7 +85,7 @@ function startNew() {
           <button class="text-muted shrink-0" tabindex="-1" @mousedown.prevent="open = !open"><ChevronDown :size="16" /></button>
         </div>
         <transition name="expand">
-        <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-white border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
+        <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-card border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
           <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @mousedown.prevent="startNew">+ New definition</button>
           <button
             v-for="d in matches"
@@ -160,7 +160,7 @@ function startNew() {
       <textarea
         :value="definition.content"
         rows="5"
-        class="w-full border border-line rounded-[9px] bg-white px-3 py-2.5 pr-9 text-[13px] leading-relaxed text-[#5c6166] resize-y outline-none focus:border-primary/50 font-mono"
+        class="w-full border border-line rounded-[9px] bg-card px-3 py-2.5 pr-9 text-[13px] leading-relaxed text-ink/75 resize-y outline-none focus:border-primary/50 font-mono"
         placeholder="Definition content…"
         @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
       />

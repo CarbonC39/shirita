@@ -36,7 +36,7 @@ function onNumberInput(e: Event) {
         :min="min"
         :max="max"
         :step="step"
-        class="w-[72px] border border-line rounded-lg px-2 py-1 text-[13px] text-right tabular-nums bg-white outline-none focus:border-primary/50"
+        class="w-[72px] border border-line rounded-lg px-2 py-1 text-[13px] text-right tabular-nums bg-card outline-none focus:border-primary/50"
         @input="onNumberInput"
       />
     </div>

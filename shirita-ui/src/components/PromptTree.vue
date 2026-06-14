@@ -107,7 +107,7 @@ function onDrop(targetId: string) {
 </script>
 
 <template>
-  <div data-test="prompt-tree" class="border border-line rounded-xl bg-white p-1.5">
+  <div data-test="prompt-tree" class="border border-line rounded-xl bg-card p-1.5">
     <div
       v-for="node in rootNodes"
       :key="node.id"
@@ -189,7 +189,7 @@ function onDrop(targetId: string) {
             v-for="item in omniItems"
             :key="item.kind + ':' + item.id"
             data-test="omni-item"
-            class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white transition-colors"
+            class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-card transition-colors"
             @click="pickOmni(item)"
           >
             <Folder v-if="item.kind === 'container'" :size="15" class="text-mauve shrink-0" :stroke-width="1.8" />
@@ -200,10 +200,10 @@ function onDrop(targetId: string) {
           <p v-if="omniItems.length === 0 && !trimmedQuery" class="px-3 py-2 text-[12px] text-muted/70">No prompts or container types yet — type a name to create one.</p>
 
           <template v-if="trimmedQuery">
-            <button data-test="omni-new-prompt" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink" @click="newPrompt">
+            <button data-test="omni-new-prompt" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newPrompt">
               <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New prompt “{{ trimmedQuery }}”</span>
             </button>
-            <button data-test="omni-new-type" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink" @click="newType">
+            <button data-test="omni-new-type" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newType">
               <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New container type “{{ trimmedQuery }}”</span>
             </button>
           </template>

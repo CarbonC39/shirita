@@ -23,7 +23,7 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
 <template>
   <router-link
     :to="`/chat/${session.id}`"
-    class="relative flex items-center gap-3.5 bg-white border border-line rounded-2xl px-4 py-3.5 mb-3 hover:border-primary/30 transition-colors"
+    class="relative flex items-center gap-3.5 bg-card border border-line rounded-2xl px-4 py-3.5 mb-3 hover:border-primary/30 transition-colors"
   >
     <div :class="['w-11 h-11 rounded-full shrink-0 overflow-hidden grid place-items-center', tint]">
       <img v-if="session.avatar" :src="`/assets/${session.avatar}`" class="w-full h-full object-cover" alt="" />
@@ -40,7 +40,7 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
     <!-- click-away + dropdown -->
     <div v-if="menuOpen" class="fixed inset-0 z-20" @click.stop.prevent="menuOpen = false" />
     <transition name="expand">
-    <div v-if="menuOpen" class="absolute right-3 top-12 z-30 bg-white border border-line rounded-xl shadow-lg overflow-hidden min-w-[150px]">
+    <div v-if="menuOpen" class="absolute right-3 top-12 z-30 bg-card border border-line rounded-xl shadow-lg overflow-hidden min-w-[150px]">
       <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('duplicate', session.id))"><Copy :size="14" /> Duplicate</button>
       <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('export', session.id))"><Download :size="14" /> Export</button>
       <button data-test="chat-delete" class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-coral hover:bg-surface text-left transition-colors" @click="act($event, () => emit('delete', session.id))"><Trash2 :size="14" /> Delete</button>

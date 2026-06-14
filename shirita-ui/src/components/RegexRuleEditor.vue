@@ -16,7 +16,7 @@ function toggleExpand() { expanded.value = !expanded.value }
 </script>
 
 <template>
-  <div class="border border-line rounded-lg bg-white mb-2">
+  <div class="border border-line rounded-lg bg-card mb-2">
     <div class="flex items-center gap-2.5 px-3 py-2.5">
       <ToggleSwitch :model-value="rule.enabled" @update:model-value="emit('update:enabled', $event)" />
       <span class="flex-1 text-[14px] truncate">{{ rule.name || 'Unnamed rule' }}</span>

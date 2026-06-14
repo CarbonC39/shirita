@@ -34,8 +34,8 @@ const label = computed(() => (props.message.role === 'assistant' ? 'Assistant' :
         :class="[
           'px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap',
           isUser
-            ? 'bg-coral text-ink rounded-[16px] rounded-br-[4px]'
-            : 'bg-white border border-line text-ink rounded-[16px] rounded-bl-[4px]',
+            ? 'bg-coral text-[#1b1b1b] rounded-[16px] rounded-br-[4px]'
+            : 'bg-card border border-line text-ink rounded-[16px] rounded-bl-[4px]',
         ]"
       >
         {{ message.raw_content }}<span
