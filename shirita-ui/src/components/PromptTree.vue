@@ -50,11 +50,39 @@ function openPicker(parentId: string) {
   activePickerParent.value = activePickerParent.value === parentId ? undefined : parentId
 }
 function toggleRootMenu() { rootMenu.value = rootMenu.value === 'closed' ? 'menu' : 'closed' }
+
+// native HTML5 drag-reorder, restricted to siblings of the same parent.
+const dragId = ref<string | null>(null)
+function onDragStart(id: string) { dragId.value = id }
+function siblingsOf(parentId: string | null) { return getChildren(parentId).map((nd) => nd.id) }
+function parentOf(id: string): string | null {
+  return props.nodes.find((nd) => nd.id === id)?.parent_id ?? null
+}
+function onDrop(targetId: string) {
+  const src = dragId.value
+  dragId.value = null
+  if (!src || src === targetId) return
+  if (parentOf(src) !== parentOf(targetId)) return // only reorder within a level
+  const ids = siblingsOf(parentOf(targetId))
+  const from = ids.indexOf(src)
+  const to = ids.indexOf(targetId)
+  if (from === -1 || to === -1) return
+  ids.splice(to, 0, ids.splice(from, 1)[0])
+  emit('reorder', ids)
+}
 </script>
 
 <template>
   <div data-test="prompt-tree" class="border border-line rounded-xl bg-white p-1.5">
-    <template v-for="node in rootNodes" :key="node.id">
+    <div
+      v-for="node in rootNodes"
+      :key="node.id"
+      data-test="row-wrap"
+      draggable="true"
+      @dragstart="onDragStart(node.id)"
+      @dragover.prevent
+      @drop="onDrop(node.id)"
+    >
       <NodeRow
         :node="node"
         :definitions="defMap"
@@ -68,18 +96,26 @@ function toggleRootMenu() { rootMenu.value = rootMenu.value === 'closed' ? 'menu
 
       <!-- folder children + contextual add -->
       <template v-if="node.kind === 'folder' && isExpanded(node.id)">
-        <NodeRow
+        <div
           v-for="child in getChildren(node.id)"
           :key="child.id"
-          :node="child"
-          :definitions="defMap"
-          :depth="1"
-          :is-expanded="isExpanded(child.id)"
-          @toggle-enabled="emit('toggleEnabled', child.id)"
-          @toggle-expand="toggleExpand(child.id)"
-          @update-content="(c) => child.definition_id && emit('updateContent', child.definition_id, c)"
-          @delete="emit('deleteNode', child.id)"
-        />
+          data-test="row-wrap"
+          draggable="true"
+          @dragstart.stop="onDragStart(child.id)"
+          @dragover.prevent
+          @drop.stop="onDrop(child.id)"
+        >
+          <NodeRow
+            :node="child"
+            :definitions="defMap"
+            :depth="1"
+            :is-expanded="isExpanded(child.id)"
+            @toggle-enabled="emit('toggleEnabled', child.id)"
+            @toggle-expand="toggleExpand(child.id)"
+            @update-content="(c) => child.definition_id && emit('updateContent', child.definition_id, c)"
+            @delete="emit('deleteNode', child.id)"
+          />
+        </div>
         <button
           class="flex items-center gap-2 py-1.5 pl-[34px] text-[13px] text-muted hover:text-primary"
           @click="openPicker(node.id)"
@@ -96,7 +132,7 @@ function toggleRootMenu() { rootMenu.value = rootMenu.value === 'closed' ? 'menu
           />
         </div>
       </template>
-    </template>
+    </div>
 
     <!-- root add -->
     <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary" @click="toggleRootMenu">
