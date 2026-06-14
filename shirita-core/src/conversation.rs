@@ -88,8 +88,23 @@ pub fn send_message(
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
 
+        // 扫描深度与递归扫描：从 Settings 读取（默认 4 / true）。
+        let scan_depth = storage
+            .get_setting("worldinfo_scan_depth")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_u64())
+            .unwrap_or(4) as usize;
+        let recursive = storage
+            .get_setting("worldinfo_recursive")
+            .await
+            .ok()
+            .flatten()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
         // 扫描窗口：最近 N 条（含将发送的 user）。
-        let scan_depth = 4usize;
         let mut recent: Vec<String> = history
             .iter()
             .rev()
@@ -107,7 +122,7 @@ pub fn send_message(
             &local,
             &session.current_state,
             &recent,
-            true,
+            recursive,
             scan_depth,
             &mut || rand::Rng::gen::<f64>(&mut rng),
         );
@@ -293,6 +308,49 @@ mod tests {
         assert!(req.messages[0].content.contains("I am Neo"));
         // history 节点之后，本次 user 转发给 provider。
         assert!(req.messages.iter().any(|m| m.role == Role::User && m.content == "hi"));
+    }
+
+    #[tokio::test]
+    async fn send_message_respects_recursive_setting() {
+        use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
+        use crate::models::template::Template;
+        let storage = Arc::new(temp_storage().await);
+        storage.set_setting("worldinfo_recursive", &serde_json::json!(false)).await.unwrap();
+
+        let a = crate::models::definition::Definition::new("world", "A", "We mention zion here");
+        let mut b = crate::models::definition::Definition::new("world", "B", "Zion lore");
+        b.meta = serde_json::json!({ "trigger": { "mode": "keyword", "keys": ["zion"] } });
+        storage.create_definition(&a).await.unwrap();
+        storage.create_definition(&b).await.unwrap();
+
+        let t = Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let wf = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "world");
+        storage.create_node(&wf).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Template, &t.id, Some(wf.id.clone()), 0, &a.id)).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Template, &t.id, Some(wf.id.clone()), 1, &b.id)).await.unwrap();
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        hist.kind = NodeKind::History; hist.tag = None;
+        storage.create_node(&hist).await.unwrap();
+
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        storage.create_session(&session).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        // user says nothing about zion → A constant active, B only if recursion scans A's content.
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        let sys = &req.messages[0].content;
+        assert!(sys.contains("We mention zion here"), "constant A present");
+        assert!(!sys.contains("Zion lore"), "B must NOT activate with recursion off");
     }
 
     #[tokio::test]
