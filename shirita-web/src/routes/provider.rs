@@ -16,17 +16,13 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
     let provider = OpenAiProvider::new(&base_url, &api_key);
     let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into() }] };
     match provider.stream_chat(req).await {
-        Ok(mut stream) => {
-            let mut received = false;
-            while let Some(item) = stream.next().await {
-                match item { Ok(_) => { received = true; break; } Err(e) => return Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))) }
-            }
-            if received {
-                Ok(Json(serde_json::json!({ "ok": true })))
-            } else {
-                Ok(Json(serde_json::json!({ "ok": false, "error": "no response from provider" })))
-            }
-        }
+        // Only the first streamed chunk matters: it confirms the credentials
+        // and endpoint accept a request.
+        Ok(mut stream) => match stream.next().await {
+            Some(Ok(_)) => Ok(Json(serde_json::json!({ "ok": true }))),
+            Some(Err(e)) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
+            None => Ok(Json(serde_json::json!({ "ok": false, "error": "no response from provider" }))),
+        },
         Err(e) => Ok(Json(serde_json::json!({ "ok": false, "error": e.to_string() }))),
     }
 }

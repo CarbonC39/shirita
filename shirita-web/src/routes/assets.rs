@@ -17,7 +17,8 @@ pub async fn upload(
     State(state): State<AppState>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, StatusCode> {
-    while let Some(field) = multipart
+    // Store the first uploaded field (callers send a single `file` part).
+    if let Some(field) = multipart
         .next_field()
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?
