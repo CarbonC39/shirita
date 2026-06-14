@@ -6,7 +6,7 @@ use futures::{Stream, StreamExt};
 
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::message::{Message, Role};
-use crate::models::prompt_node::{OwnerKind, PromptNode};
+use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
@@ -67,13 +67,19 @@ pub fn send_message(
             return;
         }
 
-        // 2) 用已载入的 session 取挂载/覆盖/状态，组装 system。
-        let mut mounted = Vec::new();
-        for id in &session.mounted_definitions {
-            match storage.get_definition(id).await {
-                Ok(Some(d)) => mounted.push(d),
-                Ok(None) => {}
-                Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        // 2) 取会话有效树 + 定义 + 局部覆盖 + 最近消息，按树组装结构化段。
+        let nodes = match effective_nodes(storage.as_ref(), &session).await {
+            Ok(n) => n,
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+        let mut defs = std::collections::HashMap::new();
+        for n in &nodes {
+            if let Some(did) = &n.definition_id {
+                if !defs.contains_key(did) {
+                    if let Ok(Some(d)) = storage.get_definition(did).await {
+                        defs.insert(did.clone(), d);
+                    }
+                }
             }
         }
         let local = session
@@ -81,23 +87,52 @@ pub fn send_message(
             .get("local_definitions")
             .cloned()
             .unwrap_or_else(|| serde_json::json!({}));
-        let system = crate::assembly::assemble_system_prompt(&mounted, &local, &session.current_state);
-        let regex_rules: Vec<_> = mounted
-            .iter()
-            .filter(|d| d.def_type == crate::models::definition::DefinitionType::RegexRule)
-            .cloned()
-            .collect();
 
-        // 组装请求消息：system（若非空） + 历史（过滤隐藏） + 新 user。
-        let mut chat_messages: Vec<ChatMessage> = Vec::new();
-        if !system.is_empty() {
-            chat_messages.push(ChatMessage { role: Role::System, content: system });
-        }
-        chat_messages.extend(history.iter().filter(|m| !m.is_hidden).map(|m| ChatMessage {
-            role: m.role,
-            content: m.raw_content.clone(),
-        }));
-        chat_messages.push(ChatMessage { role: Role::User, content: user_text.clone() });
+        // 扫描窗口：最近 N 条（含将发送的 user）。
+        let scan_depth = 4usize;
+        let mut recent: Vec<String> = history
+            .iter()
+            .rev()
+            .take(scan_depth.saturating_sub(1))
+            .map(|m| m.raw_content.clone())
+            .collect();
+        recent.reverse();
+        recent.push(user_text.clone());
+
+        // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
+        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
+        let plan = crate::assembly::assemble_from_nodes(
+            &nodes,
+            &defs,
+            &local,
+            &session.current_state,
+            &recent,
+            true,
+            scan_depth,
+            &mut || rand::Rng::gen::<f64>(&mut rng),
+        );
+
+        // 真实历史（过滤隐藏）+ 本次 user，交给 build_chat_messages 按 history 节点拼装。
+        let mut hist_msgs: Vec<ChatMessage> = history
+            .iter()
+            .filter(|m| !m.is_hidden)
+            .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
+            .collect();
+        hist_msgs.push(ChatMessage { role: Role::User, content: user_text.clone() });
+
+        // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
+        let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
+        let include_history = plan.history_enabled || !has_history_node;
+        let chat_messages = crate::assembly::build_chat_messages(&plan, &hist_msgs, include_history);
+
+        // regex 规则：所有 regex_rule 定义（Settings 拥有，全局生效）。
+        let regex_rules: Vec<_> = match storage.list_definitions().await {
+            Ok(all) => all
+                .into_iter()
+                .filter(|d| d.def_type == crate::models::definition::DefinitionType::RegexRule)
+                .collect(),
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
 
         let prompt_text: String =
             chat_messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
@@ -210,15 +245,30 @@ mod tests {
 
     #[tokio::test]
     async fn assembled_system_is_sent() {
+        use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
+        use crate::models::template::Template;
         let storage = Arc::new(temp_storage().await);
-        let mut session = Session::new("t");
         let ch = crate::models::definition::Definition::new(
             crate::models::definition::DefinitionType::Char,
             "C",
             "I am {{who}}",
         );
         storage.create_definition(&ch).await.unwrap();
-        session.mounted_definitions = vec![ch.id.clone()];
+
+        // 模板树：char 容器 → ref(char)，再加 history 魔法节点。
+        let t = Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let f = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "char");
+        storage.create_node(&f).await.unwrap();
+        let r = PromptNode::new_ref(OwnerKind::Template, &t.id, Some(f.id.clone()), 0, &ch.id);
+        storage.create_node(&r).await.unwrap();
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        hist.kind = NodeKind::History;
+        hist.tag = None;
+        storage.create_node(&hist).await.unwrap();
+
+        let mut session = Session::new("t");
+        session.template_id = Some(t.id.clone());
         session.current_state = serde_json::json!({ "who": "Neo" });
         storage.create_session(&session).await.unwrap();
 
@@ -243,14 +293,17 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert_eq!(req.messages[0].role, Role::System);
-        assert!(req.messages[0].content.contains("<characters>"));
+        assert!(req.messages[0].content.contains("<char>"));
         assert!(req.messages[0].content.contains("I am Neo"));
+        // history 节点之后，本次 user 转发给 provider。
+        assert!(req.messages.iter().any(|m| m.role == Role::User && m.content == "hi"));
     }
 
     #[tokio::test]
     async fn regex_rule_sets_display_content() {
         let storage = Arc::new(temp_storage().await);
-        let mut session = Session::new("t");
+        let session = Session::new("t");
+        // regex 规则现在是全局的（Settings 拥有），无需挂载即生效。
         let mut rule = crate::models::definition::Definition::new(
             crate::models::definition::DefinitionType::RegexRule,
             "R",
@@ -258,7 +311,6 @@ mod tests {
         );
         rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
         storage.create_definition(&rule).await.unwrap();
-        session.mounted_definitions = vec![rule.id.clone()];
         storage.create_session(&session).await.unwrap();
 
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
