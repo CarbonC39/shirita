@@ -1,4 +1,4 @@
-import type { Definition, Message, PromptNode, Session, Template } from './types'
+import type { Definition, DefType, Message, PromptNode, Session, Template } from './types'
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
@@ -162,6 +162,33 @@ export async function updateNode(nodeId: string, body: { parent_id?: string | nu
 export async function deleteNode(nodeId: string): Promise<void> {
   const res = await fetch(`${BASE}/api/nodes/${nodeId}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`Delete node failed: ${res.status}`)
+}
+
+// --- Types (container type registry) ---
+export function listTypes(): Promise<DefType[]> { return apiGet<DefType[]>('/types') }
+
+export async function createType(body: { id: string; label: string; sort?: number }): Promise<DefType> {
+  const res = await fetch(`${BASE}/api/types`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Create type failed: ${res.status}`)
+  return res.json()
+}
+
+export async function deleteType(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/types/${id}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Delete type failed: ${res.status}`)
+}
+
+export async function reorderNodes(ownerKind: string, ownerId: string, orderedIds: string[]): Promise<void> {
+  const res = await fetch(`${BASE}/api/templates/${ownerId}/nodes/reorder?owner_kind=${ownerKind}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ordered_ids: orderedIds }),
+  })
+  if (!res.ok) throw new Error(`Reorder nodes failed: ${res.status}`)
 }
 
 // --- Settings ---
