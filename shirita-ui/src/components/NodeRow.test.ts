@@ -18,6 +18,20 @@ describe('NodeRow', () => {
     expect(w.emitted('delete')).toBeTruthy()
   })
 
+  it('folder rows show an add button beside delete and emit add', async () => {
+    const folder = node({ kind: 'folder', tag: 'char', definition_id: null })
+    const w = mount(NodeRow, { props: { node: folder, definitions: defs, depth: 0, isExpanded: false } })
+    const addBtn = w.find('[data-test="node-add"]')
+    expect(addBtn.exists()).toBe(true)
+    await addBtn.trigger('click')
+    expect(w.emitted('add')).toBeTruthy()
+  })
+
+  it('ref rows have no add button', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 0, isExpanded: false } })
+    expect(w.find('[data-test="node-add"]').exists()).toBe(false)
+  })
+
   it('history row shows the Chat history label and no delete button', () => {
     const h = node({ kind: 'history', definition_id: null, tag: null })
     const w = mount(NodeRow, { props: { node: h, definitions: defs, depth: 0, isExpanded: false } })

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown } from 'lucide-vue-next'
+import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
 import type { Definition, DefType } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -21,16 +21,29 @@ const emit = defineEmits<{
   duplicate: []
   import: []
   export: []
+  'create-type': [name: string]
+  'delete-type': [id: string]
 }>()
 
 const fullscreenOpen = ref(false)
 const open = ref(false)
 
 // Registered container types + the reserved `prompt`, tinted per the palette.
+// Builtin types can't be deleted; custom ones can.
 const typeChips = computed(() => [
-  ...props.types.map((t) => ({ id: t.id, label: t.label })),
-  { id: 'prompt', label: 'Prompt' },
+  ...props.types.map((t) => ({ id: t.id, label: t.label, builtin: t.builtin })),
+  { id: 'prompt', label: 'Prompt', builtin: true },
 ])
+
+const addingType = ref(false)
+const newTypeName = ref('')
+function confirmNewType() {
+  const name = newTypeName.value.trim()
+  if (!name) return
+  emit('create-type', name)
+  newTypeName.value = ''
+  addingType.value = false
+}
 const chipTint: Record<string, string> = {
   char: 'bg-sky/30 border-sky/40', persona: 'bg-coral/30 border-coral/40',
   world: 'bg-mauve/25 border-mauve/40', prompt: 'bg-line/60 border-line',
@@ -92,18 +105,44 @@ function startNew() {
       </div>
     </div>
 
-    <!-- type chips -->
+    <!-- type chips (with create / delete custom types) -->
     <div class="flex items-center gap-2 flex-wrap mb-3">
       <span class="text-[12px] text-muted">Type</span>
+      <span v-for="t in typeChips" :key="t.id" class="inline-flex items-center">
+        <button
+          data-test="type-chip"
+          :class="['text-[12px] rounded-full px-3 py-1 border transition-colors',
+                   definition.type === t.id ? (chipTint[t.id] || 'bg-line/60 border-line') + ' text-ink'
+                                            : 'text-muted border-line hover:text-ink']"
+          @click="emit('update:type', t.id)"
+        >{{ t.label }}</button>
+        <button
+          v-if="!t.builtin"
+          data-test="type-delete"
+          class="ml-0.5 text-muted/60 hover:text-coral transition-colors"
+          title="Delete type"
+          @click.stop="emit('delete-type', t.id)"
+        ><X :size="13" /></button>
+      </span>
+
       <button
-        v-for="t in typeChips"
-        :key="t.id"
-        data-test="type-chip"
-        :class="['text-[12px] rounded-full px-3 py-1 border transition-colors',
-                 definition.type === t.id ? (chipTint[t.id] || 'bg-line/60 border-line') + ' text-ink'
-                                          : 'text-muted border-line hover:text-ink']"
-        @click="emit('update:type', t.id)"
-      >{{ t.label }}</button>
+        v-if="!addingType"
+        data-test="type-new"
+        class="text-[12px] rounded-full px-2.5 py-1 border border-dashed border-line text-muted hover:text-primary hover:border-primary/40 transition-colors"
+        @click="addingType = true"
+      >+ Type</button>
+      <span v-else class="inline-flex items-center gap-1">
+        <input
+          v-model="newTypeName"
+          data-test="type-new-input"
+          type="text"
+          placeholder="New type…"
+          class="field w-[120px] !py-1 text-[12px]"
+          @keyup.enter="confirmNewType"
+        />
+        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">Add</button>
+        <button class="text-muted hover:text-ink" title="Cancel" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
+      </span>
     </div>
 
     <!-- world-book trigger (container types only) -->

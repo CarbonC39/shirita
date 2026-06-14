@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2 } from 'lucide-vue-next'
+import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2, Plus } from 'lucide-vue-next'
 import type { Definition, PromptNode, Trigger } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -13,7 +13,7 @@ const props = defineProps<{
   isExpanded: boolean
 }>()
 
-const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: []; updateTrigger: [trigger: Trigger] }>()
+const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: []; updateTrigger: [trigger: Trigger]; add: [] }>()
 
 const isFolder = computed(() => props.node.kind === 'folder')
 const isHistory = computed(() => props.node.kind === 'history')
@@ -70,6 +70,15 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       <FileText v-else :size="16" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
 
       <span :class="['truncate flex-1', isFolder ? 'font-semibold' : '', node.enabled ? 'text-ink' : 'text-muted']">{{ label }}</span>
+
+      <!-- add-to-container: lives beside delete, no extra row (containers only) -->
+      <button
+        v-if="isFolder"
+        data-test="node-add"
+        class="text-muted/70 hover:text-primary shrink-0 p-0.5 transition-colors"
+        title="Add to container"
+        @click.stop="emit('add')"
+      ><Plus :size="15" /></button>
 
       <!-- delete (history rows render none) -->
       <button

@@ -29,4 +29,24 @@ describe('DefinitionEditor type chips', () => {
     const chips = w.findAll('[data-test="type-chip"]').map((b) => b.text())
     expect(chips).toEqual(['Character', 'World', 'Prompt'])
   })
+
+  it('only offers delete on custom (non-builtin) types', () => {
+    const types = [
+      { id: 'char', label: 'Character', sort: 0, builtin: true, created_at: '' },
+      { id: 'faction', label: 'Faction', sort: 1, builtin: false, created_at: '' },
+    ]
+    const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types } })
+    // one delete button — for the custom 'faction' type only (char + prompt are builtin)
+    expect(w.findAll('[data-test="type-delete"]')).toHaveLength(1)
+  })
+
+  it('emits create-type with the typed name', async () => {
+    const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types: [] } })
+    await w.find('[data-test="type-new"]').trigger('click')
+    await w.find('[data-test="type-new-input"]').setValue('Faction')
+    await w.find('[data-test="type-new-input"]').trigger('keyup.enter')
+    expect(w.emitted('create-type')![0]).toEqual(['Faction'])
+  })
 })

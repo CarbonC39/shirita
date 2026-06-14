@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Plus, FileText, Folder } from 'lucide-vue-next'
+import { Plus, FileText, Folder, Search } from 'lucide-vue-next'
 import type { Definition, DefType, PromptNode, Trigger } from '../api/types'
 import NodeRow from './NodeRow.vue'
 import NodePicker from './NodePicker.vue'
@@ -12,7 +12,8 @@ const emit = defineEmits<{
   addRefToContainer: [parentId: string, definitionId: string]
   addContainer: [typeId: string]
   createNewInContainer: [parentId: string, typeId: string]
-  createNewPrompt: []
+  createNewPrompt: [name: string]
+  createType: [name: string]
   updateContent: [definitionId: string, content: string]
   updateTrigger: [definitionId: string, trigger: Trigger]
   deleteNode: [nodeId: string]
@@ -21,7 +22,10 @@ const emit = defineEmits<{
 
 const expanded = ref<Set<string>>(new Set())
 const activePickerParent = ref<string | undefined>(undefined)
-const rootMenu = ref<'closed' | 'menu' | 'addPrompt' | 'addContainer'>('closed')
+
+// Root add: a single search-first omnibox over prompts + container types.
+const rootOpen = ref(false)
+const omniQuery = ref('')
 
 const defMap = computed<Record<string, Definition>>(() => {
   const m: Record<string, Definition> = {}
@@ -42,15 +46,44 @@ const availableTypes = computed(() => props.types.filter((t) => !existingContain
 const promptDefs = computed(() => props.definitions.filter((d) => d.type === 'prompt'))
 function containerDefs(tag: string | null) { return props.definitions.filter((d) => d.type === tag) }
 
+// Combined, ranked omnibox list: container types first, then prompt definitions.
+type OmniItem = { kind: 'container' | 'prompt'; id: string; name: string }
+const omniItems = computed<OmniItem[]>(() => {
+  const containers: OmniItem[] = availableTypes.value.map((t) => ({ kind: 'container', id: t.id, name: t.label }))
+  const prompts: OmniItem[] = promptDefs.value.map((d) => ({ kind: 'prompt', id: d.id, name: d.name }))
+  let items = [...containers, ...prompts]
+  const q = omniQuery.value.trim().toLowerCase()
+  if (q) {
+    items = items
+      .filter((i) => i.name.toLowerCase().includes(q))
+      .sort((a, b) => Number(b.name.toLowerCase().startsWith(q)) - Number(a.name.toLowerCase().startsWith(q)))
+  }
+  return items
+})
+const trimmedQuery = computed(() => omniQuery.value.trim())
+
+function openRoot() {
+  rootOpen.value = !rootOpen.value
+  if (!rootOpen.value) omniQuery.value = ''
+}
+function closeRoot() { rootOpen.value = false; omniQuery.value = '' }
+function pickOmni(item: OmniItem) {
+  if (item.kind === 'prompt') emit('addPrompt', item.id)
+  else emit('addContainer', item.id)
+  closeRoot()
+}
+function newPrompt() { emit('createNewPrompt', trimmedQuery.value); closeRoot() }
+function newType() { emit('createType', trimmedQuery.value); closeRoot() }
+
 function isExpanded(id: string) { return expanded.value.has(id) }
 function toggleExpand(id: string) {
   if (expanded.value.has(id)) expanded.value.delete(id)
   else expanded.value.add(id)
 }
-function openPicker(parentId: string) {
-  activePickerParent.value = activePickerParent.value === parentId ? undefined : parentId
+function onFolderAdd(id: string) {
+  expanded.value.add(id)
+  activePickerParent.value = activePickerParent.value === id ? undefined : id
 }
-function toggleRootMenu() { rootMenu.value = rootMenu.value === 'closed' ? 'menu' : 'closed' }
 
 // native HTML5 drag-reorder, restricted to siblings of the same parent.
 const dragId = ref<string | null>(null)
@@ -91,12 +124,13 @@ function onDrop(targetId: string) {
         :is-expanded="isExpanded(node.id)"
         @toggle-enabled="emit('toggleEnabled', node.id)"
         @toggle-expand="toggleExpand(node.id)"
+        @add="onFolderAdd(node.id)"
         @update-content="(c) => node.definition_id && emit('updateContent', node.definition_id, c)"
         @update-trigger="(t) => node.definition_id && emit('updateTrigger', node.definition_id, t)"
         @delete="emit('deleteNode', node.id)"
       />
 
-      <!-- folder children + contextual add -->
+      <!-- folder children + contextual picker (opened from the row's + button) -->
       <template v-if="node.kind === 'folder' && isExpanded(node.id)">
         <div
           v-for="child in getChildren(node.id)"
@@ -119,61 +153,62 @@ function onDrop(targetId: string) {
             @delete="emit('deleteNode', child.id)"
           />
         </div>
-        <button
-          class="flex items-center gap-2 py-1.5 pl-[34px] text-[13px] text-muted hover:text-primary"
-          @click="openPicker(node.id)"
-        >
-          <Plus :size="15" /> Add to {{ node.tag }}
-        </button>
-        <div v-if="activePickerParent === node.id" class="pl-[34px] pr-2 pb-2">
-          <NodePicker
-            :definitions="containerDefs(node.tag)"
-            :filter-type="node.tag"
-            :types="types"
-            @select="(id) => { emit('addRefToContainer', node.id, id); activePickerParent = undefined }"
-            @create-new="() => { emit('createNewInContainer', node.id, node.tag as string); activePickerParent = undefined }"
-          />
-        </div>
+        <transition name="expand">
+          <div v-if="activePickerParent === node.id" class="pl-[34px] pr-2 pb-2 pt-1">
+            <NodePicker
+              :definitions="containerDefs(node.tag)"
+              :filter-type="node.tag"
+              :types="types"
+              @select="(id) => { emit('addRefToContainer', node.id, id); activePickerParent = undefined }"
+              @create-new="() => { emit('createNewInContainer', node.id, node.tag as string); activePickerParent = undefined }"
+            />
+          </div>
+        </transition>
       </template>
     </div>
 
-    <!-- root add -->
-    <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary" @click="toggleRootMenu">
+    <!-- root add: one omnibox for prompts + containers -->
+    <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary transition-colors" @click="openRoot">
       <Plus :size="16" /> Add node
     </button>
 
-    <div v-if="rootMenu === 'menu'" class="px-2 pb-1 flex gap-1.5">
-      <button
-        data-test="add-prompt"
-        class="flex items-center gap-1.5 px-2.5 py-1 text-[12.5px] rounded-lg border border-line text-muted hover:text-primary hover:border-primary/30"
-        @click="rootMenu = 'addPrompt'"
-      ><FileText :size="14" /> Add prompt</button>
-      <button
-        data-test="add-container"
-        class="flex items-center gap-1.5 px-2.5 py-1 text-[12.5px] rounded-lg border border-line text-muted hover:text-primary hover:border-primary/30"
-        @click="rootMenu = 'addContainer'"
-      ><Folder :size="14" /> Add container</button>
-    </div>
+    <transition name="expand">
+      <div v-if="rootOpen" data-test="root-omnibox" class="px-2 pb-2">
+        <div class="border border-line rounded-[10px] bg-surface/60 overflow-hidden">
+          <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
+            <Search :size="15" class="text-muted shrink-0" />
+            <input
+              v-model="omniQuery"
+              data-test="omni-input"
+              type="text"
+              placeholder="Type to add a prompt or container…"
+              class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/60"
+            />
+          </div>
+          <button
+            v-for="item in omniItems"
+            :key="item.kind + ':' + item.id"
+            data-test="omni-item"
+            class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white transition-colors"
+            @click="pickOmni(item)"
+          >
+            <Folder v-if="item.kind === 'container'" :size="15" class="text-mauve shrink-0" :stroke-width="1.8" />
+            <FileText v-else :size="15" class="text-muted shrink-0" :stroke-width="1.8" />
+            <span class="flex-1 text-[13.5px] text-ink truncate">{{ item.name }}</span>
+            <span class="text-[11px] text-muted/70 lowercase">{{ item.kind }}</span>
+          </button>
+          <p v-if="omniItems.length === 0 && !trimmedQuery" class="px-3 py-2 text-[12px] text-muted/70">No prompts or container types yet — type a name to create one.</p>
 
-    <div v-if="rootMenu === 'addPrompt'" class="px-2 pb-1">
-      <NodePicker
-        :definitions="promptDefs"
-        :filter-type="'prompt'"
-        :types="types"
-        @select="(id) => { emit('addPrompt', id); rootMenu = 'closed' }"
-        @create-new="() => { emit('createNewPrompt'); rootMenu = 'closed' }"
-      />
-    </div>
-
-    <div v-if="rootMenu === 'addContainer'" class="px-2 pb-2 flex flex-wrap gap-1.5">
-      <button
-        v-for="t in availableTypes"
-        :key="t.id"
-        data-test="container-type-option"
-        class="px-2.5 py-1 text-[12px] rounded-full border border-line text-muted hover:text-primary hover:border-primary/30"
-        @click="emit('addContainer', t.id); rootMenu = 'closed'"
-      >{{ t.label }}</button>
-      <span v-if="availableTypes.length === 0" class="text-[12px] text-muted/70">All container types added</span>
-    </div>
+          <template v-if="trimmedQuery">
+            <button data-test="omni-new-prompt" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink" @click="newPrompt">
+              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New prompt “{{ trimmedQuery }}”</span>
+            </button>
+            <button data-test="omni-new-type" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-white transition-colors text-ink" @click="newType">
+              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New container type “{{ trimmedQuery }}”</span>
+            </button>
+          </template>
+        </div>
+      </div>
+    </transition>
   </div>
 </template>
