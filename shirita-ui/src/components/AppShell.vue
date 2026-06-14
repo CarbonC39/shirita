@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
 import { useUiStore } from '../stores/ui'
@@ -12,9 +12,19 @@ const section = computed(() => {
   return 'chat'
 })
 
-// Inside a conversation the chat icon stays on that conversation rather than
-// jumping to the list — the logo (and the in-chat back arrow) lead home.
-const chatTo = computed(() => (route.name === 'chat' ? route.fullPath : '/'))
+// Remember the conversation you're "in": set on entering a chat, kept while you
+// browse Book/Settings, cleared when you return to the list. So the Chat icon
+// reopens that conversation from anywhere — until you leave it for home.
+const activeChatId = ref<string | null>(null)
+watch(
+  () => route.fullPath,
+  () => {
+    if (route.name === 'chat') activeChatId.value = route.params.id as string
+    else if (route.path === '/') activeChatId.value = null
+  },
+  { immediate: true },
+)
+const chatTo = computed(() => (activeChatId.value ? `/chat/${activeChatId.value}` : '/'))
 
 type Crumb = { label: string; to?: string }
 const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])

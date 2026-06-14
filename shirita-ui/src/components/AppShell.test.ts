@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import AppShell from './AppShell.vue'
@@ -60,6 +60,39 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
     const chatLink = wrapper.findAll('nav a')[0]
     expect(chatLink.attributes('href')).toBe('/')
+  })
+
+  it('keeps the chat icon on the conversation while you browse book and settings', async () => {
+    const router = makeRouter()
+    router.push('/chat/abc')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    const chatLink = () => wrapper.findAll('nav a')[0]
+    expect(chatLink().attributes('href')).toContain('/chat/abc')
+
+    router.push('/book')
+    await flushPromises()
+    expect(chatLink().attributes('href')).toContain('/chat/abc')
+
+    router.push('/settings')
+    await flushPromises()
+    expect(chatLink().attributes('href')).toContain('/chat/abc')
+  })
+
+  it('forgets the conversation once you return to the list', async () => {
+    const router = makeRouter()
+    router.push('/chat/abc')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    const chatLink = () => wrapper.findAll('nav a')[0]
+
+    router.push('/')
+    await flushPromises()
+    expect(chatLink().attributes('href')).toBe('/')
+
+    router.push('/settings')
+    await flushPromises()
+    expect(chatLink().attributes('href')).toBe('/')
   })
 
   it('has no footer', async () => {
