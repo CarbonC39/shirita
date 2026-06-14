@@ -38,13 +38,24 @@ async function addRefToContainer(parentId: string, definitionId: string) {
   if (!selectedTemplateId.value) return
   try { await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
 }
-async function createNewPrompt() {
+async function createNewPrompt(name: string) {
   if (!selectedTemplateId.value) return
   try {
-    const def = await createDefinition({ type: 'prompt', name: 'New prompt', content: '', meta: {} })
+    const def = await createDefinition({ type: 'prompt', name: name?.trim() || 'New prompt', content: '', meta: {} })
     await library.loadDefinitions()
     await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: def.id })
     await reload()
+  } catch (e) { error.value = (e as Error).message }
+}
+function slugifyType(name: string) {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug || `type-${Date.now().toString(36)}`
+}
+async function createType(name: string) {
+  if (!selectedTemplateId.value || !name.trim()) return
+  try {
+    const created = await library.addType(slugifyType(name), name.trim())
+    await addContainer(created.id)
   } catch (e) { error.value = (e as Error).message }
 }
 async function createNewInContainer(parentId: string, typeId: string) {
@@ -110,7 +121,7 @@ async function createChat() {
     <p class="text-[13px] text-muted mb-6">Choose a prompt template and configure the tree.</p>
     <div class="mb-4">
       <label class="text-[13px] text-muted mb-1.5 block">Template</label>
-      <select :value="selectedTemplateId" class="w-full border border-line rounded-lg px-3 py-2 text-[14px] bg-white outline-none focus:border-primary/50" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
+      <select :value="selectedTemplateId" class="field w-full" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
         <option :value="null">None (start empty)</option>
         <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
@@ -118,7 +129,7 @@ async function createChat() {
     <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" :types="library.containerTypes"
       @toggle-enabled="handleToggleEnabled"
       @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
-      @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
+      @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer" @create-type="createType"
       @update-content="handleUpdateContent" @update-trigger="handleUpdateTrigger" @delete-node="handleDeleteNode" @reorder="handleReorder" />
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
     <div class="mt-8">

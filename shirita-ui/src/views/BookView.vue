@@ -65,14 +65,35 @@ async function addRefToContainer(parentId: string, definitionId: string) {
   if (!selectedTemplateId.value) return
   try { await createNode('template', selectedTemplateId.value, { parent_id: parentId, kind: 'ref', definition_id: definitionId }); await reload() } catch (e) { error.value = (e as Error).message }
 }
-async function createNewPrompt() {
+async function createNewPrompt(name: string) {
   if (!selectedTemplateId.value) return
   try {
-    const def = await createDefinition({ type: 'prompt', name: 'New prompt', content: '', meta: {} })
+    const def = await createDefinition({ type: 'prompt', name: name?.trim() || 'New prompt', content: '', meta: {} })
     await library.loadDefinitions()
     await createNode('template', selectedTemplateId.value, { parent_id: null, kind: 'ref', definition_id: def.id })
     await reload()
   } catch (e) { error.value = (e as Error).message }
+}
+function slugifyType(name: string) {
+  const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+  return slug || `type-${Date.now().toString(36)}`
+}
+async function createType(name: string) {
+  if (!selectedTemplateId.value || !name.trim()) return
+  try {
+    const created = await library.addType(slugifyType(name), name.trim())
+    await addContainer(created.id)
+  } catch (e) { error.value = (e as Error).message }
+}
+async function createTypeFromEditor(name: string) {
+  if (!name.trim()) return
+  try { await library.addType(slugifyType(name), name.trim()) } catch (e) { error.value = (e as Error).message }
+}
+async function deleteTypeFromEditor(id: string) {
+  const inUse = library.definitions.some((d) => d.type === id)
+  const msg = inUse ? `Delete type "${id}"? Definitions using it will keep the type id but it won't be selectable.` : `Delete type "${id}"?`
+  if (!confirm(msg)) return
+  try { await library.removeType(id) } catch (e) { error.value = (e as Error).message }
 }
 async function createNewInContainer(parentId: string, typeId: string) {
   if (!selectedTemplateId.value) return
@@ -157,7 +178,7 @@ async function duplicateDef() {
       <PromptTree v-if="selectedTemplateId" :nodes="nodes" :definitions="library.definitions" :types="library.containerTypes"
         @toggle-enabled="handleToggleEnabled"
         @add-prompt="addPrompt" @add-container="addContainer" @add-ref-to-container="addRefToContainer"
-        @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer"
+        @create-new-prompt="createNewPrompt" @create-new-in-container="createNewInContainer" @create-type="createType"
         @update-content="handleUpdateContent" @update-trigger="handleUpdateTrigger" @delete-node="handleDeleteNode" @reorder="handleReorder" />
       <p v-else class="text-muted text-[13px] py-4">Select or create a template to edit its node tree.</p>
 
@@ -175,6 +196,8 @@ async function duplicateDef() {
         @save="saveDefinition"
         @delete="deleteDef"
         @duplicate="duplicateDef"
+        @create-type="createTypeFromEditor"
+        @delete-type="deleteTypeFromEditor"
       />
 
       <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>

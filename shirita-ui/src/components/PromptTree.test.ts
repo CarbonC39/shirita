@@ -16,23 +16,46 @@ function n(p: Partial<PromptNode>): PromptNode {
     kind: 'ref', tag: null, definition_id: null, enabled: true, created_at: '', ...p }
 }
 
-describe('PromptTree add flows', () => {
-  it('Add container lists only types without an existing container', async () => {
+describe('PromptTree omnibox add flow', () => {
+  it('lists container types and prompt defs together, excluding added containers', async () => {
     const nodes = [n({ id: 'f-char', kind: 'folder', tag: 'char', definition_id: null })]
     const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
     await w.find('[data-test="root-add"]').trigger('click')
-    await w.find('[data-test="add-container"]').trigger('click')
-    // char already has a container → only world offered
-    const labels = w.findAll('[data-test="container-type-option"]').map((b) => b.text())
-    expect(labels).toEqual(['World'])
+    // char container already exists → world (container) + Main (prompt)
+    const items = w.findAll('[data-test="omni-item"]').map((b) => b.text())
+    expect(items.some((t) => t.includes('World'))).toBe(true)
+    expect(items.some((t) => t.includes('Main'))).toBe(true)
+    expect(items.some((t) => t.includes('Character'))).toBe(false)
   })
 
-  it('Add container emits addContainer with the chosen type', async () => {
+  it('emits addContainer when a container item is chosen', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
     await w.find('[data-test="root-add"]').trigger('click')
-    await w.find('[data-test="add-container"]').trigger('click')
-    await w.findAll('[data-test="container-type-option"]')[0].trigger('click')
+    // containers come first: [Character, World], then prompt [Main]
+    await w.findAll('[data-test="omni-item"]')[0].trigger('click')
     expect(w.emitted('addContainer')![0]).toEqual(['char'])
+  })
+
+  it('emits addPrompt when a prompt item is chosen', async () => {
+    const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
+    await w.find('[data-test="root-add"]').trigger('click')
+    const main = w.findAll('[data-test="omni-item"]').find((b) => b.text().includes('Main'))!
+    await main.trigger('click')
+    expect(w.emitted('addPrompt')![0]).toEqual(['p1'])
+  })
+
+  it('typing offers create rows that carry the query', async () => {
+    const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
+    await w.find('[data-test="root-add"]').trigger('click')
+    await w.find('[data-test="omni-input"]').setValue('wor')
+    await w.find('[data-test="omni-new-prompt"]').trigger('click')
+    expect(w.emitted('createNewPrompt')![0]).toEqual(['wor'])
+
+    const w2 = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
+    await w2.find('[data-test="root-add"]').trigger('click')
+    await w2.find('[data-test="omni-input"]').setValue('Lore')
+    await w2.find('[data-test="omni-new-type"]').trigger('click')
+    expect(w2.emitted('createType')![0]).toEqual(['Lore'])
   })
 })
 

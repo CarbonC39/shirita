@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Definition, Template, DefType } from '../api/types'
-import { listDefinitions, listTemplates, listTypes, createType as apiCreateType } from '../api/client'
+import { listDefinitions, listTemplates, listTypes, createType as apiCreateType, deleteType as apiDeleteType } from '../api/client'
 
 export const useLibraryStore = defineStore('library', () => {
   const definitions = ref<Definition[]>([])
@@ -28,11 +28,16 @@ export const useLibraryStore = defineStore('library', () => {
     return created
   }
 
+  async function removeType(id: string) {
+    await apiDeleteType(id)
+    containerTypes.value = containerTypes.value.filter((t) => t.id !== id)
+  }
+
   async function loadAll() {
     loading.value = true; error.value = null
     try { await Promise.all([loadDefinitions(), loadTemplates(), loadTypes()]) } catch (e) { error.value = (e as Error).message }
     finally { loading.value = false }
   }
 
-  return { definitions, templates, containerTypes, loading, error, loadDefinitions, loadTemplates, loadTypes, addType, loadAll }
+  return { definitions, templates, containerTypes, loading, error, loadDefinitions, loadTemplates, loadTypes, addType, removeType, loadAll }
 })
