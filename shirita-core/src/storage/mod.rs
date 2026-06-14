@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use std::collections::HashMap;
 
+use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
 use crate::models::message::Message;
 use crate::models::prompt_node::{OwnerKind, PromptNode};
@@ -58,4 +59,10 @@ pub trait Storage: Send + Sync {
     async fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()>;
     async fn list_settings(&self) -> Result<Vec<(String, serde_json::Value)>>;
     async fn delete_setting(&self, key: &str) -> Result<()>;
+
+    // --- def types (container type registry) ---
+    /// 列出容器类型（按 sort 升序）。
+    async fn list_container_types(&self) -> Result<Vec<DefType>>;
+    async fn create_def_type(&self, ty: &DefType) -> Result<()>;
+    async fn delete_def_type(&self, id: &str) -> Result<()>;
 }
