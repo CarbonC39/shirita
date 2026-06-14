@@ -165,6 +165,7 @@ async function duplicateDef() {
         @update:name="editDef.name = $event"
         @update:type="editDef.type = $event as Definition['type']"
         @update:content="editDef.content = $event"
+        @update:meta="editDef.meta = $event"
         @save="saveDefinition"
         @delete="deleteDef"
         @duplicate="duplicateDef"
