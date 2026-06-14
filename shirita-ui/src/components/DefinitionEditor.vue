@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown } from 'lucide-vue-next'
-import type { Definition } from '../api/types'
+import type { Definition, DefType } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
 
-const props = defineProps<{ definition: Definition; allDefinitions: Definition[] }>()
+const props = withDefaults(
+  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[] }>(),
+  { types: () => [] },
+)
 const emit = defineEmits<{
   'select-definition': [id: string]
   'update:content': [content: string]
@@ -23,7 +26,15 @@ const emit = defineEmits<{
 const fullscreenOpen = ref(false)
 const open = ref(false)
 
-const typeChips = ['char', 'persona', 'world', 'item', 'prompt']
+// Registered container types + the reserved `prompt`, tinted per the palette.
+const typeChips = computed(() => [
+  ...props.types.map((t) => ({ id: t.id, label: t.label })),
+  { id: 'prompt', label: 'Prompt' },
+])
+const chipTint: Record<string, string> = {
+  char: 'bg-sky/30 border-sky/40', persona: 'bg-coral/30 border-coral/40',
+  world: 'bg-mauve/25 border-mauve/40', prompt: 'bg-line/60 border-line',
+}
 
 const matches = computed(() => {
   const q = props.definition.name.trim().toLowerCase()
@@ -86,11 +97,13 @@ function startNew() {
       <span class="text-[12px] text-muted">Type</span>
       <button
         v-for="t in typeChips"
-        :key="t"
+        :key="t.id"
+        data-test="type-chip"
         :class="['text-[12px] rounded-full px-3 py-1 border transition-colors',
-                 definition.type === t ? 'bg-line/60 text-ink border-line' : 'text-muted border-line hover:text-ink']"
-        @click="emit('update:type', t)"
-      >{{ t }}</button>
+                 definition.type === t.id ? (chipTint[t.id] || 'bg-line/60 border-line') + ' text-ink'
+                                          : 'text-muted border-line hover:text-ink']"
+        @click="emit('update:type', t.id)"
+      >{{ t.label }}</button>
     </div>
 
     <!-- world-book trigger (container types only) -->
