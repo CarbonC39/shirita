@@ -2,7 +2,9 @@
 import { ref, computed } from 'vue'
 import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown } from 'lucide-vue-next'
 import type { Definition } from '../api/types'
+import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
+import TriggerEditor from './TriggerEditor.vue'
 
 const props = defineProps<{ definition: Definition; allDefinitions: Definition[] }>()
 const emit = defineEmits<{
@@ -10,6 +12,7 @@ const emit = defineEmits<{
   'update:content': [content: string]
   'update:name': [name: string]
   'update:type': [type: string]
+  'update:meta': [meta: Record<string, unknown>]
   save: []
   delete: []
   duplicate: []
@@ -88,6 +91,14 @@ function startNew() {
                  definition.type === t ? 'bg-line/60 text-ink border-line' : 'text-muted border-line hover:text-ink']"
         @click="emit('update:type', t)"
       >{{ t }}</button>
+    </div>
+
+    <!-- world-book trigger (container types only) -->
+    <div v-if="!['prompt','regex_rule','tool'].includes(definition.type)" class="mb-3">
+      <TriggerEditor
+        :model-value="triggerFromMeta(definition.meta)"
+        @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
+      />
     </div>
 
     <!-- content -->
