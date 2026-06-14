@@ -4,6 +4,7 @@ pub mod assembly;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod keyword;
 pub mod model;
 pub mod models;
 pub mod storage;
