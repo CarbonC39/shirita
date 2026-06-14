@@ -11,8 +11,8 @@ pub mod storage;
 pub mod tokenizer;
 
 pub use assembly::{
-    apply_regex_rules, assemble_from_nodes, assemble_system_prompt, build_chat_messages,
-    render_vars, AssembledPlan, Placement, PromptSegment,
+    apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, AssembledPlan,
+    Placement, PromptSegment,
 };
 pub use config::Config;
 pub use conversation::{send_message, SendEvent};

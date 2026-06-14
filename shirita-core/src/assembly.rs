@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::keyword::KeywordIndex;
 use crate::model::ChatMessage;
-use crate::models::definition::{Definition, DefinitionType};
+use crate::models::definition::Definition;
 use crate::models::message::Role;
 use crate::models::prompt_node::{NodeKind, PromptNode};
 
@@ -120,15 +120,6 @@ pub fn activate(
     active
 }
 
-/// 取定义的"有效内容"：若 local_overrides 含该 id 则用覆盖文本，否则用全局 content。
-fn effective_content(def: &Definition, local_overrides: &serde_json::Value) -> String {
-    local_overrides
-        .get(&def.id)
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| def.content.clone())
-}
-
 /// 用 state 渲染 `{{var}}`；未知键保留原占位符。
 pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
     let re = regex::Regex::new(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}").unwrap();
@@ -142,47 +133,6 @@ pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
         }
     })
     .into_owned()
-}
-
-/// type → 封包标签；返回 None 表示不进 system（regex_rule/tool）。
-fn wrap_tag(t: &DefinitionType) -> Option<&'static str> {
-    match t {
-        DefinitionType::Persona => Some("personas"),
-        DefinitionType::Char => Some("characters"),
-        DefinitionType::World => Some("world_rules"),
-        DefinitionType::Item => Some("items"),
-        DefinitionType::Prompt => Some("prompts"),
-        DefinitionType::RegexRule | DefinitionType::Tool => None,
-    }
-}
-
-/// 组装 system 文本：按固定 type 顺序分组，每组用 `<tag>…</tag>` 包裹，组内按挂载顺序拼接。
-pub fn assemble_system_prompt(
-    mounted: &[Definition],
-    local_overrides: &serde_json::Value,
-    state: &serde_json::Value,
-) -> String {
-    // 固定分组顺序。
-    let order = [
-        DefinitionType::Persona,
-        DefinitionType::Char,
-        DefinitionType::World,
-        DefinitionType::Item,
-        DefinitionType::Prompt,
-    ];
-    let mut blocks: Vec<String> = Vec::new();
-    for group in order {
-        let tag = wrap_tag(&group).unwrap();
-        let bodies: Vec<String> = mounted
-            .iter()
-            .filter(|d| d.def_type == group)
-            .map(|d| render_vars(&effective_content(d, local_overrides), state))
-            .collect();
-        if !bodies.is_empty() {
-            blocks.push(format!("<{tag}>\n{}\n</{tag}>", bodies.join("\n")));
-        }
-    }
-    blocks.join("\n")
 }
 
 /// 依挂载顺序对文本应用 regex_rule（meta: {pattern, replacement}）。无规则返回 None。
@@ -347,9 +297,10 @@ pub fn assemble_from_nodes(
 
 /// 段 + 真实历史 → provider 消息数组；末了合并相邻同角色。
 ///
-/// before-history 段作为 system 注入历史之前，after-history 段注入历史之后；
-/// `history_enabled`（调用方意图）与 `plan.history_enabled`（树是否含启用的 history
-/// 节点）皆为真时才插入真实历史，否则只输出 system 段。
+/// before-history 段作为 system 注入历史之前，after-history 段注入历史之后。
+/// 落点切分已编码在各段的 `placement` 里（启用的 history 节点会把后续段切到
+/// after），故此处只按调用方意图 `history_enabled` 决定是否编入真实历史：无
+/// history 节点时全部段都是 before，历史自然追加其后。
 pub fn build_chat_messages(
     plan: &AssembledPlan,
     history: &[ChatMessage],
@@ -363,7 +314,7 @@ pub fn build_chat_messages(
     for s in plan.segments.iter().filter(|s| s.placement == Placement::BeforeHistory) {
         push_sys(&mut out, &s.content);
     }
-    if history_enabled && plan.history_enabled {
+    if history_enabled {
         out.extend(history.iter().cloned());
     }
     for s in plan.segments.iter().filter(|s| s.placement == Placement::AfterHistory) {
@@ -402,29 +353,6 @@ mod tests {
             render_vars("Hi {{name}}, hp={{hp}} {{missing}}", &s),
             "Hi Alice, hp=80 {{missing}}"
         );
-    }
-
-    #[test]
-    fn assemble_groups_in_order_with_tags() {
-        let mounted = vec![
-            def(DefinitionType::World, "w", "rule1"),
-            def(DefinitionType::Char, "c", "I am {{name}}"),
-            def(DefinitionType::RegexRule, "r", "ignored"),
-        ];
-        let out = assemble_system_prompt(&mounted, &json!({}), &json!({ "name": "Bob" }));
-        assert!(out.contains("<characters>\nI am Bob\n</characters>"));
-        assert!(out.contains("<world_rules>\nrule1\n</world_rules>"));
-        assert!(out.find("<characters>").unwrap() < out.find("<world_rules>").unwrap());
-        assert!(!out.contains("ignored"));
-    }
-
-    #[test]
-    fn local_override_replaces_content() {
-        let d = def(DefinitionType::Char, "c", "global");
-        let overrides = json!({ d.id.clone(): "overridden" });
-        let out = assemble_system_prompt(std::slice::from_ref(&d), &overrides, &json!({}));
-        assert!(out.contains("overridden"));
-        assert!(!out.contains("global"));
     }
 
     #[test]
