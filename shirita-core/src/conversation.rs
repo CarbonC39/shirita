@@ -171,6 +171,65 @@ pub fn send_message(
     }
 }
 
+/// Regenerate a fresh assistant reply as a *sibling* of `target_id` (same
+/// parent), then point the active leaf at it. The target must be an assistant
+/// message.
+pub fn regenerate(
+    storage: Arc<dyn Storage>,
+    provider: Arc<dyn ModelProvider>,
+    _counter: Arc<dyn TokenCounter>,
+    model: String,
+    session_id: String,
+    target_id: String,
+) -> impl Stream<Item = SendEvent> {
+    async_stream::stream! {
+        let session = match storage.get_session(&session_id).await {
+            Ok(Some(s)) => s,
+            Ok(None) => { yield SendEvent::Error("session not found".into()); return; }
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+        let all = match storage.list_messages(&session_id).await {
+            Ok(h) => h,
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+        let target = match all.iter().find(|m| m.id == target_id) {
+            Some(m) if m.role == Role::Assistant => m.clone(),
+            _ => { yield SendEvent::Error("regenerate target must be an assistant message".into()); return; }
+        };
+        // context = path root→(target's parent = the user turn that prompted it)
+        let path = crate::tree::active_path(&all, target.parent_id.as_deref());
+        let context: Vec<ChatMessage> = path
+            .iter()
+            .filter(|m| !m.is_hidden)
+            .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
+            .collect();
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context).await {
+            Ok(r) => r,
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+
+        let mut full = String::new();
+        let mut stream = match provider.stream_chat(req).await {
+            Ok(s) => s,
+            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        };
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(delta) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
+                Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+            }
+        }
+        let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
+        sibling.display_content = crate::assembly::apply_regex_rules(&full, &regex_rules);
+        if let Err(e) = storage.create_message(&sibling).await {
+            yield SendEvent::Error(e.to_string());
+            return;
+        }
+        let _ = storage.set_session_active_leaf(&session_id, Some(&sibling.id)).await;
+        yield SendEvent::Done { message_id: sibling.id };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

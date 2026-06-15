@@ -66,6 +66,14 @@ async fn messages(state: &AppState, sid: &str) -> Value {
     json(&out)
 }
 
+// read a session's active_leaf_id from the session list (no single-session GET)
+async fn active_leaf(state: &AppState, sid: &str) -> Option<String> {
+    let (_, out) = send(state, "GET", "/api/sessions", None).await;
+    json(&out).as_array().unwrap().iter()
+        .find(|s| s["id"] == sid)
+        .and_then(|s| s["active_leaf_id"].as_str().map(|x| x.to_string()))
+}
+
 #[tokio::test]
 async fn edit_overwrites_in_place_and_recomputes_display() {
     let state = test_state().await;
@@ -118,4 +126,30 @@ async fn active_leaf_switch_descends_to_deepest_leaf() {
     let assistant_a = after.as_array().unwrap().iter()
         .find(|m| m["role"] == "assistant").unwrap()["id"].as_str().unwrap().to_string();
     assert_eq!(json(&out)["active_leaf_id"], assistant_a);
+}
+
+#[tokio::test]
+async fn regenerate_creates_a_sibling_and_switches_to_it() {
+    let state = test_state().await;
+    let sid = create(&state, "Chat").await;
+    turn(&state, &sid, "hi").await;
+    let msgs = messages(&state, &sid).await;
+    let assistant = msgs.as_array().unwrap().iter().find(|m| m["role"] == "assistant").unwrap();
+    let aid = assistant["id"].as_str().unwrap().to_string();
+    let parent = assistant["parent_id"].as_str().unwrap().to_string();
+
+    let (st, body) = send(&state, "POST",
+        &format!("/api/sessions/{sid}/messages/{aid}/regenerate"), Some("{}")).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(body.contains(r#""type":"done""#));
+
+    let after = messages(&state, &sid).await;
+    let assistants: Vec<_> = after.as_array().unwrap().iter()
+        .filter(|m| m["role"] == "assistant").collect();
+    assert_eq!(assistants.len(), 2); // original + regenerated sibling
+    // both share the same parent (the user message)
+    assert!(assistants.iter().all(|m| m["parent_id"] == parent.as_str()));
+    // session active leaf is the new sibling (not the original)
+    let leaf = active_leaf(&state, &sid).await.unwrap();
+    assert_ne!(leaf, aid);
 }

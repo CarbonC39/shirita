@@ -18,7 +18,7 @@ pub use assembly::{
     Placement, PromptSegment,
 };
 pub use config::Config;
-pub use conversation::{send_message, SendEvent};
+pub use conversation::{regenerate, send_message, SendEvent};
 pub use error::{Error, Result};
 pub use model::{ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider};
 pub use adapters::charcard::{charcard_to_defs, def_to_charcard};

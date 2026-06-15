@@ -7,7 +7,7 @@ use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
 
-use shirita_core::{send_message, SendEvent};
+use shirita_core::{regenerate, send_message, SendEvent};
 
 use crate::AppState;
 
@@ -39,5 +39,28 @@ pub async fn send(
         Ok(Event::default().data(payload.to_string()))
     });
 
+    Sse::new(sse)
+}
+
+pub async fn regenerate_message(
+    State(state): State<AppState>,
+    Path((session_id, msg_id)): Path<(String, String)>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let events = regenerate(
+        state.storage.clone(),
+        state.provider.clone(),
+        state.token_counter.clone(),
+        state.model.clone(),
+        session_id,
+        msg_id,
+    );
+    let sse = events.map(|ev| {
+        let payload = match ev {
+            SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
+            SendEvent::Done { message_id } => json!({ "type": "done", "message_id": message_id }),
+            SendEvent::Error(message) => json!({ "type": "error", "message": message }),
+        };
+        Ok(Event::default().data(payload.to_string()))
+    });
     Sse::new(sse)
 }
