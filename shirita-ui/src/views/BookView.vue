@@ -21,6 +21,7 @@ import {
     setLocalDefinition,
     clearLocalDefinition,
     promoteLocalDefinition,
+    materializeNodes,
 } from "../api/client";
 import type { PromptNode, Definition, Trigger, Session } from "../api/types";
 import PromptTree from "../components/PromptTree.vue";
@@ -149,6 +150,158 @@ async function revertLocal(defId: string) {
     } catch (e) {
         error.value = (e as Error).message;
     }
+}
+
+// Merge a field patch into the local override for `defId` (keeps other fields).
+async function setLocalPatch(defId: string, fields: Record<string, unknown>) {
+    if (!ui.activeChatId) return;
+    try {
+        const existing = localDefs.value[defId] ?? {};
+        await setLocalDefinition(ui.activeChatId, defId, { ...existing, ...fields });
+        await loadLocal();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+
+// ── local template tree (session-owned, copy-on-write) ─────
+const localNodes = ref<PromptNode[]>([]);
+async function loadLocalNodes() {
+    if (!ui.activeChatId) {
+        localNodes.value = [];
+        return;
+    }
+    try {
+        localNodes.value = await listNodes("session", ui.activeChatId);
+    } catch {
+        localNodes.value = [];
+    }
+}
+watch(() => ui.activeChatId, loadLocalNodes, { immediate: true });
+
+// First structural edit copies the template tree into the session (idempotent).
+async function ensureMaterialized() {
+    if (!ui.activeChatId) return;
+    if (localNodes.value.length === 0) {
+        await materializeNodes(ui.activeChatId);
+        await loadLocalNodes();
+    }
+}
+
+async function localAddPrompt(definitionId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        await createNode("session", sid, { parent_id: null, kind: "ref", definition_id: definitionId });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localAddContainer(typeId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        await createNode("session", sid, { parent_id: null, kind: "folder", tag: typeId });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localAddRefToContainer(parentId: string, definitionId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        await createNode("session", sid, { parent_id: parentId, kind: "ref", definition_id: definitionId });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localCreateNewPrompt(name: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        const def = await createDefinition({ type: "prompt", name: name?.trim() || "New prompt", content: "", meta: {} });
+        await library.loadDefinitions();
+        await createNode("session", sid, { parent_id: null, kind: "ref", definition_id: def.id });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localCreateNewInContainer(parentId: string, typeId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: "", meta: {} });
+        await library.loadDefinitions();
+        await createNode("session", sid, { parent_id: parentId, kind: "ref", definition_id: def.id });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localCreateType(name: string) {
+    if (!name.trim()) return;
+    try {
+        const created = await library.addType(slugifyType(name), name.trim());
+        await localAddContainer(created.id);
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localToggleEnabled(nodeId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    const node = localNodes.value.find((n) => n.id === nodeId);
+    if (!node) return;
+    try {
+        await ensureMaterialized();
+        await updateNode(nodeId, { enabled: !node.enabled });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localDeleteNode(nodeId: string) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    const node = localNodes.value.find((n) => n.id === nodeId);
+    if (!node) return;
+    const childCount = localNodes.value.filter((n) => n.parent_id === nodeId).length;
+    if (node.kind === "folder" && childCount > 0 && !confirm(`Delete this container and its ${childCount} item(s)?`)) return;
+    try {
+        await ensureMaterialized();
+        await deleteNode(nodeId);
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function localReorder(orderedIds: string[]) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        await reorderNodes("session", sid, orderedIds);
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+// Inline content/trigger edits in the local tree write a local definition patch
+// (not the global definition).
+function localUpdateContent(definitionId: string, content: string) {
+    void setLocalPatch(definitionId, { content });
+}
+function localUpdateTrigger(definitionId: string, trigger: Trigger) {
+    void setLocalPatch(definitionId, { trigger });
 }
 
 onMounted(async () => {
@@ -524,6 +677,41 @@ async function duplicateDef() {
                         <button class="text-muted hover:text-coral" title="还原为全局" @click="revertLocal(defId)">×</button>
                     </span>
                 </div>
+                <!-- local node tree: session-owned, materialized on first edit -->
+                <template v-if="localSession && localSession.template_id">
+                    <div
+                        v-if="localNodes.length === 0"
+                        class="text-[13px] text-muted py-3 flex items-center gap-2"
+                    >
+                        <span>This conversation follows its template.</span>
+                        <button
+                            data-test="customize-locally"
+                            class="btn btn-primary !px-2.5 !py-1 text-[12px]"
+                            @click="ensureMaterialized"
+                        >
+                            Customize locally
+                        </button>
+                    </div>
+                    <PromptTree
+                        v-else
+                        :nodes="localNodes"
+                        :definitions="library.definitions"
+                        :types="library.containerTypes"
+                        @toggle-enabled="localToggleEnabled"
+                        @add-prompt="localAddPrompt"
+                        @add-container="localAddContainer"
+                        @add-ref-to-container="localAddRefToContainer"
+                        @create-new-prompt="localCreateNewPrompt"
+                        @create-new-in-container="localCreateNewInContainer"
+                        @create-type="localCreateType"
+                        @update-content="localUpdateContent"
+                        @update-trigger="localUpdateTrigger"
+                        @delete-node="localDeleteNode"
+                        @reorder="localReorder"
+                    />
+                    <div class="h-px bg-line my-5" />
+                </template>
+
                 <DefinitionEditor
                     :definition="localEditDef"
                     :all-definitions="library.definitions"
