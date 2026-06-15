@@ -2,6 +2,7 @@ use async_trait::async_trait;
 
 use std::collections::HashMap;
 
+use crate::models::asset::Asset;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
 use crate::models::message::Message;
@@ -69,4 +70,13 @@ pub trait Storage: Send + Sync {
     async fn list_container_types(&self) -> Result<Vec<DefType>>;
     async fn create_def_type(&self, ty: &DefType) -> Result<()>;
     async fn delete_def_type(&self, id: &str) -> Result<()>;
+
+    // --- assets (named media library) ---
+    /// 列出资源（按 created_at 降序，最新在前）。
+    async fn list_assets(&self) -> Result<Vec<Asset>>;
+    async fn get_asset(&self, id: &str) -> Result<Option<Asset>>;
+    async fn create_asset(&self, asset: &Asset) -> Result<()>;
+    /// 重命名资源（仅 name）。
+    async fn rename_asset(&self, id: &str, name: &str) -> Result<()>;
+    async fn delete_asset(&self, id: &str) -> Result<()>;
 }

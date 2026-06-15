@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Camera, Upload, User } from 'lucide-vue-next'
+import { Camera, User } from 'lucide-vue-next'
+import AssetPicker from './AssetPicker.vue'
 
 const emit = defineEmits<{ select: [path: string | null] }>()
 
 const isOpen = ref(false)
-const selectedPath = ref<string | null>(null)
-const library = ref<string[]>([])
+const selectedPath = ref<string>('')
 
 function toggle() { isOpen.value = !isOpen.value }
-function selectAvatar(path: string | null) { selectedPath.value = path; emit('select', path); isOpen.value = false }
+function onSelect(path: string) {
+  selectedPath.value = path
+  emit('select', path || null)
+}
 </script>
 
 <template>
@@ -25,29 +28,10 @@ function selectAvatar(path: string | null) { selectedPath.value = path; emit('se
       </span>
     </button>
 
-    <!-- inline avatar library, expands below -->
+    <!-- inline shared media library, expands below -->
     <div v-if="isOpen" class="w-full mt-4 bg-card border border-line rounded-xl p-3.5">
-      <p class="text-[12px] text-muted mb-3">Avatar library · pick an existing one, or upload new</p>
-      <div class="flex flex-wrap gap-3.5">
-        <button
-          v-for="(avatar, i) in library"
-          :key="i"
-          type="button"
-          :class="['w-[46px] h-[46px] rounded-full overflow-hidden', selectedPath === avatar ? 'ring-2 ring-primary ring-offset-2 ring-offset-white' : '']"
-          @click="selectAvatar(avatar)"
-        >
-          <img :src="`/assets/${avatar}`" class="w-full h-full object-cover" alt="" />
-        </button>
-        <button
-          type="button"
-          class="w-[46px] h-[46px] rounded-full border-[1.5px] border-dashed border-line grid place-items-center text-muted hover:text-ink hover:border-muted transition-colors"
-          title="Upload new"
-          @click="selectAvatar(null)"
-        >
-          <Upload :size="18" />
-        </button>
-      </div>
-      <p v-if="library.length === 0" class="text-muted/70 text-[11.5px] mt-2.5">No avatars yet — upload your first one.</p>
+      <p class="text-[12px] text-muted mb-3">Pick from the library or upload a new image.</p>
+      <AssetPicker :model-value="selectedPath" shape="circle" @update:model-value="onSelect" />
     </div>
   </div>
 </template>

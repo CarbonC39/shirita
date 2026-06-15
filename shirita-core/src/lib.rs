@@ -23,6 +23,7 @@ pub use model::{ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiPro
 pub use adapters::charcard::{charcard_to_defs, def_to_charcard};
 pub use adapters::preset::tree_to_preset;
 pub use adapters::worldinfo::{defs_to_worldinfo, worldinfo_to_defs};
+pub use models::asset::Asset;
 pub use models::def_type::{is_prompt, is_reserved, DefType};
 pub use models::definition::Definition;
 pub use models::message::{Message, Role};
