@@ -9,8 +9,8 @@ import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const props = withDefaults(
-  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[] }>(),
-  { types: () => [] },
+  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean }>(),
+  { types: () => [], active: false },
 )
 const emit = defineEmits<{
   'select-definition': [id: string]
@@ -120,6 +120,8 @@ function startNew() {
       </div>
     </div>
 
+    <!-- editor body: revealed only once a definition is picked or a new one started -->
+    <template v-if="active">
     <!-- type chips (with create / delete custom types) -->
     <div class="flex items-center gap-2 flex-wrap mb-3">
       <span class="text-[12px] text-muted">Type</span>
@@ -202,5 +204,6 @@ function startNew() {
     </div>
 
     <FullscreenEditor :model-value="definition.content" :open="fullscreenOpen" @close="fullscreenOpen = false" @update:model-value="emit('update:content', $event)" />
+    </template>
   </div>
 </template>
