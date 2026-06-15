@@ -1,22 +1,24 @@
 <script setup lang="ts">
 import { onMounted, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens, formatTokens } from '../utils/tokens'
+import { siblings } from '../utils/tree'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import { ArrowLeft } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const chat = useChatStore()
 const ui = useUiStore()
 
 const sessionId = route.params.id as string
 
-// Rough running total of the transcript, for context budgeting.
+// Rough running total of the active branch, for context budgeting.
 const convoTokens = computed(() =>
-  chat.messages.reduce((sum, m) => sum + estimateTokens(m.raw_content), 0),
+  chat.displayed.reduce((sum, m) => sum + estimateTokens(m.raw_content), 0),
 )
 
 onMounted(() => {
@@ -40,11 +42,26 @@ function handleCopy(text: string) {
   navigator.clipboard.writeText(text).catch(() => {})
 }
 
-async function handleRegenerate() {
-  const lastUser = [...chat.messages].reverse().find((m) => m.role === 'user')
-  if (lastUser) {
-    await chat.send(sessionId, lastUser.raw_content)
-  }
+function handleRegenerate(id: string) {
+  chat.regenerate(sessionId, id)
+}
+function handleEditSave(id: string, text: string) {
+  chat.editMsg(id, text)
+}
+function handleToggleHidden(id: string) {
+  chat.toggleHidden(id)
+}
+async function handleSwipe(id: string, delta: -1 | 1) {
+  const cur = chat.messages.find((m) => m.id === id)
+  if (!cur) return
+  const sibs = siblings(chat.messages, cur)
+  const i = sibs.findIndex((s) => s.id === id)
+  const target = sibs[i + delta]
+  if (target) await chat.switchLeaf(target.id)
+}
+async function handleFork(id: string) {
+  const newId = await chat.fork(id)
+  if (newId) router.push(`/chat/${newId}`)
 }
 </script>
 
@@ -61,13 +78,18 @@ async function handleRegenerate() {
 
     <MessageList
       v-else
-      :messages="chat.messages"
+      :messages="chat.displayed"
+      :all-messages="chat.messages"
       :style="ui.messageStyle"
       :is-streaming="chat.isStreaming"
       :streaming-text="chat.streamingText"
       :streaming-error="chat.streamingError"
       @copy="handleCopy"
       @regenerate="handleRegenerate"
+      @fork="handleFork"
+      @edit-save="handleEditSave"
+      @toggle-hidden="handleToggleHidden"
+      @swipe="handleSwipe"
     />
 
     <Composer :disabled="chat.isStreaming" @send="handleSend" />

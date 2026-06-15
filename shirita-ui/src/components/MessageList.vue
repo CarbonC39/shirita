@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Message } from '../api/types'
+import { siblings } from '../utils/tree'
 import MessageItem from './MessageItem.vue'
 
 const props = defineProps<{
-  messages: Message[]
+  messages: Message[]        // the active path (displayed)
+  allMessages?: Message[]    // full set, for sibling counts (defaults to messages)
   style: 'bubble' | 'flat'
   isStreaming?: boolean
   streamingText?: string
@@ -13,8 +15,17 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   copy: [text: string]
-  regenerate: []
+  regenerate: [id: string]
+  fork: [id: string]
+  'edit-save': [id: string, text: string]
+  'toggle-hidden': [id: string]
+  swipe: [id: string, delta: -1 | 1]
 }>()
+
+function sibInfo(msg: Message) {
+  const sibs = siblings(props.allMessages ?? props.messages, msg)
+  return { index: sibs.findIndex((s) => s.id === msg.id), count: sibs.length }
+}
 
 const streamingMsg = computed<Message | null>(() => {
   if (!props.isStreaming && !props.streamingText) return null
@@ -43,8 +54,14 @@ const streamingMsg = computed<Message | null>(() => {
       :key="msg.id"
       :message="msg"
       :style="style"
+      :sibling-index="sibInfo(msg).index"
+      :sibling-count="sibInfo(msg).count"
       @copy="emit('copy', $event)"
-      @regenerate="emit('regenerate')"
+      @regenerate="emit('regenerate', msg.id)"
+      @fork="emit('fork', msg.id)"
+      @edit-save="(t) => emit('edit-save', msg.id, t)"
+      @toggle-hidden="emit('toggle-hidden', msg.id)"
+      @swipe="(d) => emit('swipe', msg.id, d)"
     />
 
     <MessageItem
