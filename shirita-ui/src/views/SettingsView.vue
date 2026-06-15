@@ -7,7 +7,7 @@ import type { Definition } from '../api/types'
 import { fallbackModels } from '../api/modelCatalog'
 import SliderControl from '../components/SliderControl.vue'
 import RegexRuleEditor from '../components/RegexRuleEditor.vue'
-import BackgroundPicker from '../components/BackgroundPicker.vue'
+import AssetPicker from '../components/AssetPicker.vue'
 import FullscreenEditor from '../components/FullscreenEditor.vue'
 import ToggleSwitch from '../components/ToggleSwitch.vue'
 import SegmentedControl from '../components/SegmentedControl.vue'
@@ -225,9 +225,9 @@ async function handleTestConnection() {
               @update:model-value="ui.setTheme($event as 'light' | 'dark' | 'system')"
             />
           </div>
-          <div class="flex items-center justify-between">
-            <span class="text-[14px] text-ink">Background</span>
-            <BackgroundPicker :model-value="ui.background" @update:model-value="onBackgroundChange" />
+          <div>
+            <span class="text-[14px] text-ink block mb-2">Background</span>
+            <AssetPicker :model-value="ui.background" shape="rect" @update:model-value="onBackgroundChange" />
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5"><label class="text-[13px] text-ink">Custom CSS</label><button class="text-[12px] text-muted hover:text-ink" @click="cssFullscreen = true">Fullscreen</button></div>

@@ -56,7 +56,8 @@ pub fn app(state: AppState) -> Router {
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))
-        .route("/assets", post(routes::assets::upload))
+        .route("/assets", get(routes::assets::list).post(routes::assets::upload))
+        .route("/assets/{id}", put(routes::assets::rename).delete(routes::assets::delete))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_bearer,

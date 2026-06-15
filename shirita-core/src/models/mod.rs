@@ -1,3 +1,4 @@
+pub mod asset;
 pub mod def_type;
 pub mod definition;
 pub mod message;

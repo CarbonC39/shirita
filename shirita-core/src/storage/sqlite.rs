@@ -6,6 +6,7 @@ use sqlx::{Row, SqlitePool};
 
 use std::collections::HashMap;
 
+use crate::models::asset::Asset;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
@@ -439,6 +440,56 @@ impl Storage for SqliteStorage {
             .await?;
         Ok(())
     }
+
+    async fn list_assets(&self) -> Result<Vec<Asset>> {
+        let rows = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, name, path, created_at FROM assets ORDER BY created_at DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, name, path, created_at)| Asset { id, name, path, created_at })
+            .collect())
+    }
+
+    async fn get_asset(&self, id: &str) -> Result<Option<Asset>> {
+        let row = sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT id, name, path, created_at FROM assets WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, name, path, created_at)| Asset { id, name, path, created_at }))
+    }
+
+    async fn create_asset(&self, asset: &Asset) -> Result<()> {
+        sqlx::query("INSERT INTO assets (id, name, path, created_at) VALUES (?, ?, ?, ?)")
+            .bind(&asset.id)
+            .bind(&asset.name)
+            .bind(&asset.path)
+            .bind(&asset.created_at)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn rename_asset(&self, id: &str, name: &str) -> Result<()> {
+        sqlx::query("UPDATE assets SET name = ? WHERE id = ?")
+            .bind(name)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_asset(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM assets WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
 }
 
 // --- Row mappers ---
@@ -600,6 +651,26 @@ mod tests {
         storage.reorder_sessions(&[b.id.clone(), c.id.clone(), a.id.clone()]).await.unwrap();
         let ids: Vec<_> = storage.list_sessions().await.unwrap().into_iter().map(|s| s.id).collect();
         assert_eq!(ids, vec![b.id, c.id, a.id]);
+    }
+
+    #[tokio::test]
+    async fn assets_crud_roundtrip() {
+        let storage = temp_storage().await;
+        assert!(storage.list_assets().await.unwrap().is_empty());
+
+        let a = crate::models::asset::Asset::new("Sunset", "abc.png");
+        storage.create_asset(&a).await.unwrap();
+        let listed = storage.list_assets().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].name, "Sunset");
+        assert_eq!(listed[0].path, "abc.png");
+
+        storage.rename_asset(&a.id, "Dawn").await.unwrap();
+        assert_eq!(storage.get_asset(&a.id).await.unwrap().unwrap().name, "Dawn");
+
+        storage.delete_asset(&a.id).await.unwrap();
+        assert!(storage.get_asset(&a.id).await.unwrap().is_none());
+        assert!(storage.list_assets().await.unwrap().is_empty());
     }
 
     #[tokio::test]

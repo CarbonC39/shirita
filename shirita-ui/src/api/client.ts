@@ -261,11 +261,30 @@ export async function fetchProviderModels(): Promise<{ data?: Array<{ id: string
   return res.json()
 }
 
-// Upload an image (or any file) to the asset store; returns its relative path.
-export async function uploadAsset(file: File): Promise<{ path: string; url: string }> {
+// --- Media library (assets) ---
+export interface Asset { id: string; name: string; path: string; url: string }
+
+export function listAssets(): Promise<Asset[]> { return apiGet<Asset[]>('/assets') }
+
+// Upload an image (or any file) to the library; returns the new asset record.
+export async function uploadAsset(file: File): Promise<Asset> {
   const form = new FormData()
   form.append('file', file)
   const res = await fetch(`${BASE}/api/assets`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) throw new Error(`Asset upload failed: ${res.status}`)
   return res.json()
+}
+
+export async function renameAsset(id: string, name: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/assets/${id}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+  if (!res.ok) throw new Error(`Rename asset failed: ${res.status}`)
+}
+
+export async function deleteAsset(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/assets/${id}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Delete asset failed: ${res.status}`)
 }
