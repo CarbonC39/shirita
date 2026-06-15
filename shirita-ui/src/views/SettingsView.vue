@@ -52,8 +52,6 @@ const genFreqPenalty = computed({ get: () => (get('gen_frequency_penalty') as nu
 const genPresPenalty = computed({ get: () => (get('gen_presence_penalty') as number) ?? 0, set: (v: number) => set('gen_presence_penalty', v) })
 const genMaxTokens = computed({ get: () => (get('gen_max_response_tokens') as number) ?? 4096, set: (v: number) => set('gen_max_response_tokens', v) })
 const customCss = computed({ get: () => (get('custom_css') as string) || '', set: (v: string) => set('custom_css', v) })
-const scanDepth = computed({ get: () => (get('worldinfo_scan_depth') as number) ?? 4, set: (v: number) => set('worldinfo_scan_depth', v) })
-const recursiveScan = computed({ get: () => (get('worldinfo_recursive') as boolean) ?? true, set: (v: boolean) => set('worldinfo_recursive', v) })
 
 // Model list: with an API key we fetch the provider's live /models (debounced);
 // without one we fall back to a hardcoded per-source catalog.
@@ -115,8 +113,6 @@ async function handleSave() {
       provider_api_key: providerApiKey.value, provider_model: providerModel.value, provider_stream: providerStream.value,
       gen_temperature: genTemp.value, gen_top_p: genTopP.value, gen_frequency_penalty: genFreqPenalty.value,
       gen_presence_penalty: genPresPenalty.value, gen_max_response_tokens: genMaxTokens.value,
-      worldinfo_scan_depth: scanDepth.value,
-      worldinfo_recursive: recursiveScan.value,
       custom_css: customCss.value,
     })
     saveMessage.value = 'Saved'; setTimeout(() => { saveMessage.value = '' }, 2000)
@@ -204,27 +200,6 @@ async function handleTestConnection() {
             class="field w-[88px] text-right tabular-nums"
             @input="genMaxTokens = parseInt(($event.target as HTMLInputElement).value) || 0"
           />
-        </div>
-      </section>
-
-      <div class="border-t border-line my-6" />
-
-      <!-- World Info -->
-      <section class="mb-8">
-        <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">World Info</h3>
-        <div class="flex items-center justify-between mb-4">
-          <span class="text-[14px] text-ink">Scan depth</span>
-          <input
-            data-test="scan-depth"
-            :value="scanDepth"
-            type="number" min="1" max="50"
-            class="field w-[88px] text-right tabular-nums"
-            @input="scanDepth = parseInt(($event.target as HTMLInputElement).value) || 1"
-          />
-        </div>
-        <div class="flex items-center justify-between">
-          <span class="text-[14px] text-ink">Recursive scan</span>
-          <ToggleSwitch :model-value="recursiveScan" @update:model-value="recursiveScan = $event" />
         </div>
       </section>
 

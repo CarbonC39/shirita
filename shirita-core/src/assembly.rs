@@ -22,12 +22,22 @@ pub struct Trigger {
     pub probability: u8, // 0..=100
 }
 
+/// Per-entry scan settings live on `definition.meta.scan` now (not in global
+/// Settings); these are the fallbacks when an entry doesn't specify them.
+pub const DEFAULT_SCAN_DEPTH: usize = 4;
+pub const DEFAULT_RECURSIVE: bool = true;
+
 /// 一个待激活条目（来自某 ref 节点解析后的定义）。
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub id: String,
     pub trigger: Trigger,
     pub content: String, // 已是有效内容（局部覆盖优先），用于递归扫描
+    /// How many recent chat messages this entry's keywords scan.
+    pub scan_depth: usize,
+    /// Whether this entry takes part in recursive activation (as a source of
+    /// scan text and as a target that recursion can activate).
+    pub recursive: bool,
 }
 
 /// 从 `definition.meta`（即整个 meta 对象）解析 trigger；缺省 constant。
@@ -51,13 +61,12 @@ pub fn parse_trigger(meta: &serde_json::Value) -> Trigger {
     Trigger { mode, keys, probability }
 }
 
-/// 计算激活集：constant 恒激活；random 按 roll；keyword 命中扫描缓冲；
-/// recursive 时把已激活内容并入缓冲再扫，直到收敛（限 3 轮）。
-/// `roll() -> f64 in [0,1)`。
+/// 计算激活集：constant 恒激活；random 按 roll；keyword 命中扫描缓冲（每条目
+/// 按自己的 scan_depth 取最近若干条消息）；带 recursive 的条目把已激活内容并入
+/// 缓冲再扫，直到收敛（限 3 轮）。`recent` 为最近消息（旧→新），`roll() -> [0,1)`。
 pub fn activate(
     entries: &[Entry],
-    buffer: &str,
-    recursive: bool,
+    recent: &[String],
     roll: &mut impl FnMut() -> f64,
 ) -> HashSet<String> {
     let mut active: HashSet<String> = HashSet::new();
@@ -77,43 +86,54 @@ pub fn activate(
         }
     }
 
-    // keyword：构建一次自动机，对缓冲（可递归扩充）扫描。
-    let kw: Vec<(String, Vec<String>)> = entries
-        .iter()
-        .filter(|e| e.trigger.mode == TriggerMode::Keyword)
-        .map(|e| (e.id.clone(), e.trigger.keys.clone()))
-        .collect();
-    let index = KeywordIndex::build(&kw);
+    // keyword：按 scan_depth 分组，每组对各自的「最近 N 条」窗口扫描一次。
+    let mut by_depth: HashMap<usize, Vec<(String, Vec<String>)>> = HashMap::new();
+    for e in entries {
+        if e.trigger.mode == TriggerMode::Keyword {
+            by_depth
+                .entry(e.scan_depth.max(1))
+                .or_default()
+                .push((e.id.clone(), e.trigger.keys.clone()));
+        }
+    }
+    for (depth, kw) in &by_depth {
+        let start = recent.len().saturating_sub(*depth);
+        let window = recent[start..].join("\n");
+        let index = KeywordIndex::build(kw);
+        for id in index.scan(&window) {
+            active.insert(id);
+        }
+    }
 
-    let mut scan_text = buffer.to_string();
-    // 仅递归模式下把已激活条目内容并入缓冲（constant 也作为递归来源）；
-    // 非递归仅扫聊天缓冲。
-    if recursive {
+    // 递归：仅 recursive=true 的条目参与（既作扫描来源，也可被递归命中激活）。
+    if entries.iter().any(|e| e.recursive) {
+        let mut scan_text = String::new();
         for e in entries {
-            if active.contains(&e.id) {
+            if e.recursive && active.contains(&e.id) {
                 scan_text.push('\n');
                 scan_text.push_str(&e.content);
             }
         }
-    }
-
-    let max_passes = if recursive { 3 } else { 1 };
-    for _ in 0..max_passes {
-        let hits = index.scan(&scan_text);
-        let mut grew = false;
-        for id in hits {
-            if active.insert(id.clone()) {
-                grew = true;
-                if recursive {
+        let rec_kw: Vec<(String, Vec<String>)> = entries
+            .iter()
+            .filter(|e| e.recursive && e.trigger.mode == TriggerMode::Keyword)
+            .map(|e| (e.id.clone(), e.trigger.keys.clone()))
+            .collect();
+        let index = KeywordIndex::build(&rec_kw);
+        for _ in 0..3 {
+            let mut grew = false;
+            for id in index.scan(&scan_text) {
+                if active.insert(id.clone()) {
+                    grew = true;
                     if let Some(e) = entries.iter().find(|e| e.id == id) {
                         scan_text.push('\n');
                         scan_text.push_str(&e.content);
                     }
                 }
             }
-        }
-        if !grew || !recursive {
-            break;
+            if !grew {
+                break;
+            }
         }
     }
 
@@ -188,6 +208,24 @@ fn effective_trigger(def: &Definition, overrides: &serde_json::Value) -> Trigger
     parse_trigger(&def.meta)
 }
 
+/// 取定义的有效扫描设置：会话局部覆盖优先，否则取 `meta.scan`，再否则默认值。
+fn effective_scan(def: &Definition, overrides: &serde_json::Value) -> (usize, bool) {
+    let scan = overrides
+        .get(&def.id)
+        .and_then(|o| o.get("scan"))
+        .or_else(|| def.meta.get("scan"));
+    let depth = scan
+        .and_then(|s| s.get("depth"))
+        .and_then(|v| v.as_u64())
+        .map(|d| d as usize)
+        .unwrap_or(DEFAULT_SCAN_DEPTH);
+    let recursive = scan
+        .and_then(|s| s.get("recursive"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(DEFAULT_RECURSIVE);
+    (depth.max(1), recursive)
+}
+
 /// 取定义的有效内容：会话局部覆盖（结构化 {content}）优先，否则用全局 content。
 fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> String {
     overrides
@@ -202,15 +240,12 @@ fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> Str
 ///
 /// - 仅启用 + 激活的 ref 进入结果；空容器被省略。
 /// - history 节点（启用）把后续段落落点切到 `AfterHistory` 并置 `history_enabled`。
-#[allow(clippy::too_many_arguments)]
 pub fn assemble_from_nodes(
     nodes: &[PromptNode],
     definitions: &HashMap<String, Definition>,
     overrides: &serde_json::Value,
     state: &serde_json::Value,
     recent_msgs: &[String],
-    recursive: bool,
-    _scan_depth: usize,
     roll: &mut impl FnMut() -> f64,
 ) -> AssembledPlan {
     // 1) 从所有 ref 节点构建 Entry（用于激活计算）。
@@ -222,15 +257,18 @@ pub fn assemble_from_nodes(
         let Some(def) = n.definition_id.as_ref().and_then(|id| definitions.get(id)) else {
             continue;
         };
+        let (scan_depth, recursive) = effective_scan(def, overrides);
         entries.push(Entry {
             id: def.id.clone(),
             trigger: effective_trigger(def, overrides),
             content: render_vars(&effective_def_content(def, overrides), state),
+            scan_depth,
+            recursive,
         });
     }
 
-    // 2) 计算激活集（聊天缓冲 + 可选递归扩充）。
-    let active = activate(&entries, &recent_msgs.join("\n"), recursive, roll);
+    // 2) 计算激活集（每条目按自己的 scan_depth/recursive）。
+    let active = activate(&entries, recent_msgs, roll);
 
     // ref 是否纳入及其渲染内容。
     let resolve = |n: &PromptNode| -> Option<String> {
@@ -375,6 +413,8 @@ mod tests {
                 probability: 100,
             },
             content: content.to_string(),
+            scan_depth: DEFAULT_SCAN_DEPTH,
+            recursive: DEFAULT_RECURSIVE,
         }
     }
 
@@ -398,7 +438,7 @@ mod tests {
             ent("zion", TriggerMode::Keyword, &["zion"], "Zion body"),
             ent("trinity", TriggerMode::Keyword, &["trinity"], "Trinity body"),
         ];
-        let active = activate(&entries, "tell me about zion", false, &mut || 0.0);
+        let active = activate(&entries, &["tell me about zion".to_string()], &mut || 0.0);
         assert!(active.contains("neo"));
         assert!(active.contains("zion"));
         assert!(!active.contains("trinity"));
@@ -410,20 +450,42 @@ mod tests {
             id: "r".into(),
             trigger: Trigger { mode: TriggerMode::Random, keys: vec![], probability: 50 },
             content: String::new(),
+            scan_depth: DEFAULT_SCAN_DEPTH,
+            recursive: DEFAULT_RECURSIVE,
         }];
-        assert!(activate(&entries, "", false, &mut || 0.2).contains("r")); // 0.2 < 0.5
-        assert!(!activate(&entries, "", false, &mut || 0.9).contains("r"));
+        assert!(activate(&entries, &[], &mut || 0.2).contains("r")); // 0.2 < 0.5
+        assert!(!activate(&entries, &[], &mut || 0.9).contains("r"));
     }
 
     #[test]
     fn activate_recursive_chains() {
         // "zion" not in chat, but "neo" constant content mentions zion → recursion activates zion.
-        let entries = vec![
-            ent("neo", TriggerMode::Constant, &[], "Neo lives in zion"),
-            ent("zion", TriggerMode::Keyword, &["zion"], "Zion body"),
-        ];
-        assert!(!activate(&entries, "hi", false, &mut || 0.0).contains("zion"));
-        assert!(activate(&entries, "hi", true, &mut || 0.0).contains("zion"));
+        let neo = ent("neo", TriggerMode::Constant, &[], "Neo lives in zion");
+        let zion = ent("zion", TriggerMode::Keyword, &["zion"], "Zion body");
+        assert!(activate(&[neo.clone(), zion.clone()], &["hi".to_string()], &mut || 0.0).contains("zion"));
+
+        // With recursion disabled per-entry, the chain doesn't form.
+        let mut neo_nr = neo;
+        neo_nr.recursive = false;
+        let mut zion_nr = zion;
+        zion_nr.recursive = false;
+        assert!(!activate(&[neo_nr, zion_nr], &["hi".to_string()], &mut || 0.0).contains("zion"));
+    }
+
+    #[test]
+    fn activate_keyword_respects_per_entry_scan_depth() {
+        // "zion" appears only in the oldest of three messages; depth 1 misses it,
+        // depth 3 catches it.
+        let recent = ["mention zion".to_string(), "b".to_string(), "c".to_string()];
+        let mut shallow = ent("z", TriggerMode::Keyword, &["zion"], "Z");
+        shallow.scan_depth = 1;
+        shallow.recursive = false;
+        assert!(!activate(&[shallow], &recent, &mut || 0.0).contains("z"));
+
+        let mut deep = ent("z", TriggerMode::Keyword, &["zion"], "Z");
+        deep.scan_depth = 3;
+        deep.recursive = false;
+        assert!(activate(&[deep], &recent, &mut || 0.0).contains("z"));
     }
 
     use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
@@ -459,7 +521,7 @@ mod tests {
 
         let nodes = vec![charf, cref, hist, after];
         let plan = assemble_from_nodes(
-            &nodes, &defs, &json!({}), &json!({}), &["hi".to_string()], true, 4, &mut || 0.0,
+            &nodes, &defs, &json!({}), &json!({}), &["hi".to_string()], &mut || 0.0,
         );
         let before: Vec<_> = plan
             .segments
@@ -489,7 +551,7 @@ mod tests {
         let nodes = vec![wf, wref];
         // No "zion" in buffer → world container empty → omitted.
         let plan = assemble_from_nodes(
-            &nodes, &defs, &json!({}), &json!({}), &["hi".into()], false, 4, &mut || 0.0,
+            &nodes, &defs, &json!({}), &json!({}), &["hi".into()], &mut || 0.0,
         );
         assert!(plan.segments.is_empty());
     }
