@@ -11,6 +11,10 @@ export const useSettingsStore = defineStore('settings', () => {
   const models = ref<string[]>([])
   const modelsLoading = ref(false)
   const modelsError = ref<string | null>(null)
+  // Where the current `models` came from: a live provider fetch vs. the
+  // built-in catalog shown when there's no API key. Lets the UI label them
+  // differently so a canned list doesn't read as "fetched".
+  const modelsSource = ref<'live' | 'fallback' | null>(null)
 
   async function load() {
     loading.value = true; error.value = null
@@ -30,7 +34,7 @@ export const useSettingsStore = defineStore('settings', () => {
 
   // Use a hardcoded list (no live fetch) — for sources with no API key.
   function useFallbackModels(list: string[]) {
-    modelsLoading.value = false; modelsError.value = null; models.value = [...list]
+    modelsLoading.value = false; modelsError.value = null; models.value = [...list]; modelsSource.value = 'fallback'
   }
 
   async function fetchModels() {
@@ -39,6 +43,7 @@ export const useSettingsStore = defineStore('settings', () => {
       const result = await fetchProviderModels() as { data?: { id: string }[]; error?: unknown }
       if (result.data && Array.isArray(result.data)) {
         models.value = result.data.map((m) => m.id).filter(Boolean).sort()
+        modelsSource.value = 'live'
         if (models.value.length === 0) modelsError.value = 'No models returned by this endpoint'
       } else if (result.error != null) {
         // upstream may return a string or a { message } error object
@@ -51,5 +56,5 @@ export const useSettingsStore = defineStore('settings', () => {
     finally { modelsLoading.value = false }
   }
 
-  return { data, loading, error, testStatus, testError, models, modelsLoading, modelsError, load, save, testConnection, fetchModels, useFallbackModels }
+  return { data, loading, error, testStatus, testError, models, modelsLoading, modelsError, modelsSource, load, save, testConnection, fetchModels, useFallbackModels }
 })
