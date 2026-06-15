@@ -49,6 +49,15 @@ pub fn app(state: AppState) -> Router {
         .route("/sessions/{id}/fork", post(routes::messages::fork_session))
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route(
+            "/sessions/{id}/local-definitions/{def_id}",
+            put(routes::local_overrides::set_local_definition)
+                .delete(routes::local_overrides::clear_local_definition),
+        )
+        .route(
+            "/sessions/{id}/local-definitions/{def_id}/promote",
+            post(routes::local_overrides::promote_local_definition),
+        )
+        .route(
             "/definitions",
             get(routes::definitions::list).post(routes::definitions::create),
         )
