@@ -11,8 +11,14 @@ export const useUiStore = defineStore('ui', {
     // App-wide background image (relative asset path). Cached locally so it
     // paints immediately on load; also mirrored to server settings.
     background: localStorage.getItem('ui.background') || '',
+    // The conversation you're "in" — drives the Book page's local section and
+    // the shell's Chat tab. Not persisted; set as you navigate.
+    activeChatId: null as string | null,
   }),
   actions: {
+    setActiveChatId(id: string | null) {
+      this.activeChatId = id
+    },
     setMessageStyle(style: MessageStyle) {
       this.messageStyle = style
       localStorage.setItem('ui.messageStyle', style)

@@ -109,6 +109,26 @@ export async function forkSession(sessionId: string, messageId: string): Promise
   return res.json()
 }
 
+// --- copy-on-write (local definition / template overrides) ---
+export async function setLocalDefinition(sessionId: string, defId: string, patch: Record<string, unknown>): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/local-definitions/${defId}`, {
+    method: 'PUT', headers: { ...authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`Set local definition failed: ${res.status}`)
+}
+export async function clearLocalDefinition(sessionId: string, defId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/local-definitions/${defId}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Clear local definition failed: ${res.status}`)
+}
+export async function promoteLocalDefinition(sessionId: string, defId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/local-definitions/${defId}/promote`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Promote failed: ${res.status}`)
+}
+export async function materializeNodes(sessionId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/materialize-nodes`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Materialize nodes failed: ${res.status}`)
+}
+
 /** SSE regenerate — same event shape as sendMessage. */
 export async function* regenerateMessage(
   sessionId: string,
