@@ -41,6 +41,7 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/messages/{msg_id}/regenerate",
             post(routes::chat::regenerate_message),
         )
+        .route("/sessions/{id}/fork", post(routes::messages::fork_session))
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route(
             "/definitions",

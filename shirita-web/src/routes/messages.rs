@@ -3,7 +3,10 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-use shirita_core::{Message, Session};
+use std::collections::HashMap;
+
+use shirita_core::tree::active_path;
+use shirita_core::{Message, OwnerKind, Session};
 
 use crate::AppState;
 
@@ -85,4 +88,76 @@ pub async fn set_active_leaf(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(session))
+}
+
+#[derive(Deserialize)]
+pub struct ForkBody {
+    pub message_id: String,
+}
+
+/// Fork: deep-copy the linear path root→`message_id` (current branch) into a new
+/// session; carries template/mounts/override_config; `current_state` = the
+/// node's snapshot; `active_leaf_id` = the copied leaf. Original untouched.
+pub async fn fork_session(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<ForkBody>,
+) -> Result<Json<Session>, StatusCode> {
+    let src = state
+        .storage
+        .get_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let all = state
+        .storage
+        .list_messages(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let slice = active_path(&all, Some(&body.message_id));
+    if slice.is_empty() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let node = slice.last().unwrap();
+
+    let mut dup = Session::new(format!("{} (fork)", src.name));
+    dup.avatar = src.avatar.clone();
+    dup.template_id = src.template_id.clone();
+    dup.override_config = src.override_config.clone();
+    dup.current_state = node.snapshot_state.clone();
+    dup.mounted_definitions = src.mounted_definitions.clone();
+    state
+        .storage
+        .create_session(&dup)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let _ = state
+        .storage
+        .copy_nodes(&OwnerKind::Session, &session_id, &OwnerKind::Session, &dup.id)
+        .await;
+
+    // copy the path messages with fresh ids + remapped parents
+    let idmap: HashMap<String, String> =
+        slice.iter().map(|m| (m.id.clone(), uuid::Uuid::new_v4().to_string())).collect();
+    let mut new_leaf: Option<String> = None;
+    for m in &slice {
+        let mut nm = (*m).clone();
+        nm.id = idmap[&m.id].clone();
+        nm.session_id = dup.id.clone();
+        nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
+        state
+            .storage
+            .create_message(&nm)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        new_leaf = Some(nm.id.clone());
+    }
+    let _ = state.storage.set_session_active_leaf(&dup.id, new_leaf.as_deref()).await;
+    let out = state
+        .storage
+        .get_session(&dup.id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(out))
 }
