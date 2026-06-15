@@ -153,3 +153,33 @@ async fn regenerate_creates_a_sibling_and_switches_to_it() {
     let leaf = active_leaf(&state, &sid).await.unwrap();
     assert_ne!(leaf, aid);
 }
+
+#[tokio::test]
+async fn fork_copies_path_to_a_new_isolated_session() {
+    let state = test_state().await;
+    let sid = create(&state, "Origin").await;
+    turn(&state, &sid, "one").await;
+    turn(&state, &sid, "two").await; // 4 messages now
+    let msgs = messages(&state, &sid).await;
+    // fork at the FIRST assistant (path root→that node = 2 messages)
+    let first_assistant = msgs.as_array().unwrap().iter()
+        .filter(|m| m["role"] == "assistant")
+        .min_by_key(|m| m["created_at"].as_str().unwrap().to_string()).unwrap();
+    let node = first_assistant["id"].as_str().unwrap();
+
+    let (st, out) = send(&state, "POST", &format!("/api/sessions/{sid}/fork"),
+        Some(&format!(r#"{{"message_id":"{node}"}}"#))).await;
+    assert_eq!(st, StatusCode::OK);
+    let new_id = json(&out)["id"].as_str().unwrap().to_string();
+    assert_ne!(new_id, sid);
+    assert_eq!(json(&out)["name"], "Origin (fork)");
+
+    // new session has exactly the 2 messages up to the fork node, new ids
+    let forked = messages(&state, &new_id).await;
+    assert_eq!(forked.as_array().unwrap().len(), 2);
+    assert!(forked.as_array().unwrap().iter().all(|m| m["id"].as_str().unwrap() != node));
+    // its active leaf is set (the copied leaf)
+    assert!(json(&out)["active_leaf_id"].is_string());
+    // original is untouched (still 4)
+    assert_eq!(messages(&state, &sid).await.as_array().unwrap().len(), 4);
+}
