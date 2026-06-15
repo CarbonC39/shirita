@@ -19,6 +19,10 @@ export function listSessions(): Promise<Session[]> {
   return apiGet<Session[]>('/sessions')
 }
 
+export function getSession(id: string): Promise<Session> {
+  return apiGet<Session>(`/sessions/${id}`)
+}
+
 export function listMessages(sessionId: string): Promise<Message[]> {
   return apiGet<Message[]>(`/sessions/${sessionId}/messages`)
 }
