@@ -54,4 +54,15 @@ describe('BookView scopes', () => {
     expect(w.find('[data-test="book-local"]').exists()).toBe(true)
     expect(w.find('[data-test="book-global"]').exists()).toBe(true)
   })
+
+  it('shows the changed-in-this-chat chip strip when a local override exists', async () => {
+    ;(api.getSession as any).mockResolvedValue({
+      id: 'c1', template_id: null,
+      override_config: { local_definitions: { d1: { content: 'local' } } },
+    })
+    const ui = useUiStore(); ui.setActiveChatId('c1')
+    const w = mount(BookView)
+    await flushPromises()
+    expect(w.find('[data-test="local-chips"]').exists()).toBe(true)
+  })
 })

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted } from "vue";
 import { Check, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
@@ -17,8 +17,12 @@ import {
     updateTemplate,
     duplicateTemplate,
     deleteTemplate,
+    getSession,
+    setLocalDefinition,
+    clearLocalDefinition,
+    promoteLocalDefinition,
 } from "../api/client";
-import type { PromptNode, Definition, Trigger } from "../api/types";
+import type { PromptNode, Definition, Trigger, Session } from "../api/types";
 import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 
@@ -58,6 +62,93 @@ function loadDef(d: Definition) {
         content: d.content,
         meta: { ...d.meta },
     });
+}
+
+// ── local (this conversation) copy-on-write overrides ──────
+const localSession = ref<Session | null>(null);
+const localDefs = computed<Record<string, Record<string, unknown>>>(
+    () =>
+        (localSession.value?.override_config as Record<string, unknown>)
+            ?.local_definitions as Record<string, Record<string, unknown>> ?? {},
+);
+async function loadLocal() {
+    if (!ui.activeChatId) {
+        localSession.value = null;
+        return;
+    }
+    try {
+        localSession.value = await getSession(ui.activeChatId);
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+watch(() => ui.activeChatId, loadLocal, { immediate: true });
+
+const localEditDef = reactive<Definition>(blankDef());
+const localDefActive = ref(false);
+function defName(defId: string): string {
+    return library.definitions.find((d) => d.id === defId)?.name ?? defId;
+}
+// Load a global definition + its local patch into the local editor.
+function editLocal(defId: string) {
+    if (!defId) return;
+    const base = library.definitions.find((d) => d.id === defId);
+    if (!base) return;
+    const patch = localDefs.value[defId] ?? {};
+    Object.assign(localEditDef, {
+        id: base.id,
+        type: base.type,
+        name: (patch.name as string) ?? base.name,
+        content: (patch.content as string) ?? base.content,
+        meta: {
+            ...base.meta,
+            ...(patch.trigger ? { trigger: patch.trigger } : {}),
+            ...(patch.scan ? { scan: patch.scan } : {}),
+        },
+    });
+    localDefActive.value = true;
+}
+// Save only the fields that differ from the global definition as a patch.
+async function saveLocal() {
+    if (!ui.activeChatId || !localEditDef.id) return;
+    const base = library.definitions.find((d) => d.id === localEditDef.id);
+    const patch: Record<string, unknown> = {};
+    if (base && localEditDef.content !== base.content)
+        patch.content = localEditDef.content;
+    if (base && localEditDef.name !== base.name) patch.name = localEditDef.name;
+    const t = (localEditDef.meta as Record<string, unknown>).trigger;
+    if (t) patch.trigger = t;
+    const s = (localEditDef.meta as Record<string, unknown>).scan;
+    if (s) patch.scan = s;
+    try {
+        await setLocalDefinition(ui.activeChatId, localEditDef.id, patch);
+        await loadLocal();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function promoteLocal(defId: string) {
+    if (!ui.activeChatId) return;
+    if (!confirm("Sync this definition to the global library?")) return;
+    try {
+        await promoteLocalDefinition(ui.activeChatId, defId);
+        await Promise.all([library.loadDefinitions(), loadLocal()]);
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+async function revertLocal(defId: string) {
+    if (!ui.activeChatId) return;
+    try {
+        await clearLocalDefinition(ui.activeChatId, defId);
+        if (localEditDef.id === defId) {
+            Object.assign(localEditDef, blankDef());
+            localDefActive.value = false;
+        }
+        await loadLocal();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
 }
 
 onMounted(async () => {
@@ -417,6 +508,34 @@ async function duplicateDef() {
                 <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5">
                     局部 · This conversation
                 </h3>
+                <div
+                    v-if="Object.keys(localDefs).length"
+                    data-test="local-chips"
+                    class="flex flex-wrap items-center gap-2 mb-3"
+                >
+                    <span class="text-[12px] text-muted">本对话已改</span>
+                    <span
+                        v-for="(_patch, defId) in localDefs"
+                        :key="defId"
+                        class="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[12px]"
+                    >
+                        <button class="text-ink" @click="editLocal(defId)">{{ defName(defId) }}</button>
+                        <button class="text-muted hover:text-primary" title="同步到全局" @click="promoteLocal(defId)">↥</button>
+                        <button class="text-muted hover:text-coral" title="还原为全局" @click="revertLocal(defId)">×</button>
+                    </span>
+                </div>
+                <DefinitionEditor
+                    :definition="localEditDef"
+                    :all-definitions="library.definitions"
+                    :types="library.containerTypes"
+                    :active="localDefActive"
+                    @select-definition="editLocal"
+                    @update:name="localEditDef.name = $event"
+                    @update:type="localEditDef.type = $event as Definition['type']"
+                    @update:content="localEditDef.content = $event"
+                    @update:meta="localEditDef.meta = $event"
+                    @save="saveLocal"
+                />
             </section>
             <div v-if="ui.activeChatId" class="h-px bg-line my-6" />
 
