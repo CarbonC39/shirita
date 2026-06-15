@@ -70,7 +70,19 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         sort_order: row.try_get("sort_order")?,
+        preview: None,
     })
+}
+
+/// One-line snippet of a message for the home list: newlines collapsed, trimmed,
+/// capped so the payload stays small.
+fn message_preview(text: &str) -> String {
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > 140 {
+        format!("{}…", flat.chars().take(140).collect::<String>())
+    } else {
+        flat
+    }
 }
 
 fn row_to_message(row: &SqliteRow) -> Result<Message> {
@@ -186,13 +198,25 @@ impl Storage for SqliteStorage {
     }
 
     async fn list_sessions(&self) -> Result<Vec<Session>> {
+        // Correlated subquery grabs the latest visible message per session so the
+        // home cards can show a recent-activity snippet without an N+1 round-trip.
         let rows = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order \
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, \
+             (SELECT COALESCE(display_content, raw_content) FROM messages \
+                WHERE session_id = chat_sessions.id AND is_hidden = 0 \
+                ORDER BY created_at DESC LIMIT 1) AS preview \
              FROM chat_sessions ORDER BY sort_order DESC, updated_at DESC, name",
         )
         .fetch_all(&self.pool)
         .await?;
-        rows.iter().map(row_to_session).collect()
+        rows.iter()
+            .map(|row| {
+                let mut s = row_to_session(row)?;
+                let raw: Option<String> = row.try_get("preview").ok().flatten();
+                s.preview = raw.map(|t| message_preview(&t));
+                Ok(s)
+            })
+            .collect()
     }
 
     async fn delete_session(&self, id: &str) -> Result<()> {

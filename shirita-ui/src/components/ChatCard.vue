@@ -2,6 +2,7 @@
 import { ref, computed } from 'vue'
 import { MoreVertical, Copy, Download, Trash2, GripVertical } from 'lucide-vue-next'
 import type { Session } from '../api/types'
+import { relativeTime } from '../utils/time'
 
 const props = withDefaults(
   defineProps<{ session: Session; editMode?: boolean }>(),
@@ -23,6 +24,8 @@ const tint = computed(() => {
   return tints[h % tints.length]
 })
 
+const time = computed(() => relativeTime(props.session.updated_at))
+
 function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault(); menuOpen.value = false; fn() }
 </script>
 
@@ -30,6 +33,7 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
   <router-link
     :to="`/chat/${session.id}`"
     :class="['relative flex items-center gap-3.5 bg-card border border-line rounded-2xl px-4 py-3.5 mb-3 transition-colors',
+             menuOpen ? 'z-30' : '',
              editMode ? 'cursor-move select-none border-primary/30' : 'hover:border-primary/30']"
     @click="onCardClick"
   >
@@ -38,7 +42,10 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
     </div>
     <div class="flex-1 min-w-0">
       <div class="font-semibold text-ink truncate">{{ session.name }}</div>
-      <div class="text-[13px] text-muted truncate">Tap to open</div>
+      <div class="flex items-center gap-1.5 text-[13px] text-muted">
+        <span class="truncate">{{ session.preview || 'No messages yet' }}</span>
+        <span v-if="session.preview && time" class="shrink-0 text-muted/70">· {{ time }}</span>
+      </div>
     </div>
 
     <!-- edit mode: drag handle + delete float on the card -->
