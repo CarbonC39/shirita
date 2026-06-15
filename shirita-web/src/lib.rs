@@ -58,6 +58,10 @@ pub fn app(state: AppState) -> Router {
             post(routes::local_overrides::promote_local_definition),
         )
         .route(
+            "/sessions/{id}/materialize-nodes",
+            post(routes::local_overrides::materialize_nodes),
+        )
+        .route(
             "/definitions",
             get(routes::definitions::list).post(routes::definitions::create),
         )

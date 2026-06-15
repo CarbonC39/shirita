@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
+use shirita_core::OwnerKind;
+
 use crate::AppState;
 
 fn ensure_obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
@@ -57,6 +59,36 @@ pub async fn clear_local_definition(
         locals.remove(&def_id);
     })
     .await?;
+    Ok(StatusCode::OK)
+}
+
+/// Ensure the session owns a node tree: if it has none yet, deep-copy its
+/// template's nodes into `owner_kind=session`. Idempotent.
+pub async fn materialize_nodes(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<StatusCode, StatusCode> {
+    let existing = state
+        .storage
+        .list_nodes(&OwnerKind::Session, &session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !existing.is_empty() {
+        return Ok(StatusCode::OK); // already materialized
+    }
+    let session = state
+        .storage
+        .get_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if let Some(tid) = session.template_id.as_deref() {
+        let _ = state
+            .storage
+            .copy_nodes(&OwnerKind::Template, tid, &OwnerKind::Session, &session_id)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
     Ok(StatusCode::OK)
 }
 
