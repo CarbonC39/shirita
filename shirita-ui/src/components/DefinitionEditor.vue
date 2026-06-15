@@ -6,6 +6,7 @@ import { triggerFromMeta } from '../api/types'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
+import ToggleSwitch from './ToggleSwitch.vue'
 
 const props = withDefaults(
   defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[] }>(),
@@ -29,6 +30,16 @@ const emit = defineEmits<{
 const fullscreenOpen = ref(false)
 const open = ref(false)
 const contentTokens = computed(() => estimateTokens(props.definition.content))
+
+// Per-definition world-info scan settings (live on meta.scan now, not in global
+// Settings). Defaults mirror the backend: depth 4, recursive on.
+const scan = computed(() => {
+  const s = (props.definition.meta as Record<string, unknown>).scan as { depth?: number; recursive?: boolean } | undefined
+  return { depth: s?.depth ?? 4, recursive: s?.recursive ?? true }
+})
+function updateScan(patch: { depth?: number; recursive?: boolean }) {
+  emit('update:meta', { ...props.definition.meta, scan: { ...scan.value, ...patch } })
+}
 
 // Registered container types + the reserved `prompt`, tinted per the palette.
 // Builtin types can't be deleted; custom ones can.
@@ -149,12 +160,28 @@ function startNew() {
       </span>
     </div>
 
-    <!-- world-book trigger (container types only) -->
-    <div v-if="!['prompt','regex_rule','tool'].includes(definition.type)" class="mb-3">
+    <!-- world-book trigger + scan settings (container types only) -->
+    <div v-if="!['prompt','regex_rule','tool'].includes(definition.type)" class="mb-3 space-y-2.5">
       <TriggerEditor
         :model-value="triggerFromMeta(definition.meta)"
         @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
       />
+      <div class="flex items-center gap-4 flex-wrap">
+        <label class="flex items-center gap-2 text-[13px] text-ink">
+          Scan depth
+          <input
+            data-test="scan-depth"
+            :value="scan.depth"
+            type="number" min="1" max="20"
+            class="field !py-1 w-[64px] text-right tabular-nums"
+            @input="updateScan({ depth: parseInt(($event.target as HTMLInputElement).value) || 1 })"
+          />
+        </label>
+        <label class="flex items-center gap-2 text-[13px] text-ink">
+          Recursive
+          <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
+        </label>
+      </div>
     </div>
 
     <!-- content -->
