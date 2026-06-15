@@ -75,6 +75,17 @@ async fn active_leaf(state: &AppState, sid: &str) -> Option<String> {
 }
 
 #[tokio::test]
+async fn get_session_returns_active_leaf() {
+    let state = test_state().await;
+    let sid = create(&state, "Chat").await;
+    turn(&state, &sid, "hi").await;
+    let (st, out) = send(&state, "GET", &format!("/api/sessions/{sid}"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(json(&out)["name"], "Chat");
+    assert!(json(&out)["active_leaf_id"].is_string());
+}
+
+#[tokio::test]
 async fn edit_overwrites_in_place_and_recomputes_display() {
     let state = test_state().await;
     let sid = create(&state, "Chat").await;

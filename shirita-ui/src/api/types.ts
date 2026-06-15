@@ -10,6 +10,8 @@ export interface Session {
   mounted_definitions: string[]
   created_at?: string
   updated_at?: string
+  /** Leaf message of the active branch (set by the message-tree endpoints). */
+  active_leaf_id?: string | null
   /** Snippet of the most recent message, supplied by the session list. */
   preview?: string
 }

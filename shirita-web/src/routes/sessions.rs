@@ -46,6 +46,19 @@ pub async fn create_session(
     Ok(Json(session))
 }
 
+pub async fn get_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Session>, StatusCode> {
+    state
+        .storage
+        .get_session(&id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map(Json)
+        .ok_or(StatusCode::NOT_FOUND)
+}
+
 pub async fn list_sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Session>>, StatusCode> {
