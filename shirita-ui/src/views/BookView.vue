@@ -2,6 +2,7 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { Check, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
+import { useUiStore } from "../stores/ui";
 import { estimateTokens, formatTokens } from "../utils/tokens";
 import {
     listNodes,
@@ -22,6 +23,7 @@ import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 
 const library = useLibraryStore();
+const ui = useUiStore();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const selectedTemplateId = ref<string | null>(null);
@@ -409,6 +411,16 @@ async function duplicateDef() {
             Loading…
         </p>
         <template v-else>
+            <!-- 局部 (this conversation) — copy-on-write overrides, shown only
+                 while you're inside a chat. Sits above the global library. -->
+            <section v-if="ui.activeChatId" data-test="book-local" class="mb-6">
+                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5">
+                    局部 · This conversation
+                </h3>
+            </section>
+            <div v-if="ui.activeChatId" class="h-px bg-line my-6" />
+
+            <section data-test="book-global">
             <!-- template picker + ops -->
             <div class="flex items-center gap-2">
                 <select
@@ -535,6 +547,7 @@ async function duplicateDef() {
             />
 
             <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>
+            </section>
         </template>
     </div>
 </template>
