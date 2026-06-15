@@ -294,6 +294,45 @@ impl Storage for SqliteStorage {
         rows.iter().map(row_to_message).collect()
     }
 
+    async fn get_message(&self, id: &str) -> Result<Option<Message>> {
+        let row = sqlx::query(
+            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, snapshot_state, created_at \
+             FROM messages WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(r) => Ok(Some(row_to_message(&r)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn update_message(&self, message: &Message) -> Result<()> {
+        let snapshot = serde_json::to_string(&message.snapshot_state)?;
+        sqlx::query(
+            "UPDATE messages SET raw_content = ?, display_content = ?, is_hidden = ?, snapshot_state = ? \
+             WHERE id = ?",
+        )
+        .bind(&message.raw_content)
+        .bind(&message.display_content)
+        .bind(message.is_hidden as i64)
+        .bind(snapshot)
+        .bind(&message.id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn set_session_active_leaf(&self, session_id: &str, leaf_id: Option<&str>) -> Result<()> {
+        sqlx::query("UPDATE chat_sessions SET active_leaf_id = ? WHERE id = ?")
+            .bind(leaf_id)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     // --- templates ---
     async fn create_template(&self, template: &Template) -> Result<()> {
         let meta = serde_json::to_string(&template.meta)?;
@@ -551,6 +590,32 @@ mod tests {
         let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         storage.run_migrations().await.unwrap();
         storage
+    }
+
+    #[tokio::test]
+    async fn active_leaf_and_message_updates_roundtrip() {
+        let store = temp_storage().await;
+        let s = Sess::new("Tree");
+        store.create_session(&s).await.unwrap();
+        let m = Msg::new(&s.id, None, Role::User, "hello");
+        store.create_message(&m).await.unwrap();
+
+        store.set_session_active_leaf(&s.id, Some(&m.id)).await.unwrap();
+        let got = store.get_session(&s.id).await.unwrap().unwrap();
+        assert_eq!(got.active_leaf_id.as_deref(), Some(m.id.as_str()));
+
+        let fetched = store.get_message(&m.id).await.unwrap().unwrap();
+        assert_eq!(fetched.raw_content, "hello");
+
+        let mut edited = fetched.clone();
+        edited.raw_content = "edited".into();
+        edited.display_content = Some("EDITED".into());
+        edited.is_hidden = true;
+        store.update_message(&edited).await.unwrap();
+        let after = store.get_message(&m.id).await.unwrap().unwrap();
+        assert_eq!(after.raw_content, "edited");
+        assert_eq!(after.display_content.as_deref(), Some("EDITED"));
+        assert!(after.is_hidden);
     }
 
     #[tokio::test]

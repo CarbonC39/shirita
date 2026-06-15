@@ -32,11 +32,16 @@ pub trait Storage: Send + Sync {
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()>;
     /// 按给定顺序（首项置顶）持久化会话的手动排序。
     async fn reorder_sessions(&self, ordered_ids: &[String]) -> Result<()>;
+    /// Set (or clear with `None`) the session's active branch leaf.
+    async fn set_session_active_leaf(&self, session_id: &str, leaf_id: Option<&str>) -> Result<()>;
 
     // --- messages ---
     async fn create_message(&self, message: &Message) -> Result<()>;
     /// 按 created_at（再以 id 为 tiebreak）升序返回某会话的全部消息。
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>>;
+    async fn get_message(&self, id: &str) -> Result<Option<Message>>;
+    /// Update an existing message's editable fields (raw/display content, hidden).
+    async fn update_message(&self, message: &Message) -> Result<()>;
 
     // --- templates ---
     async fn create_template(&self, template: &Template) -> Result<()>;
