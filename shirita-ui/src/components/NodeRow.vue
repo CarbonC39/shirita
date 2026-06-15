@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2, Plus } from 'lucide-vue-next'
+import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2, Plus, GripVertical } from 'lucide-vue-next'
 import type { Definition, PromptNode, Trigger } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -53,6 +53,14 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       :style="{ paddingLeft: `${8 + depth * 26}px` }"
       class="flex items-center gap-2.5 py-2 pr-2 rounded-lg hover:bg-surface/70 group text-[14px]"
     >
+      <!-- drag handle: the row is only draggable when grabbed here (PromptTree
+           gates dragstart on this element), so the rest of the row stays clickable -->
+      <span
+        data-test="drag-handle"
+        class="shrink-0 -ml-1 cursor-grab active:cursor-grabbing text-muted/35 group-hover:text-muted/70 transition-colors"
+        title="Drag to reorder"
+      ><GripVertical :size="15" /></span>
+
       <!-- enable checkbox: rounded square, teal when on -->
       <button
         data-test="enable-checkbox"

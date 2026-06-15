@@ -67,8 +67,23 @@ describe('PromptTree drag reorder', () => {
     ]
     const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
     const rows = w.findAll('[data-test="row-wrap"]')
+    // drag only arms when it starts on the grip handle
+    await rows[0].find('[data-test="drag-handle"]').trigger('mousedown')
     await rows[0].trigger('dragstart')
     await rows[1].trigger('drop')
     expect(w.emitted('reorder')![0]).toEqual([['b', 'a']])
+  })
+
+  it('ignores a drag that did not start on the grip handle', async () => {
+    const nodes = [
+      n({ id: 'a', kind: 'folder', tag: 'char', definition_id: null, sort_order: 0 }),
+      n({ id: 'b', kind: 'folder', tag: 'world', definition_id: null, sort_order: 1 }),
+    ]
+    const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
+    const rows = w.findAll('[data-test="row-wrap"]')
+    await rows[0].trigger('mousedown') // not on the handle
+    await rows[0].trigger('dragstart')
+    await rows[1].trigger('drop')
+    expect(w.emitted('reorder')).toBeUndefined()
   })
 })
