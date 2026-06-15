@@ -63,11 +63,17 @@ describe('MessageItem', () => {
     expect(actions.find('[data-test="regenerate-btn"]').exists()).toBe(true)
   })
 
-  it('does not show action buttons for user messages', () => {
+  it('shows copy/edit/hide for user messages but no regenerate or swipe', () => {
     const wrapper = mount(MessageItem, {
       props: { message: makeMsg({ role: 'user' }), style: 'bubble' },
     })
-    expect(wrapper.find('[data-test="message-actions"]').exists()).toBe(false)
+    const actions = wrapper.find('[data-test="message-actions"]')
+    expect(actions.exists()).toBe(true)
+    expect(actions.find('[data-test="copy-btn"]').exists()).toBe(true)
+    expect(actions.find('[data-test="edit-btn"]').exists()).toBe(true)
+    expect(actions.find('[data-test="hide-btn"]').exists()).toBe(true)
+    expect(actions.find('[data-test="regenerate-btn"]').exists()).toBe(false)
+    expect(actions.find('[data-test="swipe-indicator"]').exists()).toBe(false)
   })
 
   it('emits copy with raw_content', async () => {
@@ -98,12 +104,28 @@ describe('MessageItem', () => {
     expect(wrapper.find('[data-test="streaming-cursor"]').exists()).toBe(true)
   })
 
-  it('shows swipe stub', () => {
+  it('hides the swipe indicator when there is only one sibling', () => {
     const wrapper = mount(MessageItem, {
-      props: { message: makeMsg({ role: 'assistant' }), style: 'bubble' },
+      props: { message: makeMsg({ role: 'assistant' }), style: 'bubble', siblingCount: 1 },
     })
-    const swipe = wrapper.find('[data-test="swipe-indicator"]')
-    expect(swipe.exists()).toBe(true)
-    expect(swipe.text()).toContain('1/1')
+    expect(wrapper.find('[data-test="swipe-indicator"]').exists()).toBe(false)
+  })
+
+  it('shows the real swipe count and emits swipe on the arrows', async () => {
+    const msg = makeMsg({ id: 'b2', parent_id: 'a', role: 'assistant', raw_content: 'hi', created_at: '2' })
+    const w = mount(MessageItem, { props: { message: msg, style: 'bubble', siblingIndex: 1, siblingCount: 2 } })
+    expect(w.find('[data-test="swipe-indicator"]').text()).toContain('2/2')
+    await w.find('[data-test="swipe-prev"]').trigger('click')
+    expect(w.emitted('swipe')![0]).toEqual([-1])
+  })
+
+  it('edits in place and emits edit-save', async () => {
+    const msg = makeMsg({ id: 'u', parent_id: null, role: 'user', raw_content: 'hello', created_at: '1' })
+    const w = mount(MessageItem, { props: { message: msg, style: 'flat' } })
+    await w.find('[data-test="edit-btn"]').trigger('click')
+    const ta = w.find('[data-test="edit-area"]')
+    await ta.setValue('hello edited')
+    await w.find('[data-test="edit-save"]').trigger('click')
+    expect(w.emitted('edit-save')![0]).toEqual(['hello edited'])
   })
 })

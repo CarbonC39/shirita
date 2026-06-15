@@ -1,24 +1,35 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { Copy, RefreshCw, GitFork, Pencil, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
 import type { Message } from '../api/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   message: Message
   style: 'bubble' | 'flat'
   isStreaming?: boolean
-}>()
+  siblingIndex?: number   // 0-based position among siblings
+  siblingCount?: number
+}>(), { siblingCount: 1, siblingIndex: 0 })
 
 const emit = defineEmits<{
   copy: [text: string]
   regenerate: []
   fork: []
-  edit: []
+  'edit-save': [text: string]
+  'toggle-hidden': []
+  swipe: [delta: -1 | 1]
 }>()
 
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
-const label = computed(() => (props.message.role === 'assistant' ? 'Assistant' : 'You'))
+const label = computed(() => (isAssistant.value ? 'Assistant' : 'You'))
+const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
+
+const editing = ref(false)
+const draft = ref('')
+function startEdit() { draft.value = props.message.raw_content; editing.value = true }
+function saveEdit() { editing.value = false; emit('edit-save', draft.value) }
+function cancelEdit() { editing.value = false }
 </script>
 
 <template>
@@ -36,37 +47,53 @@ const label = computed(() => (props.message.role === 'assistant' ? 'Assistant' :
           isUser
             ? 'bg-coral text-[#1b1b1b] rounded-[16px] rounded-br-[4px]'
             : 'bg-card border border-line text-ink rounded-[16px] rounded-bl-[4px]',
+          message.is_hidden ? 'opacity-50' : '',
         ]"
       >
-        {{ message.raw_content }}<span
+        <template v-if="editing">
+          <textarea
+            data-test="edit-area"
+            v-model="draft"
+            rows="3"
+            class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
+          />
+          <div class="flex gap-2 mt-1.5">
+            <button data-test="edit-save" class="text-primary hover:text-primary-strong" title="Save" @click="saveEdit"><Check :size="16" /></button>
+            <button class="text-muted hover:text-ink" title="Cancel" @click="cancelEdit"><X :size="16" /></button>
+          </div>
+        </template>
+        <template v-else>{{ message.raw_content }}<span
           v-if="isStreaming"
           data-test="streaming-cursor"
           class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
-        />
+        /></template>
       </div>
 
       <div
-        v-if="isAssistant"
+        v-if="!editing"
         data-test="message-actions"
-        class="flex items-center gap-1.5 mt-1.5 ml-1 text-muted"
+        :class="['flex items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
       >
-        <span data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
-          <ChevronLeft :size="14" :stroke-width="2.2" />
-          <span>1/1</span>
-          <ChevronRight :size="14" :stroke-width="2.2" />
+        <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
+          <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
+          <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>
+          <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
         </span>
-        <span class="w-px h-3.5 bg-line" />
-        <button data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
+        <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
+        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
           <RefreshCw :size="15" :stroke-width="1.8" />
         </button>
-        <button class="hover:text-ink" title="Fork" @click="emit('fork')">
+        <button v-if="isAssistant" class="hover:text-ink" title="Fork" @click="emit('fork')">
           <GitFork :size="15" :stroke-width="1.8" />
         </button>
         <button data-test="copy-btn" class="hover:text-ink" title="Copy" @click="emit('copy', message.raw_content)">
           <Copy :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="emit('edit')">
+        <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="startEdit">
           <Pencil :size="15" :stroke-width="1.8" />
+        </button>
+        <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? 'Unhide' : 'Hide'" @click="emit('toggle-hidden')">
+          <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
         </button>
       </div>
     </div>
@@ -78,31 +105,46 @@ const label = computed(() => (props.message.role === 'assistant' ? 'Assistant' :
       <div :class="['w-6 h-6 rounded-full shrink-0', isAssistant ? 'bg-sky/40' : 'bg-mauve/30']" />
       <span class="text-[13px] font-semibold text-ink">{{ label }}</span>
     </div>
-    <div class="text-[15px] leading-relaxed whitespace-pre-wrap pl-[34px] text-ink">
-      {{ message.raw_content }}<span
+    <div :class="['text-[15px] leading-relaxed whitespace-pre-wrap pl-[34px] text-ink', message.is_hidden ? 'opacity-50' : '']">
+      <template v-if="editing">
+        <textarea
+          data-test="edit-area"
+          v-model="draft"
+          rows="3"
+          class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
+        />
+        <div class="flex gap-2 mt-1.5">
+          <button data-test="edit-save" class="text-primary hover:text-primary-strong" title="Save" @click="saveEdit"><Check :size="16" /></button>
+          <button class="text-muted hover:text-ink" title="Cancel" @click="cancelEdit"><X :size="16" /></button>
+        </div>
+      </template>
+      <template v-else>{{ message.raw_content }}<span
         v-if="isStreaming"
         data-test="streaming-cursor"
         class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
-      />
+      /></template>
     </div>
-    <div v-if="isAssistant" data-test="message-actions" class="flex items-center gap-1.5 mt-2 pl-[34px] text-muted">
-      <span data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
-        <ChevronLeft :size="14" :stroke-width="2.2" />
-        <span>1/1</span>
-        <ChevronRight :size="14" :stroke-width="2.2" />
+    <div v-if="!editing" data-test="message-actions" class="flex items-center gap-1.5 mt-2 pl-[34px] text-muted">
+      <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
+        <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
+        <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>
+        <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
       </span>
-      <span class="w-px h-3.5 bg-line" />
-      <button data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
+      <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
+      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
         <RefreshCw :size="15" :stroke-width="1.8" />
       </button>
-      <button class="hover:text-ink" title="Fork" @click="emit('fork')">
+      <button v-if="isAssistant" class="hover:text-ink" title="Fork" @click="emit('fork')">
         <GitFork :size="15" :stroke-width="1.8" />
       </button>
       <button data-test="copy-btn" class="hover:text-ink" title="Copy" @click="emit('copy', message.raw_content)">
         <Copy :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="emit('edit')">
+      <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="startEdit">
         <Pencil :size="15" :stroke-width="1.8" />
+      </button>
+      <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? 'Unhide' : 'Hide'" @click="emit('toggle-hidden')">
+        <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
       </button>
     </div>
   </div>
