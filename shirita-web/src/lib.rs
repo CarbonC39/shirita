@@ -29,6 +29,10 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/messages",
             get(routes::sessions::list_messages).post(routes::chat::send),
         )
+        .route(
+            "/sessions/{id}/messages/{msg_id}",
+            put(routes::messages::edit_message),
+        )
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route(
             "/definitions",
