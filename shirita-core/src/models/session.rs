@@ -24,6 +24,10 @@ pub struct Session {
     /// default, overwritten by a manual drag reorder. Higher sorts first.
     #[serde(default)]
     pub sort_order: i64,
+    /// Snippet of the most recent message, filled in by `list_sessions` for the
+    /// home list. Not persisted; omitted from export/storage payloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
 }
 
 impl Session {
@@ -40,6 +44,7 @@ impl Session {
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
             sort_order: now.timestamp_millis(),
+            preview: None,
         }
     }
 }

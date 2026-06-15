@@ -8,6 +8,10 @@ export interface Session {
   override_config: Record<string, unknown>
   current_state: Record<string, unknown>
   mounted_definitions: string[]
+  created_at?: string
+  updated_at?: string
+  /** Snippet of the most recent message, supplied by the session list. */
+  preview?: string
 }
 
 export interface Message {
