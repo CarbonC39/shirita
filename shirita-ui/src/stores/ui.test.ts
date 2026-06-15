@@ -20,4 +20,13 @@ describe('ui store', () => {
     expect(ui.messageStyle).toBe('flat')
     expect(localStorage.getItem('ui.messageStyle')).toBe('flat')
   })
+
+  it('tracks the active chat id', () => {
+    const ui = useUiStore()
+    expect(ui.activeChatId).toBeNull()
+    ui.setActiveChatId('abc')
+    expect(ui.activeChatId).toBe('abc')
+    ui.setActiveChatId(null)
+    expect(ui.activeChatId).toBeNull()
+  })
 })

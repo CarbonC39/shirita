@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
 import { useUiStore } from '../stores/ui'
@@ -15,12 +15,12 @@ const section = computed(() => {
 // Remember the conversation you're "in": set on entering a chat, kept while you
 // browse Book/Settings, cleared when you return to the list. So the Chat icon
 // reopens that conversation from anywhere — until you leave it for home.
-const activeChatId = ref<string | null>(null)
+const activeChatId = computed(() => ui.activeChatId)
 watch(
   () => route.fullPath,
   () => {
-    if (route.name === 'chat') activeChatId.value = route.params.id as string
-    else if (route.path === '/') activeChatId.value = null
+    if (route.name === 'chat') ui.setActiveChatId(route.params.id as string)
+    else if (route.path === '/') ui.setActiveChatId(null)
   },
   { immediate: true },
 )
