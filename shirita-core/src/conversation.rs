@@ -5,6 +5,7 @@ use std::sync::Arc;
 use futures::{Stream, StreamExt};
 
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
+use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
@@ -24,6 +25,66 @@ pub async fn effective_nodes(
         return storage.list_nodes(&OwnerKind::Template, tid).await;
     }
     Ok(Vec::new())
+}
+
+/// Build the provider request for a turn whose visible, ordered context is
+/// `context` (hidden already filtered, ending with the latest user turn), plus
+/// the regex rules used to clean the reply. Shared by send + regenerate.
+async fn assemble_request(
+    storage: &dyn Storage,
+    session: &Session,
+    model: String,
+    context: &[ChatMessage],
+) -> crate::Result<(ChatRequest, Vec<Definition>)> {
+    let nodes = effective_nodes(storage, session).await?;
+    let mut defs = std::collections::HashMap::new();
+    for n in &nodes {
+        if let Some(did) = &n.definition_id {
+            if !defs.contains_key(did) {
+                if let Ok(Some(d)) = storage.get_definition(did).await {
+                    defs.insert(did.clone(), d);
+                }
+            }
+        }
+    }
+    let local = session
+        .override_config
+        .get("local_definitions")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    // 扫描窗口：取最近若干条（已含最新 user）；每个世界书条目再按自己的
+    // meta.scan.depth 在窗口内取末尾 N 条扫描（设置已下放到定义本身）。
+    const MAX_SCAN_WINDOW: usize = 20;
+    let mut recent: Vec<String> =
+        context.iter().rev().take(MAX_SCAN_WINDOW).map(|m| m.content.clone()).collect();
+    recent.reverse();
+
+    // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
+    let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
+    let plan = crate::assembly::assemble_from_nodes(
+        &nodes,
+        &defs,
+        &local,
+        &session.current_state,
+        &recent,
+        &mut || rand::Rng::gen::<f64>(&mut rng),
+    );
+
+    // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
+    let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
+    let include_history = plan.history_enabled || !has_history_node;
+    let chat_messages = crate::assembly::build_chat_messages(&plan, context, include_history);
+
+    // regex 规则：所有 regex_rule 定义（Settings 拥有，全局生效）。
+    let regex_rules: Vec<Definition> = storage
+        .list_definitions()
+        .await?
+        .into_iter()
+        .filter(|d| d.def_type == "regex_rule")
+        .collect();
+
+    Ok((ChatRequest { model, messages: chat_messages }, regex_rules))
 }
 
 /// 流式发送过程对外暴露的事件。
@@ -55,89 +116,34 @@ pub fn send_message(
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
-        // 1) 落库 user 消息（parent = 当前末条消息）。
-        let history = match storage.list_messages(&session_id).await {
+        // 1) parent = 当前激活叶子（沿 active_leaf 的分支末端），落库 user 消息。
+        let all = match storage.list_messages(&session_id).await {
             Ok(h) => h,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
-        let last_id = history.last().map(|m| m.id.clone());
-        let user_msg = Message::new(&session_id, last_id, Role::User, &user_text);
+        let path = crate::tree::active_path(&all, session.active_leaf_id.as_deref());
+        let parent_id = path.last().map(|m| m.id.clone());
+        let user_msg = Message::new(&session_id, parent_id, Role::User, &user_text);
         if let Err(e) = storage.create_message(&user_msg).await {
             yield SendEvent::Error(e.to_string());
             return;
         }
 
-        // 2) 取会话有效树 + 定义 + 局部覆盖 + 最近消息，按树组装结构化段。
-        let nodes = match effective_nodes(storage.as_ref(), &session).await {
-            Ok(n) => n,
-            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
-        };
-        let mut defs = std::collections::HashMap::new();
-        for n in &nodes {
-            if let Some(did) = &n.definition_id {
-                if !defs.contains_key(did) {
-                    if let Ok(Some(d)) = storage.get_definition(did).await {
-                        defs.insert(did.clone(), d);
-                    }
-                }
-            }
-        }
-        let local = session
-            .override_config
-            .get("local_definitions")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-
-        // 扫描窗口：取最近若干条（含将发送的 user）；每个世界书条目再按自己的
-        // meta.scan.depth 在窗口内取末尾 N 条扫描（设置已下放到定义本身）。
-        const MAX_SCAN_WINDOW: usize = 20;
-        let mut recent: Vec<String> = history
-            .iter()
-            .rev()
-            .take(MAX_SCAN_WINDOW.saturating_sub(1))
-            .map(|m| m.raw_content.clone())
-            .collect();
-        recent.reverse();
-        recent.push(user_text.clone());
-
-        // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
-        let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
-        let plan = crate::assembly::assemble_from_nodes(
-            &nodes,
-            &defs,
-            &local,
-            &session.current_state,
-            &recent,
-            &mut || rand::Rng::gen::<f64>(&mut rng),
-        );
-
-        // 真实历史（过滤隐藏）+ 本次 user，交给 build_chat_messages 按 history 节点拼装。
-        let mut hist_msgs: Vec<ChatMessage> = history
+        // 2) 组装：context = 当前分支可见消息（过滤隐藏）+ 本次 user。
+        let mut context: Vec<ChatMessage> = path
             .iter()
             .filter(|m| !m.is_hidden)
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
             .collect();
-        hist_msgs.push(ChatMessage { role: Role::User, content: user_text.clone() });
-
-        // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
-        let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
-        let include_history = plan.history_enabled || !has_history_node;
-        let chat_messages = crate::assembly::build_chat_messages(&plan, &hist_msgs, include_history);
-
-        // regex 规则：所有 regex_rule 定义（Settings 拥有，全局生效）。
-        let regex_rules: Vec<_> = match storage.list_definitions().await {
-            Ok(all) => all
-                .into_iter()
-                .filter(|d| d.def_type == "regex_rule")
-                .collect(),
+        context.push(ChatMessage { role: Role::User, content: user_text.clone() });
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context).await {
+            Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
         let prompt_text: String =
-            chat_messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
+            req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
         tracing::debug!(prompt_tokens = counter.count(&prompt_text), "assembled prompt");
-
-        let req = ChatRequest { model, messages: chat_messages };
 
         // 3) 调 provider 流，逐 delta 累积 + yield。
         let mut full = String::new();
@@ -159,6 +165,8 @@ pub fn send_message(
             yield SendEvent::Error(e.to_string());
             return;
         }
+        // 激活叶子推进到新助手消息：下一轮发送将挂在它之下。
+        let _ = storage.set_session_active_leaf(&session_id, Some(&assistant.id)).await;
         yield SendEvent::Done { message_id: assistant.id };
     }
 }
@@ -220,6 +228,36 @@ mod tests {
         assert_eq!(msgs[1].role, Role::Assistant);
         assert_eq!(msgs[1].raw_content, "echo: hello");
         assert_eq!(msgs[1].parent_id.as_deref(), Some(msgs[0].id.as_str()));
+    }
+
+    async fn drain(stream: impl futures::Stream<Item = SendEvent>) {
+        futures::pin_mut!(stream);
+        while futures::StreamExt::next(&mut stream).await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn send_chains_under_active_leaf_and_updates_it() {
+        let storage: Arc<dyn Storage> = Arc::new(temp_storage().await);
+        let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let session = Session::new("Chat");
+        storage.create_session(&session).await.unwrap();
+
+        // first turn
+        drain(send_message(storage.clone(), provider.clone(), counter.clone(),
+            "m".into(), session.id.clone(), "hi".into())).await;
+        let s1 = storage.get_session(&session.id).await.unwrap().unwrap();
+        let msgs1 = storage.list_messages(&session.id).await.unwrap();
+        assert_eq!(msgs1.len(), 2); // user + assistant
+        let assistant1 = msgs1.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(s1.active_leaf_id.as_deref(), Some(assistant1.id.as_str()));
+
+        // second turn chains under the previous assistant (the active leaf)
+        drain(send_message(storage.clone(), provider.clone(), counter.clone(),
+            "m".into(), session.id.clone(), "again".into())).await;
+        let msgs2 = storage.list_messages(&session.id).await.unwrap();
+        let user2 = msgs2.iter().find(|m| m.role == Role::User && m.raw_content == "again").unwrap();
+        assert_eq!(user2.parent_id.as_deref(), Some(assistant1.id.as_str()));
     }
 
     use crate::model::{ChatRequest, ModelProvider};
