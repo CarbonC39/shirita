@@ -4,6 +4,7 @@ pub mod definitions;
 pub mod health;
 pub mod import_export;
 pub mod index;
+pub mod messages;
 pub mod overrides;
 pub mod ping;
 pub mod prompt_nodes;
