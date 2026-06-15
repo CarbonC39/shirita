@@ -21,6 +21,7 @@ pub async fn send(
     Path(session_id): Path<String>,
     Json(body): Json<SendBody>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let reg_id = session_id.clone();
     let events = send_message(
         state.storage.clone(),
         state.provider.clone(),
@@ -29,6 +30,9 @@ pub async fn send(
         session_id,
         body.text,
     );
+    // A newer generation for the same session aborts this one (no racing writes).
+    let (events, handle) = futures::stream::abortable(events);
+    state.generations.replace(&reg_id, handle);
 
     let sse = events.map(|ev| {
         let payload = match ev {
@@ -46,6 +50,7 @@ pub async fn regenerate_message(
     State(state): State<AppState>,
     Path((session_id, msg_id)): Path<(String, String)>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let reg_id = session_id.clone();
     let events = regenerate(
         state.storage.clone(),
         state.provider.clone(),
@@ -54,6 +59,8 @@ pub async fn regenerate_message(
         session_id,
         msg_id,
     );
+    let (events, handle) = futures::stream::abortable(events);
+    state.generations.replace(&reg_id, handle);
     let sse = events.map(|ev| {
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),

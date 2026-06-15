@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use shirita_core::{Config, ModelProvider, Storage, TokenCounter};
 
+use crate::generations::Generations;
+
 #[derive(Clone)]
 pub struct AppState {
     pub storage: Arc<dyn Storage>,
@@ -9,4 +11,5 @@ pub struct AppState {
     pub provider: Arc<dyn ModelProvider>,
     pub token_counter: Arc<dyn TokenCounter>,
     pub model: String,
+    pub generations: Arc<Generations>,
 }
