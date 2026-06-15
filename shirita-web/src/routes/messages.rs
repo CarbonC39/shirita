@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-use shirita_core::Message;
+use shirita_core::{Message, Session};
 
 use crate::AppState;
 
@@ -50,4 +50,39 @@ pub async fn edit_message(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(msg))
+}
+
+#[derive(Deserialize)]
+pub struct ActiveLeafBody {
+    pub message_id: String,
+}
+
+/// Move the active branch: descend from `message_id` to its deepest leaf and
+/// store that as `active_leaf_id`. Returns the updated session.
+pub async fn set_active_leaf(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<ActiveLeafBody>,
+) -> Result<Json<Session>, StatusCode> {
+    let all = state
+        .storage
+        .list_messages(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if !all.iter().any(|m| m.id == body.message_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let leaf = shirita_core::tree::deepest_leaf(&all, &body.message_id);
+    state
+        .storage
+        .set_session_active_leaf(&session_id, Some(&leaf))
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let session = state
+        .storage
+        .get_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(session))
 }

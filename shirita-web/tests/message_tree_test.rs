@@ -99,3 +99,23 @@ async fn hide_toggles_is_hidden() {
     assert_eq!(st, StatusCode::OK);
     assert_eq!(json(&out)["is_hidden"], true);
 }
+
+#[tokio::test]
+async fn active_leaf_switch_descends_to_deepest_leaf() {
+    let state = test_state().await;
+    let sid = create(&state, "Chat").await;
+    turn(&state, &sid, "hi").await;             // user A -> assistant A
+    let msgs = messages(&state, &sid).await;
+    let user_a = msgs.as_array().unwrap().iter().find(|m| m["role"] == "user").unwrap();
+    let uid = user_a["id"].as_str().unwrap();
+
+    // point the active leaf back at the user message
+    let (st, out) = send(&state, "PUT", &format!("/api/sessions/{sid}/active-leaf"),
+        Some(&format!(r#"{{"message_id":"{uid}"}}"#))).await;
+    assert_eq!(st, StatusCode::OK);
+    // descends to the deepest leaf under the user message = assistant A
+    let after = messages(&state, &sid).await;
+    let assistant_a = after.as_array().unwrap().iter()
+        .find(|m| m["role"] == "assistant").unwrap()["id"].as_str().unwrap().to_string();
+    assert_eq!(json(&out)["active_leaf_id"], assistant_a);
+}

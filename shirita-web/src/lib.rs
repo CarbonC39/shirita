@@ -33,6 +33,10 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/messages/{msg_id}",
             put(routes::messages::edit_message),
         )
+        .route(
+            "/sessions/{id}/active-leaf",
+            put(routes::messages::set_active_leaf),
+        )
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route(
             "/definitions",
