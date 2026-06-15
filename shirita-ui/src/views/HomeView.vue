@@ -71,17 +71,6 @@ async function onImportFile(e: Event) {
 
 <template>
   <div class="relative max-w-[560px] mx-auto px-5 pt-7 pb-8 h-full flex flex-col">
-    <div v-if="store.items.length > 0" class="flex items-center justify-end mb-3.5">
-      <button
-        data-test="edit-toggle"
-        :class="['btn !py-1.5', editMode ? 'btn-primary' : 'btn-ghost']"
-        :title="editMode ? 'Done' : 'Reorder & delete'"
-        @click="editMode = !editMode"
-      >
-        <component :is="editMode ? Check : Pencil" :size="14" /> {{ editMode ? 'Done' : 'Edit' }}
-      </button>
-    </div>
-
     <div class="flex-1 overflow-y-auto">
       <p v-if="store.loading" class="text-muted text-sm">Loading…</p>
       <p v-else-if="store.error" class="text-coral text-sm">{{ store.error }}</p>
@@ -105,18 +94,28 @@ async function onImportFile(e: Event) {
       />
     </div>
 
-    <!-- Import sits to the left of the new-chat button -->
-    <div class="absolute right-5 bottom-6 flex items-center gap-3 z-20">
+    <!-- Edit + Import are flat secondary actions beside the new-chat button -->
+    <div class="absolute right-5 bottom-6 flex items-center gap-2 z-20">
       <button
-        class="w-11 h-11 rounded-full bg-card border border-line text-muted hover:text-ink hover:border-primary/40 grid place-items-center shadow-sm transition-colors"
+        v-if="store.items.length > 0"
+        data-test="edit-toggle"
+        :class="['flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium backdrop-blur-sm transition-colors',
+                 editMode ? 'bg-primary text-white' : 'bg-card/80 text-muted hover:text-ink']"
+        :title="editMode ? 'Done' : 'Reorder & delete'"
+        @click="editMode = !editMode"
+      >
+        <component :is="editMode ? Check : Pencil" :size="15" /> {{ editMode ? 'Done' : 'Edit' }}
+      </button>
+      <button
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium bg-card/80 text-muted hover:text-ink backdrop-blur-sm transition-colors"
         title="Import a conversation"
         @click="importInput?.click()"
       >
-        <Upload :size="18" />
+        <Upload :size="15" /> Import
       </button>
       <input ref="importInput" type="file" accept="application/json,.json" class="hidden" @change="onImportFile" />
 
-      <router-link to="/new" aria-label="New chat" class="block">
+      <router-link to="/new" aria-label="New chat" class="block ml-1">
         <svg
           width="54"
           height="54"
