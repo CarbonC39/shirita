@@ -70,6 +70,7 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         sort_order: row.try_get("sort_order")?,
+        active_leaf_id: row.try_get("active_leaf_id")?,
         preview: None,
     })
 }
@@ -186,7 +187,7 @@ impl Storage for SqliteStorage {
 
     async fn get_session(&self, id: &str) -> Result<Option<Session>> {
         let row = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order FROM chat_sessions WHERE id = ?",
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, active_leaf_id FROM chat_sessions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -201,7 +202,7 @@ impl Storage for SqliteStorage {
         // Correlated subquery grabs the latest visible message per session so the
         // home cards can show a recent-activity snippet without an N+1 round-trip.
         let rows = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, \
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, active_leaf_id, \
              (SELECT COALESCE(display_content, raw_content) FROM messages \
                 WHERE session_id = chat_sessions.id AND is_hidden = 0 \
                 ORDER BY created_at DESC LIMIT 1) AS preview \
