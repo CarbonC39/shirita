@@ -66,6 +66,38 @@ async fn get_session(state: &AppState, sid: &str) -> Value {
     json(&out)
 }
 
+async fn create_template(state: &AppState, name: &str) -> String {
+    let (_, out) = send(state, "POST", "/api/templates", Some(&format!(r#"{{"name":"{name}"}}"#))).await;
+    json(&out)["id"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn materialize_copies_template_nodes_once() {
+    let state = test_state().await;
+    // `create_template` seeds a single root `history` node, so the template
+    // already owns one node we can deep-copy.
+    let tid = create_template(&state, "T").await;
+    // a session using that template
+    let (_, sout) = send(&state, "POST", "/api/sessions",
+        Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    // before: session has no own nodes
+    let (_, before) = send(&state, "GET", &format!("/api/templates/{sid}/nodes?owner_kind=session"), None).await;
+    assert_eq!(json(&before).as_array().unwrap().len(), 0);
+
+    let (st, _) = send(&state, "POST", &format!("/api/sessions/{sid}/materialize-nodes"), Some("{}")).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let (_, after) = send(&state, "GET", &format!("/api/templates/{sid}/nodes?owner_kind=session"), None).await;
+    assert_eq!(json(&after).as_array().unwrap().len(), 1);
+
+    // idempotent: a second call doesn't double the tree
+    send(&state, "POST", &format!("/api/sessions/{sid}/materialize-nodes"), Some("{}")).await;
+    let (_, after2) = send(&state, "GET", &format!("/api/templates/{sid}/nodes?owner_kind=session"), None).await;
+    assert_eq!(json(&after2).as_array().unwrap().len(), 1);
+}
+
 #[tokio::test]
 async fn set_clear_and_promote_local_definition() {
     let state = test_state().await;
