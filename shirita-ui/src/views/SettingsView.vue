@@ -20,7 +20,11 @@ const error = ref<string | null>(null)
 const regexRules = ref<Definition[]>([])
 const showApiKey = ref(false)
 const cssFullscreen = ref(false)
-const saveMessage = ref('')
+// Auto-save: settings persist on change (debounced); the header shows transient
+// status instead of a Save button. `loaded` gates the watch so loading the
+// settings doesn't immediately echo them back.
+const loaded = ref(false)
+const saveState = ref<'idle' | 'saving' | 'saved'>('idle')
 
 const providerSources = ['openai', 'anthropic', 'google', 'openrouter', 'mistral', 'deepseek', 'groq', 'xai', 'cohere', 'together', 'perplexity', 'custom']
 
@@ -98,25 +102,41 @@ onMounted(async () => {
     if (providerApiKey.value && providerBaseUrl.value) await settings.fetchModels()
     else settings.useFallbackModels(fallbackModels[providerSource.value] ?? [])
   } catch (e) { error.value = (e as Error).message }
-  finally { loading.value = false }
+  finally { loading.value = false; loaded.value = true }
 })
+
+// Debounced auto-save of every settings-backed field. The intermediate
+// computeds dedupe, so saving (which merges the patch back into the store)
+// produces no change and can't loop. Theme/style/background save on their own.
+let saveTimer: ReturnType<typeof setTimeout> | undefined
+watch(
+  () => [
+    providerSource.value, providerBaseUrl.value, providerApiKey.value, providerModel.value, providerStream.value,
+    genTemp.value, genTopP.value, genFreqPenalty.value, genPresPenalty.value, genMaxTokens.value, customCss.value,
+  ],
+  () => {
+    if (!loaded.value) return
+    clearTimeout(saveTimer)
+    saveState.value = 'saving'
+    saveTimer = setTimeout(async () => {
+      try {
+        await settings.save({
+          provider_source: providerSource.value, provider_base_url: providerBaseUrl.value,
+          provider_api_key: providerApiKey.value, provider_model: providerModel.value, provider_stream: providerStream.value,
+          gen_temperature: genTemp.value, gen_top_p: genTopP.value, gen_frequency_penalty: genFreqPenalty.value,
+          gen_presence_penalty: genPresPenalty.value, gen_max_response_tokens: genMaxTokens.value,
+          custom_css: customCss.value,
+        })
+        saveState.value = 'saved'
+        setTimeout(() => { if (saveState.value === 'saved') saveState.value = 'idle' }, 1500)
+      } catch (e) { error.value = (e as Error).message; saveState.value = 'idle' }
+    }, 600)
+  },
+)
 
 function onBackgroundChange(path: string) {
   ui.setBackground(path)
   settings.save({ appearance_background: path }).catch((e) => { error.value = (e as Error).message })
-}
-
-async function handleSave() {
-  try {
-    await settings.save({
-      provider_source: providerSource.value, provider_base_url: providerBaseUrl.value,
-      provider_api_key: providerApiKey.value, provider_model: providerModel.value, provider_stream: providerStream.value,
-      gen_temperature: genTemp.value, gen_top_p: genTopP.value, gen_frequency_penalty: genFreqPenalty.value,
-      gen_presence_penalty: genPresPenalty.value, gen_max_response_tokens: genMaxTokens.value,
-      custom_css: customCss.value,
-    })
-    saveMessage.value = 'Saved'; setTimeout(() => { saveMessage.value = '' }, 2000)
-  } catch (e) { error.value = (e as Error).message }
 }
 
 async function handleTestConnection() {
@@ -131,10 +151,10 @@ async function handleTestConnection() {
     <template v-else>
       <div class="flex items-center justify-between mb-8">
         <h2 class="text-lg font-semibold">Settings</h2>
-        <div class="flex items-center gap-2">
-          <span v-if="saveMessage" class="text-[12px] text-muted">{{ saveMessage }}</span>
-          <button class="btn btn-primary px-5" @click="handleSave">Save</button>
-        </div>
+        <span class="flex items-center gap-1.5 text-[12px] text-muted transition-opacity" :class="saveState === 'idle' ? 'opacity-0' : 'opacity-100'">
+          <template v-if="saveState === 'saving'"><span class="w-2.5 h-2.5 rounded-full border-2 border-muted border-t-transparent animate-spin" />Saving…</template>
+          <template v-else-if="saveState === 'saved'"><Check :size="13" :stroke-width="2.6" class="text-primary" />Saved</template>
+        </span>
       </div>
 
       <!-- Provider -->
@@ -160,7 +180,8 @@ async function handleTestConnection() {
             <div class="flex items-center gap-2">
               <input :value="providerModel" type="text" placeholder="gpt-4o" class="field flex-1" @input="providerModel = ($event.target as HTMLInputElement).value" />
               <span v-if="settings.modelsLoading" class="flex items-center gap-1.5 text-[12px] text-muted whitespace-nowrap"><span class="w-2.5 h-2.5 rounded-full border-2 border-muted border-t-transparent animate-spin" />Fetching…</span>
-              <span v-else-if="settings.models.length && !settings.modelsError" class="flex items-center gap-1 text-[12px] text-primary whitespace-nowrap"><Check :size="13" :stroke-width="2.6" />{{ settings.models.length }} models</span>
+              <span v-else-if="settings.models.length && !settings.modelsError && settings.modelsSource === 'live'" class="flex items-center gap-1 text-[12px] text-primary whitespace-nowrap" title="Fetched live from your provider"><Check :size="13" :stroke-width="2.6" />{{ settings.models.length }} models</span>
+              <span v-else-if="settings.models.length && !settings.modelsError" class="text-[12px] text-muted whitespace-nowrap" title="Built-in suggestions — add an API key to fetch your provider's models">{{ settings.models.length }} common</span>
             </div>
             <p v-if="settings.modelsError" class="text-[12px] text-coral mt-1">{{ settings.modelsError }}</p>
             <select v-if="settings.models.length > 0" :value="providerModel" class="field w-full mt-2" @change="providerModel = ($event.target as HTMLSelectElement).value">
@@ -227,7 +248,9 @@ async function handleTestConnection() {
           </div>
           <div>
             <span class="text-[14px] text-ink block mb-2">Background</span>
-            <AssetPicker :model-value="ui.background" shape="rect" @update:model-value="onBackgroundChange" />
+            <div class="bg-surface/50 border border-line rounded-xl p-3">
+              <AssetPicker :model-value="ui.background" shape="rect" @update:model-value="onBackgroundChange" />
+            </div>
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5"><label class="text-[13px] text-ink">Custom CSS</label><button class="text-[12px] text-muted hover:text-ink" @click="cssFullscreen = true">Fullscreen</button></div>
