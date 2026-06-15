@@ -24,6 +24,10 @@ pub struct Session {
     /// default, overwritten by a manual drag reorder. Higher sorts first.
     #[serde(default)]
     pub sort_order: i64,
+    /// Leaf message of the session's active branch (the path shown / extended).
+    /// `None` until the first message; falls back to the newest message.
+    #[serde(default)]
+    pub active_leaf_id: Option<String>,
     /// Snippet of the most recent message, filled in by `list_sessions` for the
     /// home list. Not persisted; omitted from export/storage payloads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -44,6 +48,7 @@ impl Session {
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
             sort_order: now.timestamp_millis(),
+            active_leaf_id: None,
             preview: None,
         }
     }
