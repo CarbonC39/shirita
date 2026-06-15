@@ -66,6 +66,9 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
         override_config: serde_json::from_str(&override_config)?,
         current_state: serde_json::from_str(&current_state)?,
         mounted_definitions: serde_json::from_str(&mounted)?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        sort_order: row.try_get("sort_order")?,
     })
 }
 
@@ -150,8 +153,8 @@ impl Storage for SqliteStorage {
         let current_state = serde_json::to_string(&session.current_state)?;
         let mounted = serde_json::to_string(&session.mounted_definitions)?;
         sqlx::query(
-            "INSERT INTO chat_sessions (id, name, avatar, template_id, override_config, current_state, mounted_definitions) \
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chat_sessions (id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.name)
@@ -160,6 +163,9 @@ impl Storage for SqliteStorage {
         .bind(override_config)
         .bind(current_state)
         .bind(mounted)
+        .bind(&session.created_at)
+        .bind(&session.updated_at)
+        .bind(session.sort_order)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -167,7 +173,7 @@ impl Storage for SqliteStorage {
 
     async fn get_session(&self, id: &str) -> Result<Option<Session>> {
         let row = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions FROM chat_sessions WHERE id = ?",
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order FROM chat_sessions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -180,7 +186,8 @@ impl Storage for SqliteStorage {
 
     async fn list_sessions(&self) -> Result<Vec<Session>> {
         let rows = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions FROM chat_sessions ORDER BY name",
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order \
+             FROM chat_sessions ORDER BY sort_order DESC, updated_at DESC, name",
         )
         .fetch_all(&self.pool)
         .await?;
@@ -204,6 +211,22 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn reorder_sessions(&self, ordered_ids: &[String]) -> Result<()> {
+        // Assign descending sort keys around "now" so the manual order persists
+        // (top item largest) while later activity still floats a chat above it.
+        let base = chrono::Utc::now().timestamp_millis();
+        let mut tx = self.pool.begin().await?;
+        for (i, id) in ordered_ids.iter().enumerate() {
+            sqlx::query("UPDATE chat_sessions SET sort_order = ? WHERE id = ?")
+                .bind(base - i as i64)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn create_message(&self, message: &Message) -> Result<()> {
         let snapshot = serde_json::to_string(&message.snapshot_state)?;
         sqlx::query(
@@ -222,6 +245,15 @@ impl Storage for SqliteStorage {
         .bind(&message.created_at)
         .execute(&self.pool)
         .await?;
+        // Bump the session's activity so it floats to the top of the home list
+        // (default ordering is by recency). Manual reorders use the same key.
+        let now = chrono::Utc::now();
+        sqlx::query("UPDATE chat_sessions SET updated_at = ?, sort_order = ? WHERE id = ?")
+            .bind(now.to_rfc3339())
+            .bind(now.timestamp_millis())
+            .bind(&message.session_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -539,6 +571,35 @@ mod tests {
         assert_eq!(msgs[1].id, m2.id);
         assert_eq!(msgs[1].parent_id.as_deref(), Some(m1.id.as_str()));
         assert_eq!(msgs[1].role, Role::Assistant);
+    }
+
+    #[tokio::test]
+    async fn sessions_order_by_recency_then_manual_reorder() {
+        let storage = temp_storage().await;
+
+        // Three sessions with explicit, increasing sort keys → newest on top.
+        let mut a = Sess::new("A");
+        a.sort_order = 100;
+        let mut b = Sess::new("B");
+        b.sort_order = 200;
+        let mut c = Sess::new("C");
+        c.sort_order = 300;
+        for s in [&a, &b, &c] {
+            storage.create_session(s).await.unwrap();
+        }
+        let ids: Vec<_> = storage.list_sessions().await.unwrap().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![c.id.clone(), b.id.clone(), a.id.clone()]);
+
+        // A new message in the oldest (A) floats it to the top by recency.
+        let m = Msg::new(&a.id, None, Role::User, "hi");
+        storage.create_message(&m).await.unwrap();
+        let top = storage.list_sessions().await.unwrap()[0].id.clone();
+        assert_eq!(top, a.id);
+
+        // Manual reorder pins the given order (top-to-bottom).
+        storage.reorder_sessions(&[b.id.clone(), c.id.clone(), a.id.clone()]).await.unwrap();
+        let ids: Vec<_> = storage.list_sessions().await.unwrap().into_iter().map(|s| s.id).collect();
+        assert_eq!(ids, vec![b.id, c.id, a.id]);
     }
 
     #[tokio::test]

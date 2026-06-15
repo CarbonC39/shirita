@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { Session } from '../api/types'
-import { listSessions, deleteSession, duplicateSession } from '../api/client'
+import { listSessions, deleteSession, duplicateSession, reorderSessions } from '../api/client'
 
 export const useSessionsStore = defineStore('sessions', () => {
   const items = ref<Session[]>([])
@@ -30,5 +30,14 @@ export const useSessionsStore = defineStore('sessions', () => {
     catch (e) { error.value = (e as Error).message }
   }
 
-  return { items, loading, error, load, remove, duplicate }
+  // Persist a manual order (ids top-to-bottom) and reflect it locally so the
+  // list stays put without a reload.
+  async function reorder(ids: string[]) {
+    const byId = new Map(items.value.map((s) => [s.id, s]))
+    items.value = ids.map((id) => byId.get(id)).filter(Boolean) as Session[]
+    try { await reorderSessions(ids) }
+    catch (e) { error.value = (e as Error).message }
+  }
+
+  return { items, loading, error, load, remove, duplicate, reorder }
 })

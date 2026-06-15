@@ -15,10 +15,20 @@ pub struct Session {
     pub current_state: serde_json::Value,
     #[serde(default)]
     pub mounted_definitions: Vec<String>,
+    /// RFC3339 creation / last-activity timestamps (for display).
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub updated_at: String,
+    /// Ordering key for the home list — epoch-millis of last activity by
+    /// default, overwritten by a manual drag reorder. Higher sorts first.
+    #[serde(default)]
+    pub sort_order: i64,
 }
 
 impl Session {
     pub fn new(name: impl Into<String>) -> Self {
+        let now = chrono::Utc::now();
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
@@ -27,6 +37,9 @@ impl Session {
             override_config: serde_json::json!({}),
             current_state: serde_json::json!({}),
             mounted_definitions: Vec::new(),
+            created_at: now.to_rfc3339(),
+            updated_at: now.to_rfc3339(),
+            sort_order: now.timestamp_millis(),
         }
     }
 }

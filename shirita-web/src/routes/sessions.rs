@@ -96,6 +96,20 @@ pub async fn set_mounts(
     Ok(StatusCode::OK)
 }
 
+#[derive(Deserialize)]
+pub struct ReorderSessions {
+    /// Session ids top-to-bottom in the desired manual order.
+    pub ids: Vec<String>,
+}
+
+pub async fn reorder_sessions(
+    State(state): State<AppState>,
+    Json(body): Json<ReorderSessions>,
+) -> Result<StatusCode, StatusCode> {
+    state.storage.reorder_sessions(&body.ids).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
+
 pub async fn delete_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
