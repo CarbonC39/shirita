@@ -1,10 +1,15 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import type { Message } from '../api/types'
-import { listMessages, sendMessage } from '../api/client'
+import {
+  listMessages, getSession, sendMessage, regenerateMessage,
+  editMessage, setActiveLeaf, forkSession,
+} from '../api/client'
+import { activePath } from '../utils/tree'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
+  const activeLeafId = ref<string | null>(null)
   const loading = ref(false)
   const error = ref<string | null>(null)
   const isStreaming = ref(false)
@@ -12,12 +17,21 @@ export const useChatStore = defineStore('chat', () => {
   const streamingError = ref<string | null>(null)
   const activeSessionId = ref<string | null>(null)
 
+  const displayed = computed(() => activePath(messages.value, activeLeafId.value))
+
   async function loadMessages(sessionId: string) {
     loading.value = true
     error.value = null
     activeSessionId.value = sessionId
     try {
       messages.value = await listMessages(sessionId)
+      // The leaf merely chooses which branch is shown (falls back to newest),
+      // so a session-read hiccup must not blank the transcript.
+      try {
+        activeLeafId.value = (await getSession(sessionId)).active_leaf_id ?? null
+      } catch {
+        activeLeafId.value = null
+      }
     } catch (e) {
       error.value = (e as Error).message
     } finally {
@@ -25,30 +39,55 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function send(sessionId: string, text: string) {
+  async function consume(
+    stream: AsyncGenerator<{ type: string; text?: string; message?: string }>,
+    sessionId: string,
+  ) {
     isStreaming.value = true
     streamingText.value = ''
     streamingError.value = null
-
     try {
-      const stream = sendMessage(sessionId, text)
       for await (const event of stream) {
-        if (event.type === 'delta') {
-          streamingText.value += event.text
-        } else if (event.type === 'done') {
-          streamingText.value = ''
-          await loadMessages(sessionId)
-        } else if (event.type === 'error') {
-          streamingError.value = event.message
-          isStreaming.value = false
-          return
-        }
+        if (event.type === 'delta') streamingText.value += event.text
+        else if (event.type === 'done') { streamingText.value = ''; await loadMessages(sessionId) }
+        else if (event.type === 'error') { streamingError.value = event.message ?? null; isStreaming.value = false; return }
       }
     } catch (e) {
       streamingError.value = (e as Error).message
     } finally {
       isStreaming.value = false
     }
+  }
+
+  async function send(sessionId: string, text: string) {
+    await consume(sendMessage(sessionId, text), sessionId)
+  }
+  async function regenerate(sessionId: string, msgId: string) {
+    await consume(regenerateMessage(sessionId, msgId), sessionId)
+  }
+  async function switchLeaf(messageId: string) {
+    if (!activeSessionId.value) return
+    const s = await setActiveLeaf(activeSessionId.value, messageId)
+    activeLeafId.value = s.active_leaf_id ?? null
+  }
+  async function editMsg(msgId: string, content: string) {
+    if (!activeSessionId.value) return
+    const updated = await editMessage(activeSessionId.value, msgId, { content })
+    const i = messages.value.findIndex((m) => m.id === msgId)
+    if (i !== -1) messages.value = [...messages.value.slice(0, i), updated, ...messages.value.slice(i + 1)]
+  }
+  async function toggleHidden(msgId: string) {
+    if (!activeSessionId.value) return
+    const m = messages.value.find((x) => x.id === msgId)
+    if (!m) return
+    const updated = await editMessage(activeSessionId.value, msgId, { is_hidden: !m.is_hidden })
+    const i = messages.value.findIndex((x) => x.id === msgId)
+    if (i !== -1) messages.value = [...messages.value.slice(0, i), updated, ...messages.value.slice(i + 1)]
+  }
+  async function fork(msgId: string): Promise<string | null> {
+    if (!activeSessionId.value) return null
+    const s = await forkSession(activeSessionId.value, msgId)
+    return s.id
   }
 
   function clearStreaming() {
@@ -58,8 +97,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   return {
-    messages, loading, error,
+    messages, activeLeafId, displayed, loading, error,
     isStreaming, streamingText, streamingError, activeSessionId,
-    loadMessages, send, clearStreaming,
+    loadMessages, send, regenerate, switchLeaf, editMsg, toggleHidden, fork, clearStreaming,
   }
 })

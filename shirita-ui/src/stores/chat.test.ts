@@ -22,6 +22,7 @@ describe('chat store', () => {
   it('loadMessages fetches and stores messages', async () => {
     const items = [msg({ id: 'm1' }), msg({ id: 'm2', role: 'assistant' })]
     vi.spyOn(client, 'listMessages').mockResolvedValue(items)
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: 'm2' } as any)
 
     const store = useChatStore()
     await store.loadMessages('s1')
@@ -32,6 +33,7 @@ describe('chat store', () => {
 
   it('sendMessage streams deltas into streamingText and reloads on done', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([msg()])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as any)
     async function* stream(): AsyncGenerator<client.SseEvent> {
       yield { type: 'delta', text: 'Hel' }
       yield { type: 'delta', text: 'lo' }
@@ -83,5 +85,32 @@ describe('chat store', () => {
     expect(store.isStreaming).toBe(false)
     expect(store.streamingText).toBe('')
     expect(store.streamingError).toBeNull()
+  })
+
+  it('displays only the active branch and seeds the leaf from the session', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([
+      msg({ id: 'a', parent_id: null, created_at: '1' }),
+      msg({ id: 'b', parent_id: 'a', role: 'assistant', created_at: '2' }),
+      msg({ id: 'b2', parent_id: 'a', role: 'assistant', created_at: '3' }),
+    ])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's', active_leaf_id: 'b2' } as any)
+    const store = useChatStore()
+    await store.loadMessages('s')
+    expect(store.displayed.map((x: Message) => x.id)).toEqual(['a', 'b2'])
+  })
+
+  it('switchLeaf updates the leaf from the endpoint response', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([
+      msg({ id: 'a', parent_id: null, created_at: '1' }),
+      msg({ id: 'b', parent_id: 'a', role: 'assistant', created_at: '2' }),
+      msg({ id: 'b2', parent_id: 'a', role: 'assistant', created_at: '3' }),
+    ])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's', active_leaf_id: 'b2' } as any)
+    vi.spyOn(client, 'setActiveLeaf').mockResolvedValue({ id: 's', active_leaf_id: 'b' } as any)
+    const store = useChatStore()
+    await store.loadMessages('s')
+    await store.switchLeaf('b')
+    expect(store.activeLeafId).toBe('b')
+    expect(store.displayed.map((x: Message) => x.id)).toEqual(['a', 'b'])
   })
 })
