@@ -11,6 +11,7 @@ pub mod models;
 pub mod seed;
 pub mod storage;
 pub mod tokenizer;
+pub mod tree;
 
 pub use assembly::{
     apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, AssembledPlan,
