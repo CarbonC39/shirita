@@ -37,6 +37,10 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/active-leaf",
             put(routes::messages::set_active_leaf),
         )
+        .route(
+            "/sessions/{id}/messages/{msg_id}/regenerate",
+            post(routes::chat::regenerate_message),
+        )
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route(
             "/definitions",
