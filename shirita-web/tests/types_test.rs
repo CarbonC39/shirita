@@ -23,7 +23,7 @@ async fn test_state() -> AppState {
     let config = Arc::new(Config::new("ignored", "./assets", "secret-token").unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-    AppState { storage, config, provider, token_counter, model: "test-model".into() }
+    AppState { storage, config, provider, token_counter, model: "test-model".into(), generations: Arc::new(shirita_web::Generations::new()) }
 }
 
 async fn send(state: &AppState, method: &str, uri: &str, body: Option<&str>) -> (StatusCode, String) {

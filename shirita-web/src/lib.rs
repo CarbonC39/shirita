@@ -1,9 +1,11 @@
 //! shirita-web: Axum 适配层（REST + SSE + 静态文件 + 鉴权）
 
 pub mod auth;
+pub mod generations;
 pub mod routes;
 pub mod state;
 
+pub use generations::Generations;
 pub use state::AppState;
 
 use axum::routing::{delete, post, put};

@@ -26,6 +26,7 @@ async fn test_state() -> AppState {
         provider,
         token_counter,
         model: "test-model".into(),
+        generations: Arc::new(shirita_web::Generations::new()),
     }
 }
 

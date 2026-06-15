@@ -33,6 +33,7 @@ async fn state_with_assets() -> (AppState, std::path::PathBuf) {
             provider,
             token_counter,
             model: "m".into(),
+            generations: Arc::new(shirita_web::Generations::new()),
         },
         assets,
     )
