@@ -90,6 +90,15 @@ export async function duplicateSession(id: string): Promise<Session> {
   return res.json()
 }
 
+export async function reorderSessions(ids: string[]): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/reorder`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  if (!res.ok) throw new Error(`Reorder sessions failed: ${res.status}`)
+}
+
 export function exportSession(id: string): Promise<unknown> {
   return apiGet<unknown>(`/sessions/${id}/export`)
 }

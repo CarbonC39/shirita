@@ -29,6 +29,8 @@ pub trait Storage: Send + Sync {
     async fn delete_session(&self, id: &str) -> Result<()>;
     /// 整体替换会话的挂载定义 ID 列表。
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()>;
+    /// 按给定顺序（首项置顶）持久化会话的手动排序。
+    async fn reorder_sessions(&self, ordered_ids: &[String]) -> Result<()>;
 
     // --- messages ---
     async fn create_message(&self, message: &Message) -> Result<()>;

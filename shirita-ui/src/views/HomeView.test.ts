@@ -39,6 +39,23 @@ describe('HomeView', () => {
     expect(wrapper.findAll('a[href^="/chat/"]')).toHaveLength(2)
   })
 
+  it('edit mode swaps card menus for drag + delete affordances', async () => {
+    vi.spyOn(client, 'listSessions').mockResolvedValue([
+      { id: 's1', name: 'Neo', avatar: null, override_config: {}, current_state: {}, mounted_definitions: [] },
+    ])
+    const router = makeRouter()
+    router.push('/')
+    await router.isReady()
+
+    const wrapper = mount(HomeView, { global: { plugins: [router] } })
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="chat-menu"]').exists()).toBe(true)
+    await wrapper.find('[data-test="edit-toggle"]').trigger('click')
+    expect(wrapper.find('[data-test="chat-menu"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="chat-delete"]').exists()).toBe(true)
+  })
+
   it('shows an empty state when there are no sessions', async () => {
     vi.spyOn(client, 'listSessions').mockResolvedValue([])
     const router = makeRouter()
