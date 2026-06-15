@@ -34,26 +34,14 @@ export type SseEvent =
   | { type: 'done'; message_id: string }
   | { type: 'error'; message: string }
 
-export async function* sendMessage(
-  sessionId: string,
-  text: string,
-): AsyncGenerator<SseEvent> {
-  const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages`, {
-    method: 'POST',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-  })
-  if (!res.ok) {
-    throw new Error(`POST /sessions/${sessionId}/messages failed: ${res.status}`)
-  }
+/** Parse an `data: {...}\n` SSE body into a stream of `SseEvent`s. */
+async function* readSse(res: Response): AsyncGenerator<SseEvent> {
   if (!res.body) {
     throw new Error('No response body for SSE stream')
   }
-
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -70,6 +58,69 @@ export async function* sendMessage(
   } finally {
     reader.releaseLock()
   }
+}
+
+export async function* sendMessage(
+  sessionId: string,
+  text: string,
+): AsyncGenerator<SseEvent> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+  if (!res.ok) {
+    throw new Error(`POST /sessions/${sessionId}/messages failed: ${res.status}`)
+  }
+  yield* readSse(res)
+}
+
+export async function editMessage(
+  sessionId: string,
+  msgId: string,
+  patch: { content?: string; is_hidden?: boolean },
+): Promise<Message> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages/${msgId}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  })
+  if (!res.ok) throw new Error(`Edit message failed: ${res.status}`)
+  return res.json()
+}
+
+export async function setActiveLeaf(sessionId: string, messageId: string): Promise<Session> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/active-leaf`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id: messageId }),
+  })
+  if (!res.ok) throw new Error(`Set active leaf failed: ${res.status}`)
+  return res.json()
+}
+
+export async function forkSession(sessionId: string, messageId: string): Promise<Session> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/fork`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message_id: messageId }),
+  })
+  if (!res.ok) throw new Error(`Fork failed: ${res.status}`)
+  return res.json()
+}
+
+/** SSE regenerate — same event shape as sendMessage. */
+export async function* regenerateMessage(
+  sessionId: string,
+  msgId: string,
+): AsyncGenerator<SseEvent> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages/${msgId}/regenerate`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: '{}',
+  })
+  if (!res.ok) throw new Error(`Regenerate failed: ${res.status}`)
+  yield* readSse(res)
 }
 
 // --- Sessions ---
