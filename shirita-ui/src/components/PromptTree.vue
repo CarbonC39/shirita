@@ -85,9 +85,18 @@ function onFolderAdd(id: string) {
   activePickerParent.value = activePickerParent.value === id ? undefined : id
 }
 
-// native HTML5 drag-reorder, restricted to siblings of the same parent.
+// native HTML5 drag-reorder, restricted to siblings of the same parent. A drag
+// only counts if it began on a row's grip handle, so clicks/selection on the
+// rest of the row don't accidentally start a drag.
 const dragId = ref<string | null>(null)
-function onDragStart(id: string) { dragId.value = id }
+const grabbedHandle = ref(false)
+function onMouseDown(e: MouseEvent) {
+  grabbedHandle.value = !!(e.target as HTMLElement).closest('[data-test="drag-handle"]')
+}
+function onDragStart(id: string, e: DragEvent) {
+  if (!grabbedHandle.value) { e.preventDefault(); return }
+  dragId.value = id
+}
 function siblingsOf(parentId: string | null) { return getChildren(parentId).map((nd) => nd.id) }
 function parentOf(id: string): string | null {
   return props.nodes.find((nd) => nd.id === id)?.parent_id ?? null
@@ -95,6 +104,7 @@ function parentOf(id: string): string | null {
 function onDrop(targetId: string) {
   const src = dragId.value
   dragId.value = null
+  grabbedHandle.value = false
   if (!src || src === targetId) return
   if (parentOf(src) !== parentOf(targetId)) return // only reorder within a level
   const ids = siblingsOf(parentOf(targetId))
@@ -113,7 +123,8 @@ function onDrop(targetId: string) {
       :key="node.id"
       data-test="row-wrap"
       draggable="true"
-      @dragstart="onDragStart(node.id)"
+      @mousedown="onMouseDown"
+      @dragstart="onDragStart(node.id, $event)"
       @dragover.prevent
       @drop="onDrop(node.id)"
     >
@@ -137,7 +148,8 @@ function onDrop(targetId: string) {
           :key="child.id"
           data-test="row-wrap"
           draggable="true"
-          @dragstart.stop="onDragStart(child.id)"
+          @mousedown="onMouseDown"
+          @dragstart.stop="onDragStart(child.id, $event)"
           @dragover.prevent
           @drop.stop="onDrop(child.id)"
         >
