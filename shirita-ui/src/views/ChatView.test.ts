@@ -19,6 +19,7 @@ describe('ChatView', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as never)
   })
 
   it('loads messages on mount', async () => {
