@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use axum::extract::{Multipart, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use shirita_core::Definition;
+use shirita_core::{Definition, NodeKind, OwnerKind, PromptNode, Template};
 
 use crate::AppState;
 
@@ -136,7 +138,7 @@ pub async fn import(
                 _ => return Err(StatusCode::BAD_REQUEST),
             }
         }
-        // shirita.template 留待 Plan 3 处理。
+        Some("shirita.template") => import_template_bundle(&state, &v, oc, &mut summary).await?,
         _ => {
             let is_card = v.get("spec").and_then(|s| s.as_str()).map(|s| s.contains("chara_card")).unwrap_or(false)
                 || v.get("data").and_then(|d| d.get("name")).is_some()
@@ -171,4 +173,77 @@ pub async fn import_worldinfo(
     let mut summary = ImportSummary::default();
     persist_defs(&state, shirita_core::worldinfo_to_defs(&body), OnConflict::Skip, &mut summary).await?;
     Ok(Json(summary))
+}
+
+/// 还原 shirita.template bundle：bundle 为原子单位，按模板名决策。
+/// skip（存在且 Skip）→ 整 bundle 跳过；否则全新建（模板+定义+节点，local_id 重映射为新 UUID）。
+/// **绝不删除现有模板**（护 M4 惰性 Fork：未 materialize 会话直接引用模板节点）。
+async fn import_template_bundle(
+    state: &AppState,
+    v: &Value,
+    oc: OnConflict,
+    summary: &mut ImportSummary,
+) -> Result<(), StatusCode> {
+    let doc = shirita_core::parse_portable(v).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (name, meta, nodes, defs) = match doc {
+        shirita_core::PortableDoc::Template { name, meta, nodes, defs } => (name, meta, nodes, defs),
+        _ => return Err(StatusCode::BAD_REQUEST),
+    };
+
+    // 模板冲突：仅 Skip 时跳过同名；overwrite 对模板等同 duplicate（绝不删旧模板）。
+    if matches!(oc, OnConflict::Skip) {
+        let templates = state.storage.list_templates().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(ex) = templates.iter().find(|t| t.name == name) {
+            summary.skipped.push(item("template", &ex.id, &ex.name));
+            return Ok(());
+        }
+    }
+
+    // 1) 新建模板。
+    let mut tmpl = Template::new(&name);
+    tmpl.meta = meta;
+    state.storage.create_template(&tmpl).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // 2) 新建定义，建 local_id -> 新定义 id 映射（bundle 内定义随模板原子新建，不按 name+type 去重）。
+    let mut def_map: HashMap<String, String> = HashMap::new();
+    for pd in &defs {
+        let mut d = Definition::new(&pd.def_type, &pd.name, &pd.content);
+        d.meta = pd.meta.clone();
+        state.storage.create_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        def_map.insert(pd.local_id.clone(), d.id.clone());
+    }
+
+    // 3) 预分配节点新 UUID（供 parent 重指）。
+    let node_map: HashMap<String, String> =
+        nodes.iter().map(|n| (n.local_id.clone(), uuid::Uuid::new_v4().to_string())).collect();
+
+    for pn in &nodes {
+        // ref 的 definition_id 经 def_map 重指；缺失则跳过该节点 + warn。
+        let definition_id = match (&pn.kind, &pn.def_local_id) {
+            (NodeKind::Ref, Some(dl)) => match def_map.get(dl) {
+                Some(real) => Some(real.clone()),
+                None => {
+                    tracing::warn!(local_id = %pn.local_id, "template import: ref def_local_id missing, skipping node");
+                    continue;
+                }
+            },
+            _ => None,
+        };
+        let node = PromptNode {
+            id: node_map[&pn.local_id].clone(),
+            owner_kind: OwnerKind::Template,
+            owner_id: tmpl.id.clone(),
+            parent_id: pn.parent_local_id.as_ref().and_then(|p| node_map.get(p)).cloned(),
+            sort_order: pn.sort_order,
+            kind: pn.kind.clone(),
+            tag: pn.tag.clone(),
+            definition_id,
+            enabled: pn.enabled,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+
+    summary.created.push(item("template", &tmpl.id, &tmpl.name));
+    Ok(())
 }
