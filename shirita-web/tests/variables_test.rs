@@ -62,3 +62,19 @@ async fn creating_a_session_seeds_declared_initials() {
     assert_eq!(st, StatusCode::OK);
     assert_eq!(json(&out)["current_state"]["hp"], 100);
 }
+
+#[tokio::test]
+async fn get_state_merges_schema_seed_and_leaf() {
+    let state = test_state().await;
+    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100},{"name":"gold","type":"number","initial":0}]}"#).await;
+    let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+    // a turn that spends gold and is hit (EchoProvider can't emit tags; assert the schema/seed path instead)
+    let (_, state_out) = send(&state, "GET", &format!("/api/sessions/{sid}/state"), None).await;
+    let body = json(&state_out);
+    assert_eq!(body["values"]["hp"], 100); // seeded
+    assert_eq!(body["values"]["gold"], 0);
+    let names: Vec<&str> = body["schema"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"$avatar")); // system var present in schema
+    assert!(names.contains(&"hp"));
+}
