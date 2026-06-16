@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
 use shirita_core::state::{effective_state, resolve_schema};
@@ -28,4 +29,28 @@ pub async fn get_state(
         .unwrap_or_else(|| json!({}));
     let values = effective_state(&schema, &session.current_state, &leaf);
     Ok(Json(json!({ "schema": schema, "values": values })))
+}
+
+#[derive(Deserialize)]
+pub struct LocalVarsBody {
+    pub variables: Value, // a JSON array of {name,type,initial}
+}
+
+/// 替换会话本地变量声明（存于 override_config.local_variables）。
+pub async fn set_local_variables(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<LocalVarsBody>,
+) -> Result<StatusCode, StatusCode> {
+    let session = state.storage.get_session(&id).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut cfg = session.override_config.clone();
+    if !cfg.is_object() {
+        cfg = json!({});
+    }
+    cfg.as_object_mut().unwrap().insert("local_variables".into(), body.variables);
+    state.storage.update_session_override_config(&id, &cfg).await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
 }
