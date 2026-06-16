@@ -6,6 +6,7 @@
   "build": {
     "frontendDist": "../shirita-ui/dist",
     "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm --prefix ../shirita-ui run dev",
     "beforeBuildCommand": "npm --prefix ../shirita-ui run build"
   },
   "app": {
