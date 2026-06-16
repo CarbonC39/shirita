@@ -39,8 +39,13 @@ cargo tauri dev          # 自动起 vite dev + 桌面窗口
 ### 构建安装包
 
 ```bash
+npm --prefix shirita-ui run build      # 先产出前端 dist（生产构建不走 beforeBuildCommand）
 cargo tauri build --bundles deb        # 本机 Linux（.deb，无需 FUSE）
 ```
+
+> 生产构建**不配** `beforeBuildCommand`：其 CWD 在本机（配置目录）与 CI 的
+> `tauri-action`（仓库根）下不一致，相对路径无法两端通吃。CI 在 `tauri build` 前已显式
+> `npm run build`，本机手动先构建前端即可。`beforeDevCommand` 仅 `tauri dev` 用，保留。
 
 > AppImage（`--bundles appimage`）依赖 `linuxdeploy`：需要 FUSE，且其 GTK 插件在
 > Debian trixie 上对 `librsvg-2.0` 存在 `libdir` 兼容问题。本机若无 FUSE/遇该问题，
