@@ -12,6 +12,7 @@ use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
+use crate::models::summary::Summary;
 use crate::models::template::Template;
 use crate::{Result, Storage};
 
@@ -222,6 +223,7 @@ impl Storage for SqliteStorage {
 
     async fn delete_session(&self, id: &str) -> Result<()> {
         sqlx::query("DELETE FROM messages WHERE session_id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM summaries WHERE session_id = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM chat_sessions WHERE id = ?").bind(id).execute(&self.pool).await?;
         Ok(())
@@ -442,6 +444,44 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    // --- summaries ---
+    async fn create_summary(&self, summary: &Summary) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO summaries (id, session_id, cutoff_message_id, content, created_at) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(&summary.id)
+        .bind(&summary.session_id)
+        .bind(&summary.cutoff_message_id)
+        .bind(&summary.content)
+        .bind(&summary.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn list_summaries(&self, session_id: &str) -> Result<Vec<Summary>> {
+        let rows = sqlx::query(
+            "SELECT id, session_id, cutoff_message_id, content, created_at \
+             FROM summaries WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|r| {
+                use sqlx::Row;
+                Ok(Summary {
+                    id: r.try_get("id")?,
+                    session_id: r.try_get("session_id")?,
+                    cutoff_message_id: r.try_get("cutoff_message_id")?,
+                    content: r.try_get("content")?,
+                    created_at: r.try_get("created_at")?,
+                })
+            })
+            .collect()
+    }
+
     // --- settings ---
     async fn get_setting(&self, key: &str) -> Result<Option<serde_json::Value>> {
         let row = sqlx::query("SELECT value FROM settings WHERE key = ?").bind(key).fetch_optional(&self.pool).await?;
@@ -590,6 +630,21 @@ mod tests {
         let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         storage.run_migrations().await.unwrap();
         storage
+    }
+
+    #[tokio::test]
+    async fn summaries_roundtrip() {
+        let s = temp_storage().await;
+        let sess = crate::models::session::Session::new("s");
+        s.create_session(&sess).await.unwrap();
+        let sum = crate::models::summary::Summary::new(&sess.id, "msg-7", "earlier summary");
+        s.create_summary(&sum).await.unwrap();
+        let got = s.list_summaries(&sess.id).await.unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].cutoff_message_id, "msg-7");
+        assert_eq!(got[0].content, "earlier summary");
+        // 其他会话不串
+        assert!(s.list_summaries("other").await.unwrap().is_empty());
     }
 
     #[tokio::test]

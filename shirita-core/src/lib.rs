@@ -33,6 +33,7 @@ pub use models::definition::Definition;
 pub use models::message::{Message, Role};
 pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
+pub use models::summary::Summary;
 pub use models::template::Template;
 pub use seed::ensure_default_template;
 pub use state::{
