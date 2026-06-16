@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 use shirita_core::models::message::Message;
 use shirita_core::models::prompt_node::OwnerKind;
 use shirita_core::models::session::Session;
+use shirita_core::state::{resolve_schema, schema_initials};
 
 use crate::AppState;
 
@@ -42,6 +43,13 @@ pub async fn create_session(
     let mut session = Session::new(body.name);
     // 会话引用模板，不再深拷贝节点；组装时按 effective_nodes 解析（自有优先，否则引用模板）。
     session.template_id = body.template_id.clone();
+    // 用声明变量的初值播种 current_state（seed 层；后续快照在其上演化）。
+    let template_meta = match &session.template_id {
+        Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
+        None => None,
+    };
+    let schema = resolve_schema(template_meta.as_ref(), &session.override_config);
+    session.current_state = Value::Object(schema_initials(&schema));
     state.storage.create_session(&session).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(session))
 }
