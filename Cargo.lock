@@ -3634,9 +3634,11 @@ dependencies = [
 name = "shirita-tauri"
 version = "0.0.0"
 dependencies = [
+ "axum",
  "serde_json",
  "shirita-core",
  "shirita-web",
+ "sqlx",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

@@ -11,6 +11,8 @@ shirita-core = { path = "../shirita-core" }
 shirita-web = { path = "../shirita-web" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+axum = { version = "0.8" }
+sqlx = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 uuid = { workspace = true }
