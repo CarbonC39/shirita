@@ -230,7 +230,13 @@ pub fn regenerate(
             .filter(|m| !m.is_hidden)
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
             .collect();
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &session.current_state).await {
+
+        // 父分支有效状态：折叠基准与 send_message 相同（schema 兜底 + seed + 父叶子快照）。
+        let schema = session_schema(storage.as_ref(), &session).await;
+        let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
+        let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -246,8 +252,15 @@ pub fn regenerate(
                 Err(e) => { yield SendEvent::Error(e.to_string()); return; }
             }
         }
+        let updates = parse_state_updates(&full);
+        let new_snapshot = apply_updates(&branch_state, &schema, &updates);
+        let cleaned = strip_state_tags(&full);
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
-        sibling.display_content = crate::assembly::apply_regex_rules(&full, &regex_rules);
+        sibling.snapshot_state = new_snapshot;
+        sibling.display_content = match crate::assembly::apply_regex_rules(&cleaned, &regex_rules) {
+            Some(s) => Some(s),
+            None => if cleaned != full { Some(cleaned) } else { None },
+        };
         if let Err(e) = storage.create_message(&sibling).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -609,5 +622,41 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(req.messages[0].content.contains("HP is 42"), "assembly must read the branch leaf snapshot");
+    }
+
+    #[tokio::test]
+    async fn regenerate_folds_state_from_the_parent_branch() {
+        let storage = Arc::new(temp_storage().await);
+        let mut t = crate::models::template::Template::new("T");
+        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        storage.create_template(&t).await.unwrap();
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        session.current_state = serde_json::json!({ "hp": 100 });
+        storage.create_session(&session).await.unwrap();
+
+        // user -> assistant(hp 90); regenerate the assistant from the same parent
+        let user = Message::new(&session.id, None, Role::User, "go");
+        storage.create_message(&user).await.unwrap();
+        let mut a1 = Message::new(&session.id, Some(user.id.clone()), Role::Assistant, "first");
+        a1.snapshot_state = serde_json::json!({ "hp": 90 });
+        storage.create_message(&a1).await.unwrap();
+        storage.set_session_active_leaf(&session.id, Some(&a1.id)).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "retry <state_update action=\"SUB\" key=\"hp\" value=\"20\"/>".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let sibling = msgs.iter().filter(|m| m.role == Role::Assistant).find(|m| m.id != a1.id).unwrap();
+        // parent branch state at the user turn is hp=100 (the user carries the seed); SUB 20 -> 80
+        assert_eq!(sibling.snapshot_state["hp"], 80);
+        assert_eq!(sibling.display_content.as_deref(), Some("retry"));
     }
 }
