@@ -31,6 +31,17 @@ describe('MessageItem', () => {
     expect(row.classes()).toContain('justify-start')
   })
 
+  it('renders display_content when present (hiding control tags)', () => {
+    const wrapper = mount(MessageItem, {
+      props: {
+        message: makeMsg({ role: 'assistant', raw_content: 'Hit. <state_update action="SUB" key="hp" value="5"/>', display_content: 'Hit.' }),
+        style: 'bubble',
+      },
+    })
+    expect(wrapper.text()).toContain('Hit.')
+    expect(wrapper.text()).not.toContain('state_update')
+  })
+
   it('renders assistant avatar in bubble mode', () => {
     const wrapper = mount(MessageItem, {
       props: { message: makeMsg({ role: 'assistant' }), style: 'bubble' },

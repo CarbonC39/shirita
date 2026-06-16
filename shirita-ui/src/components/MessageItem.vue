@@ -24,6 +24,7 @@ const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
 const label = computed(() => (isAssistant.value ? 'Assistant' : 'You'))
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
+const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
 
 const editing = ref(false)
 const draft = ref('')
@@ -62,7 +63,7 @@ function cancelEdit() { editing.value = false }
             <button class="text-muted hover:text-ink" title="Cancel" @click="cancelEdit"><X :size="16" /></button>
           </div>
         </template>
-        <template v-else>{{ message.raw_content }}<span
+        <template v-else>{{ displayText }}<span
           v-if="isStreaming"
           data-test="streaming-cursor"
           class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
