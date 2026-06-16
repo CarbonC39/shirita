@@ -44,6 +44,21 @@ export interface Template {
   updated_at: string
 }
 
+export type VarType = 'number' | 'bool' | 'string' | 'list'
+
+export interface VarDecl {
+  name: string
+  type: VarType
+  initial: unknown
+  /** 'system' | 'template' | 'local' — for UI grouping. */
+  scope?: string
+}
+
+export interface SessionState {
+  schema: VarDecl[]
+  values: Record<string, unknown>
+}
+
 export interface PromptNode {
   id: string
   owner_kind: 'template' | 'session'
