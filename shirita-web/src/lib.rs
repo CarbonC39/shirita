@@ -11,8 +11,10 @@ pub use provider_select::{provider_from_env, provider_kind, ProviderKind};
 pub use state::AppState;
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, Method};
 use axum::routing::{delete, post, put};
 use axum::{middleware, routing::get, Router};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 /// 构建应用路由。`/`、`/health`、`GET /assets/*` 公开；`/api/*` 走 Bearer 中间件。
@@ -108,4 +110,26 @@ pub fn app(state: AppState) -> Router {
         .nest("/api", protected)
         .nest_service("/assets", ServeDir::new(assets_dir))
         .with_state(state)
+}
+
+/// 桌面（内嵌 server）专用：在 `app()` 外层套 CORS，放行 Tauri webview origin。
+/// CorsLayer 作为最外层——preflight `OPTIONS` 由它短路应答，不进 Bearer 鉴权；
+/// 真实请求穿过 CORS → auth → handler，响应回程补上 `Access-Control-Allow-Origin`。
+pub fn app_with_cors(state: AppState) -> Router {
+    let origins = [
+        header::HeaderValue::from_static("tauri://localhost"),
+        header::HeaderValue::from_static("https://tauri.localhost"),
+        header::HeaderValue::from_static("http://tauri.localhost"),
+    ];
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+    app(state).layer(cors)
 }
