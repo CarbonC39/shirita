@@ -1,6 +1,16 @@
 //! 滚动总结管道：自检阈值 → 选水位线 → 构造请求 → 聚合 provider → 落库摘要。
 //! 后台 fire-and-forget 调用（web 层 spawn），幂等可重入（见 M6 spec §2）。
 
+use std::sync::Arc;
+
+use futures::StreamExt;
+
+use crate::model::{ChatMessage, ChatRequest, ModelProvider};
+use crate::models::message::Role;
+use crate::models::summary::Summary;
+use crate::storage::Storage;
+use crate::tokenizer::TokenCounter;
+
 /// 内置默认总结指令（settings `summarize.instruction` 可整体覆盖）。
 pub const DEFAULT_INSTRUCTION: &str = "Summarize the prior conversation faithfully and concisely. \
 Preserve facts, decisions, character state, world details and any unresolved threads. \
@@ -18,9 +28,185 @@ pub fn fold_range(path_len: usize, prev_cutoff_idx: Option<usize>, keep_recent: 
     }
 }
 
+async fn setting_usize(s: &dyn Storage, key: &str, default: usize) -> usize {
+    s.get_setting(key).await.ok().flatten()
+        .and_then(|v| v.as_u64()).map(|n| n as usize).unwrap_or(default)
+}
+async fn setting_f64(s: &dyn Storage, key: &str, default: f64) -> f64 {
+    s.get_setting(key).await.ok().flatten()
+        .and_then(|v| v.as_f64()).unwrap_or(default)
+}
+async fn setting_string(s: &dyn Storage, key: &str, default: &str) -> String {
+    s.get_setting(key).await.ok().flatten()
+        .and_then(|v| v.as_str().map(|x| x.to_string())).unwrap_or_else(|| default.to_string())
+}
+
+/// 后台执行一次滚动总结尝试（幂等可重入）：未超阈值或无可折叠则静默返回；
+/// 否则把"上一摘要 + 待折叠原文"喂给总结指令，聚合 provider 输出，写入 `summaries`。
+pub async fn run(
+    storage: Arc<dyn Storage>,
+    provider: Arc<dyn ModelProvider>,
+    counter: Arc<dyn TokenCounter>,
+    model: String,
+    session_id: String,
+) {
+    let Ok(Some(session)) = storage.get_session(&session_id).await else { return };
+    let Ok(all) = storage.list_messages(&session_id).await else { return };
+    let path = crate::tree::active_path(&all, session.active_leaf_id.as_deref());
+    if path.is_empty() {
+        return;
+    }
+
+    // 上一摘要：cutoff 落在 active path 上、最靠后的那条。
+    let summaries = storage.list_summaries(&session_id).await.unwrap_or_default();
+    let prev = summaries
+        .iter()
+        .filter_map(|s| path.iter().position(|m| m.id == s.cutoff_message_id).map(|i| (s, i)))
+        .max_by_key(|(_, i)| *i);
+    let prev_idx = prev.as_ref().map(|(_, i)| *i);
+    let prev_content = prev.as_ref().map(|(s, _)| s.content.clone());
+
+    let window = setting_usize(storage.as_ref(), "context.window", 200_000).await;
+    let threshold = setting_f64(storage.as_ref(), "context.threshold", 0.8).await;
+    let keep_recent = setting_usize(storage.as_ref(), "context.keep_recent", 10).await;
+
+    // 自检：未折叠历史（cutoff 之后可见）+ 上一摘要 的 token 是否越过触发线。
+    let start_visible = prev_idx.map(|i| i + 1).unwrap_or(0);
+    let mut hist_tokens = prev_content.as_deref().map(|c| counter.count(c)).unwrap_or(0);
+    for m in &path[start_visible..] {
+        if !m.is_hidden {
+            hist_tokens += counter.count(&m.raw_content);
+        }
+    }
+    if !crate::budget::over_threshold(hist_tokens, window, threshold) {
+        return;
+    }
+
+    // 选折叠区间。
+    let Some((s, e)) = fold_range(path.len(), prev_idx, keep_recent) else { return };
+    let new_cutoff = path[e - 1].id.clone();
+
+    // 构造折叠正文：上一摘要 + 待折叠原文（跳过 hidden）。
+    let mut body = String::new();
+    if let Some(pc) = &prev_content {
+        body.push_str("[Previous summary]\n");
+        body.push_str(pc);
+        body.push_str("\n\n");
+    }
+    for m in &path[s..e] {
+        if m.is_hidden {
+            continue;
+        }
+        body.push_str(m.role.as_str());
+        body.push_str(": ");
+        body.push_str(&m.raw_content);
+        body.push('\n');
+    }
+
+    let instruction = setting_string(storage.as_ref(), "summarize.instruction", DEFAULT_INSTRUCTION).await;
+    let req = ChatRequest {
+        model,
+        messages: vec![
+            ChatMessage { role: Role::System, content: instruction },
+            ChatMessage { role: Role::User, content: body },
+        ],
+        summary: None,
+    };
+
+    // 聚合调用（非流式语义：收集全部 delta）。
+    let Ok(mut stream) = provider.stream_chat(req).await else { return };
+    let mut full = String::new();
+    while let Some(item) = stream.next().await {
+        match item {
+            Ok(d) => full.push_str(&d),
+            Err(_) => return,
+        }
+    }
+    let full = full.trim();
+    if full.is_empty() {
+        return;
+    }
+
+    let summary = Summary::new(&session_id, &new_cutoff, full);
+    if let Err(e) = storage.create_summary(&summary).await {
+        tracing::warn!(error = %e, "summary persist failed");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use futures::stream::BoxStream;
+    use serde_json::json;
+    use crate::models::message::Message;
+    use crate::models::session::Session;
+    use crate::storage::sqlite::SqliteStorage;
+    use crate::tokenizer::tiktoken::TiktokenCounter;
+
+    async fn temp_storage() -> SqliteStorage {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sum.db");
+        std::mem::forget(dir);
+        let s = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
+        s.run_migrations().await.unwrap();
+        s
+    }
+
+    struct FixedProvider(String);
+    #[async_trait::async_trait]
+    impl ModelProvider for FixedProvider {
+        async fn stream_chat(&self, _req: ChatRequest) -> crate::Result<BoxStream<'static, crate::Result<String>>> {
+            let r = self.0.clone();
+            Ok(Box::pin(futures::stream::iter(vec![Ok(r)])))
+        }
+    }
+
+    async fn long_session(storage: &SqliteStorage, turns: usize) -> (Session, String) {
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+        let mut parent: Option<String> = None;
+        let mut leaf = String::new();
+        for i in 0..turns {
+            let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+            let m = Message::new(&session.id, parent.clone(), role, &format!("turn-{i}-{}", "x".repeat(40)));
+            storage.create_message(&m).await.unwrap();
+            parent = Some(m.id.clone());
+            leaf = m.id.clone();
+        }
+        storage.set_session_active_leaf(&session.id, Some(&leaf)).await.unwrap();
+        (session, leaf)
+    }
+
+    #[tokio::test]
+    async fn run_folds_history_when_over_threshold() {
+        let storage = Arc::new(temp_storage().await);
+        let (session, leaf) = long_session(&storage, 14).await;
+        storage.set_setting("context.window", &json!(50)).await.unwrap(); // 小窗口 → 超阈值
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("SUMMARY-TEXT".into()));
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        run(storage.clone(), provider, counter, "m".into(), session.id.clone()).await;
+
+        let sums = storage.list_summaries(&session.id).await.unwrap();
+        assert_eq!(sums.len(), 1);
+        assert_eq!(sums[0].content, "SUMMARY-TEXT");
+        // len=14, keep_recent=10(默认) → end=4 → cutoff = path[3]
+        let all = storage.list_messages(&session.id).await.unwrap();
+        let path = crate::tree::active_path(&all, Some(&leaf));
+        assert_eq!(sums[0].cutoff_message_id, path[3].id);
+    }
+
+    #[tokio::test]
+    async fn run_noop_when_under_threshold() {
+        let storage = Arc::new(temp_storage().await);
+        let (session, _leaf) = long_session(&storage, 4).await; // 短历史
+        // 默认 window 200k → 远未超阈值
+        let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("X".into()));
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        run(storage.clone(), provider, counter, "m".into(), session.id.clone()).await;
+        assert!(storage.list_summaries(&session.id).await.unwrap().is_empty());
+    }
 
     #[test]
     fn fold_range_first_fold_keeps_recent() {

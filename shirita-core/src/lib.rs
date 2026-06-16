@@ -43,4 +43,5 @@ pub use state::{
 };
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
+pub use summarize::run as run_summary;
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
