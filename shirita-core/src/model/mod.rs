@@ -24,6 +24,8 @@ pub struct ChatMessage {
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    /// 当前分支的滚动摘要（若有）。放进请求体哪里由各 provider 决定（见 M6 spec §4）。
+    pub summary: Option<String>,
 }
 
 /// 流式聊天：每个元素是一段文本增量；流结束即 done。

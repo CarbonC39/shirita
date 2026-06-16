@@ -97,7 +97,7 @@ async fn assemble_request(
         .filter(|d| d.def_type == "regex_rule")
         .collect();
 
-    Ok((ChatRequest { model, messages: chat_messages }, regex_rules))
+    Ok((ChatRequest { model, messages: chat_messages, summary: None }, regex_rules))
 }
 
 /// 流式发送过程对外暴露的事件。
