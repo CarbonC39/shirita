@@ -70,3 +70,53 @@ async fn real_request_carries_cors_header() {
         "tauri://localhost"
     );
 }
+
+#[tokio::test]
+async fn embedded_server_binds_serves_and_shuts_down_gracefully() {
+    use tokio_util::sync::CancellationToken;
+
+    // 单独构造 storage 以保留 pool 句柄（模拟桌面 bin 的优雅关闭）。
+    let dir = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::connect(dir.path().join("smoke.db").to_str().unwrap())
+        .await
+        .unwrap();
+    storage.run_migrations().await.unwrap();
+    let pool = storage.pool().clone();
+    let storage: Arc<dyn Storage> = Arc::new(storage);
+    let assets = dir.path().join("assets");
+    std::fs::create_dir_all(&assets).unwrap();
+    let config = Arc::new(Config::new("ignored", assets.to_str().unwrap(), "secret-token").unwrap());
+    let state = AppState {
+        storage,
+        config,
+        provider: Arc::new(EchoProvider),
+        token_counter: Arc::new(TiktokenCounter::new()),
+        model: "m".into(),
+        generations: Arc::new(Generations::new()),
+    };
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    assert!(port > 0, "OS 应分配一个真实端口");
+
+    let token = CancellationToken::new();
+    let child = token.clone();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app_with_cors(state))
+            .with_graceful_shutdown(async move { child.cancelled().await })
+            .await
+    });
+
+    // 让 server 起来，然后广播关闭。
+    tokio::task::yield_now().await;
+    token.cancel();
+    tokio::time::timeout(std::time::Duration::from_secs(5), server)
+        .await
+        .expect("server 应在取消后及时退出")
+        .expect("server task join")
+        .expect("axum::serve 返回 Ok");
+
+    // 显式关池（桌面 RunEvent::Exit 的行为）。
+    pool.close().await;
+    assert!(pool.is_closed());
+}
