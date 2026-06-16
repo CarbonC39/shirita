@@ -1,6 +1,7 @@
 pub mod assets;
 pub mod chat;
 pub mod definitions;
+pub mod export;
 pub mod health;
 pub mod import_export;
 pub mod index;

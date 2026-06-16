@@ -74,6 +74,8 @@ pub fn app(state: AppState) -> Router {
                 .put(routes::definitions::update)
                 .delete(routes::definitions::delete),
         )
+        .route("/definitions/{id}/export", get(routes::export::export_definition))
+        .route("/templates/{id}/export", get(routes::export::export_template))
         .route("/templates", get(routes::templates::list).post(routes::templates::create))
         .route("/templates/{id}", get(routes::templates::get).put(routes::templates::update).delete(routes::templates::delete))
         .route("/templates/{id}/duplicate", post(routes::templates::duplicate))
