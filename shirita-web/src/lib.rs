@@ -2,10 +2,12 @@
 
 pub mod auth;
 pub mod generations;
+pub mod provider_select;
 pub mod routes;
 pub mod state;
 
 pub use generations::Generations;
+pub use provider_select::{provider_from_env, provider_kind, ProviderKind};
 pub use state::AppState;
 
 use axum::extract::DefaultBodyLimit;

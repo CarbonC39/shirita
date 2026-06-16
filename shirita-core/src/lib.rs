@@ -23,7 +23,7 @@ pub use assembly::{
     AssembledPlan, Placement, PromptSegment,
 };
 pub use budget::{over_threshold, trim_history};
-pub use config::Config;
+pub use config::{apply_provider_env, Config};
 pub use conversation::{regenerate, send_message, SendEvent};
 pub use error::{Error, Result};
 pub use model::{

@@ -40,14 +40,20 @@ impl Config {
             .map_err(|_| Error::Config("TOKEN_SECRET env var is required".into()))?;
 
         let mut cfg = Self::new(database_path, assets_dir, token_secret)?;
-        if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
-            cfg.openai_base_url = v;
-        }
-        cfg.openai_api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
-        if let Ok(v) = std::env::var("OPENAI_MODEL") {
-            cfg.openai_model = v;
-        }
+        apply_provider_env(&mut cfg);
         Ok(cfg)
+    }
+}
+
+/// 把 provider 相关 env（OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL）叠加到 cfg。
+/// 供 `from_env` 与桌面（Tauri）入口共享，避免重复。
+pub fn apply_provider_env(cfg: &mut Config) {
+    if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
+        cfg.openai_base_url = v;
+    }
+    cfg.openai_api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+    if let Ok(v) = std::env::var("OPENAI_MODEL") {
+        cfg.openai_model = v;
     }
 }
 
@@ -67,5 +73,18 @@ mod tests {
         assert_eq!(cfg.database_path, "db.sqlite");
         assert_eq!(cfg.assets_dir, "./assets");
         assert_eq!(cfg.token_secret, "secret");
+    }
+
+    #[test]
+    fn apply_provider_env_overlays_openai_fields() {
+        // SAFETY: 单线程测试内设置/清理 env。
+        std::env::set_var("OPENAI_BASE_URL", "http://x/v1");
+        std::env::set_var("OPENAI_MODEL", "m-test");
+        let mut cfg = Config::new("db", "assets", "tok").unwrap();
+        apply_provider_env(&mut cfg);
+        assert_eq!(cfg.openai_base_url, "http://x/v1");
+        assert_eq!(cfg.openai_model, "m-test");
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("OPENAI_MODEL");
     }
 }
