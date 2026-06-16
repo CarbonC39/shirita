@@ -9,8 +9,20 @@ use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
+use crate::state::{
+    apply_updates, effective_state, parse_state_updates, resolve_schema, strip_state_tags, VarDecl,
+};
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
+
+/// 解析会话的有效变量 schema（系统 ∪ 模板 meta ∪ 会话 local）。
+async fn session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl> {
+    let template_meta = match &session.template_id {
+        Some(tid) => storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
+        None => None,
+    };
+    resolve_schema(template_meta.as_ref(), &session.override_config)
+}
 
 /// 会话有效节点树：自有节点优先（fork 后），否则引用模板。
 pub async fn effective_nodes(
@@ -35,6 +47,7 @@ async fn assemble_request(
     session: &Session,
     model: String,
     context: &[ChatMessage],
+    state: &serde_json::Value,
 ) -> crate::Result<(ChatRequest, Vec<Definition>)> {
     let nodes = effective_nodes(storage, session).await?;
     let mut defs = std::collections::HashMap::new();
@@ -66,7 +79,7 @@ async fn assemble_request(
         &nodes,
         &defs,
         &local,
-        &session.current_state,
+        state,
         &recent,
         &mut || rand::Rng::gen::<f64>(&mut rng),
     );
@@ -123,7 +136,14 @@ pub fn send_message(
         };
         let path = crate::tree::active_path(&all, session.active_leaf_id.as_deref());
         let parent_id = path.last().map(|m| m.id.clone());
-        let user_msg = Message::new(&session_id, parent_id, Role::User, &user_text);
+
+        // 分支有效状态：schema 初值 < seed < 当前叶子快照（读侧/写侧共用同一兜底）。
+        let schema = session_schema(storage.as_ref(), &session).await;
+        let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
+        let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+
+        let mut user_msg = Message::new(&session_id, parent_id, Role::User, &user_text);
+        user_msg.snapshot_state = branch_state.clone();
         if let Err(e) = storage.create_message(&user_msg).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -136,7 +156,7 @@ pub fn send_message(
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
             .collect();
         context.push(ChatMessage { role: Role::User, content: user_text.clone() });
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -158,9 +178,16 @@ pub fn send_message(
             }
         }
 
-        // 4) 落库 assistant 消息（含 regex 清洗后的 display_content），再 yield Done。
+        // 4) 折叠 <state_update> 进快照、剥离展示文本，落库 assistant 消息，再 yield Done。
+        let updates = parse_state_updates(&full);
+        let new_snapshot = apply_updates(&branch_state, &schema, &updates);
+        let cleaned = strip_state_tags(&full);
         let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
-        assistant.display_content = crate::assembly::apply_regex_rules(&full, &regex_rules);
+        assistant.snapshot_state = new_snapshot;
+        assistant.display_content = match crate::assembly::apply_regex_rules(&cleaned, &regex_rules) {
+            Some(s) => Some(s),
+            None => if cleaned != full { Some(cleaned) } else { None },
+        };
         if let Err(e) = storage.create_message(&assistant).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -203,7 +230,7 @@ pub fn regenerate(
             .filter(|m| !m.is_hidden)
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
             .collect();
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &session.current_state).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -519,5 +546,68 @@ mod tests {
         let nodes = super::effective_nodes(&storage, &sess).await.unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].tag.as_deref(), Some("char"));
+    }
+
+    #[tokio::test]
+    async fn state_update_folds_into_snapshot_and_strips_display() {
+        let storage = Arc::new(temp_storage().await);
+        let mut t = crate::models::template::Template::new("T");
+        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        storage.create_template(&t).await.unwrap();
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        session.current_state = serde_json::json!({ "hp": 100 });
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "You take a hit. <state_update action=\"SUB\" key=\"hp\" value=\"5\"/>".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(assistant.snapshot_state["hp"], 95); // folded
+        assert_eq!(assistant.display_content.as_deref(), Some("You take a hit.")); // tag stripped
+        assert!(assistant.raw_content.contains("<state_update")); // raw keeps the tag
+    }
+
+    #[tokio::test]
+    async fn assembly_renders_the_active_branch_state() {
+        let storage = Arc::new(temp_storage().await);
+        // a char definition that renders {{hp}}
+        let ch = crate::models::definition::Definition::new("char", "C", "HP is {{hp}}");
+        storage.create_definition(&ch).await.unwrap();
+        let t = crate::models::template::Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let f = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "char");
+        storage.create_node(&f).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Template, &t.id, Some(f.id.clone()), 0, &ch.id)).await.unwrap();
+
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        session.current_state = serde_json::json!({ "hp": 100 });
+        storage.create_session(&session).await.unwrap();
+
+        // seed an existing assistant leaf whose snapshot has hp=42, and point the leaf at it
+        let mut leaf = Message::new(&session.id, None, Role::Assistant, "prior");
+        leaf.snapshot_state = serde_json::json!({ "hp": 42 });
+        storage.create_message(&leaf).await.unwrap();
+        storage.set_session_active_leaf(&session.id, Some(&leaf.id)).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        assert!(req.messages[0].content.contains("HP is 42"), "assembly must read the branch leaf snapshot");
     }
 }
