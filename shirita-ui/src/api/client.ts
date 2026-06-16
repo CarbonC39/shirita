@@ -1,4 +1,13 @@
-import type { Definition, DefType, Message, PromptNode, Session, Template } from './types'
+import type {
+  Definition,
+  DefType,
+  Message,
+  PromptNode,
+  Session,
+  SessionState,
+  Template,
+  VarDecl,
+} from './types'
 
 const BASE = import.meta.env.VITE_API_BASE ?? ''
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
@@ -21,6 +30,19 @@ export function listSessions(): Promise<Session[]> {
 
 export function getSession(id: string): Promise<Session> {
   return apiGet<Session>(`/sessions/${id}`)
+}
+
+export function getSessionState(id: string): Promise<SessionState> {
+  return apiGet<SessionState>(`/sessions/${id}/state`)
+}
+
+export async function setLocalVariables(sessionId: string, variables: VarDecl[]): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/local-variables`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ variables }),
+  })
+  if (!res.ok) throw new Error(`Set local variables failed: ${res.status}`)
 }
 
 export function listMessages(sessionId: string): Promise<Message[]> {
@@ -232,11 +254,11 @@ export async function createTemplate(name: string): Promise<Template> {
   return res.json()
 }
 
-export async function updateTemplate(id: string, name: string): Promise<Template> {
+export async function updateTemplate(id: string, name: string, meta?: Record<string, unknown>): Promise<Template> {
   const res = await fetch(`${BASE}/api/templates/${id}`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(meta === undefined ? { name } : { name, meta }),
   })
   if (!res.ok) throw new Error(`Update template failed: ${res.status}`)
   return res.json()
