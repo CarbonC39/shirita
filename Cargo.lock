@@ -1769,6 +1769,7 @@ name = "shirita-web"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "chrono",
  "futures",
  "http-body-util",

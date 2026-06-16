@@ -22,3 +22,4 @@ uuid.workspace = true
 tempfile = "3"
 tower = "0.5"
 http-body-util = "0.1"
+base64 = "0.22"
