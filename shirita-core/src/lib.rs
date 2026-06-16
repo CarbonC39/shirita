@@ -12,6 +12,7 @@ pub mod models;
 pub mod seed;
 pub mod state;
 pub mod storage;
+pub mod summarize;
 pub mod tokenizer;
 pub mod tree;
 
@@ -41,4 +42,5 @@ pub use state::{
     strip_state_tags, system_variables, Update, VarDecl, VarType,
 };
 pub use storage::{sqlite::SqliteStorage, Storage};
+pub use summarize::fold_range;
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
