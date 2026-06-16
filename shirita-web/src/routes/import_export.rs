@@ -217,31 +217,56 @@ async fn import_template_bundle(
     let node_map: HashMap<String, String> =
         nodes.iter().map(|n| (n.local_id.clone(), uuid::Uuid::new_v4().to_string())).collect();
 
-    for pn in &nodes {
-        // ref 的 definition_id 经 def_map 重指；缺失则跳过该节点 + warn。
-        let definition_id = match (&pn.kind, &pn.def_local_id) {
-            (NodeKind::Ref, Some(dl)) => match def_map.get(dl) {
-                Some(real) => Some(real.clone()),
-                None => {
-                    tracing::warn!(local_id = %pn.local_id, "template import: ref def_local_id missing, skipping node");
-                    continue;
-                }
-            },
-            _ => None,
-        };
-        let node = PromptNode {
-            id: node_map[&pn.local_id].clone(),
-            owner_kind: OwnerKind::Template,
-            owner_id: tmpl.id.clone(),
-            parent_id: pn.parent_local_id.as_ref().and_then(|p| node_map.get(p)).cloned(),
-            sort_order: pn.sort_order,
-            kind: pn.kind.clone(),
-            tag: pn.tag.clone(),
-            definition_id,
-            enabled: pn.enabled,
-            created_at: chrono::Utc::now().to_rfc3339(),
-        };
-        state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // 拓扑插入：父必须先于子（parent_id REFERENCES prompt_nodes(id)）。bundle 节点顺序不保证父在前
+    // （导出侧 list_nodes 在 sort_order 相等时排序不定），故按"父已插入"分层插入。
+    let mut inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut remaining: Vec<&shirita_core::PortableNode> = nodes.iter().collect();
+    loop {
+        let mut progressed = false;
+        let mut still: Vec<&shirita_core::PortableNode> = Vec::new();
+        for pn in remaining {
+            // 父在 bundle 内但尚未插入 → 留待下一轮；父不在 bundle 内则视为根。
+            let parent_pending = match &pn.parent_local_id {
+                Some(p) => node_map.contains_key(p) && !inserted.contains(p),
+                None => false,
+            };
+            if parent_pending {
+                still.push(pn);
+                continue;
+            }
+            // ref 的 definition_id 经 def_map 重指；缺失则跳过该节点 + warn。
+            let definition_id = match (&pn.kind, &pn.def_local_id) {
+                (NodeKind::Ref, Some(dl)) => match def_map.get(dl) {
+                    Some(real) => Some(real.clone()),
+                    None => {
+                        tracing::warn!(local_id = %pn.local_id, "template import: ref def_local_id missing, skipping node");
+                        inserted.insert(pn.local_id.clone());
+                        progressed = true;
+                        continue;
+                    }
+                },
+                _ => None,
+            };
+            let node = PromptNode {
+                id: node_map[&pn.local_id].clone(),
+                owner_kind: OwnerKind::Template,
+                owner_id: tmpl.id.clone(),
+                parent_id: pn.parent_local_id.as_ref().and_then(|p| node_map.get(p)).cloned(),
+                sort_order: pn.sort_order,
+                kind: pn.kind.clone(),
+                tag: pn.tag.clone(),
+                definition_id,
+                enabled: pn.enabled,
+                created_at: chrono::Utc::now().to_rfc3339(),
+            };
+            state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            inserted.insert(pn.local_id.clone());
+            progressed = true;
+        }
+        remaining = still;
+        if remaining.is_empty() || !progressed {
+            break; // 全部插入完，或剩余为循环引用（兜底防死循环）。
+        }
     }
 
     summary.created.push(item("template", &tmpl.id, &tmpl.name));
