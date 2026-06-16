@@ -1,7 +1,9 @@
 import type {
   Definition,
   DefType,
+  ImportSummary,
   Message,
+  OnConflict,
   PromptNode,
   Session,
   SessionState,
@@ -384,4 +386,39 @@ export async function renameAsset(id: string, name: string): Promise<void> {
 export async function deleteAsset(id: string): Promise<void> {
   const res = await fetch(`${BASE}/api/assets/${id}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`Delete asset failed: ${res.status}`)
+}
+
+export async function importFile(file: File, onConflict: OnConflict = 'skip'): Promise<ImportSummary> {
+  const form = new FormData()
+  form.append('file', file)
+  const res = await fetch(`${BASE}/api/import?on_conflict=${onConflict}`, {
+    method: 'POST',
+    headers: authHeaders(), // 不要手动设 Content-Type：浏览器会带 boundary
+    body: form,
+  })
+  if (!res.ok) throw new Error(`import failed: ${res.status}`)
+  return res.json()
+}
+
+// 带鉴权地拉取一个导出端点并触发浏览器下载（鉴权走 header，不能直接 window.open）。
+export async function downloadExport(path: string, filename: string): Promise<void> {
+  const res = await fetch(`${BASE}/api${path}`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`export failed: ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+export function exportDefinitionPath(id: string): string {
+  return `/definitions/${id}/export`
+}
+
+export function exportTemplatePath(id: string): string {
+  return `/templates/${id}/export`
 }

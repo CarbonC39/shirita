@@ -8,6 +8,7 @@ pub mod state;
 pub use generations::Generations;
 pub use state::AppState;
 
+use axum::extract::DefaultBodyLimit;
 use axum::routing::{delete, post, put};
 use axum::{middleware, routing::get, Router};
 use tower_http::services::ServeDir;
@@ -73,6 +74,8 @@ pub fn app(state: AppState) -> Router {
                 .put(routes::definitions::update)
                 .delete(routes::definitions::delete),
         )
+        .route("/definitions/{id}/export", get(routes::export::export_definition))
+        .route("/templates/{id}/export", get(routes::export::export_template))
         .route("/templates", get(routes::templates::list).post(routes::templates::create))
         .route("/templates/{id}", get(routes::templates::get).put(routes::templates::update).delete(routes::templates::delete))
         .route("/templates/{id}/duplicate", post(routes::templates::duplicate))
@@ -86,6 +89,7 @@ pub fn app(state: AppState) -> Router {
         .route("/types/{id}", delete(routes::types::delete))
         .route("/import/worldinfo", post(routes::import_export::import_worldinfo))
         .route("/import/charcard", post(routes::import_export::import_charcard))
+        .route("/import", post(routes::import_export::import).layer(DefaultBodyLimit::max(16 * 1024 * 1024)))
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))

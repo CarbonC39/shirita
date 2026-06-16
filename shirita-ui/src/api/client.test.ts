@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { listSessions, listMessages, sendMessage, listTypes, reorderNodes } from './client'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -151,5 +151,22 @@ describe('sendMessage SSE', () => {
       results.push(ev)
     }
     expect(results).toEqual([{ type: 'error', message: 'session not found' }])
+  })
+})
+
+describe('importFile', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('posts multipart FormData with file and on_conflict query', async () => {
+    vi.stubGlobal('fetch', mockFetch(200, { created: [], skipped: [], overwritten: [] }))
+    const file = new File([new Uint8Array([1, 2, 3])], 'card.png', { type: 'image/png' })
+    await importFile(file, 'overwrite')
+    const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/import')
+    expect(String(url)).toContain('on_conflict=overwrite')
+    expect(init.method).toBe('POST')
+    expect(init.body).toBeInstanceOf(FormData)
+    expect((init.body as FormData).get('file')).toBeInstanceOf(File)
   })
 })

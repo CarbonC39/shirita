@@ -236,6 +236,44 @@ fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> Str
         .unwrap_or_else(|| def.content.clone())
 }
 
+/// 把定义名净化为可用作 XML 标签的字符串：trim → 连续空白折叠为单个 `_` →
+/// 移除 XML 致命字符 `< > & " ' /` → 保留其余（含中文/字母/数字/`_`/`-`）。
+/// 结果可能为空（名字全是被剔字符）；兜底由调用方负责。
+pub fn sanitize_tag(name: &str) -> String {
+    let mut out = String::new();
+    let mut pending_us = false;
+    for ch in name.trim().chars() {
+        if ch.is_whitespace() {
+            if !out.is_empty() {
+                pending_us = true;
+            }
+            continue;
+        }
+        if matches!(ch, '<' | '>' | '&' | '"' | '\'' | '/') {
+            continue;
+        }
+        if pending_us {
+            out.push('_');
+            pending_us = false;
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// 若定义开了 `meta.wrap_in_tag`，用其 `sanitize_tag(name)`（空则兜底 def_type）包裹内容。
+fn maybe_wrap(def: &Definition, content: String) -> String {
+    let on = def.meta.get("wrap_in_tag").and_then(|v| v.as_bool()).unwrap_or(false);
+    if !on {
+        return content;
+    }
+    let mut tag = sanitize_tag(&def.name);
+    if tag.is_empty() {
+        tag = def.def_type.clone();
+    }
+    format!("<{tag}>\n{content}\n</{tag}>")
+}
+
 /// 树驱动组装：遍历节点树，按触发激活筛选 ref，容器封包，history 节点切分前后。
 ///
 /// - 仅启用 + 激活的 ref 进入结果；空容器被省略。
@@ -279,7 +317,8 @@ pub fn assemble_from_nodes(
         if !active.contains(&def.id) {
             return None;
         }
-        Some(render_vars(&effective_def_content(def, overrides), state))
+        let body = render_vars(&effective_def_content(def, overrides), state);
+        Some(maybe_wrap(def, body))
     };
 
     // 3) 按 sort_order 遍历根节点；history 切换落点。
@@ -382,6 +421,53 @@ mod tests {
 
     fn def(t: &str, name: &str, content: &str) -> Definition {
         Definition::new(t, name, content)
+    }
+
+    #[test]
+    fn sanitize_tag_folds_spaces_and_strips_fatal() {
+        assert_eq!(sanitize_tag("Alice Smith"), "Alice_Smith");
+        assert_eq!(sanitize_tag("  Hello   World  "), "Hello_World");
+        assert_eq!(sanitize_tag("a <b>/c"), "a_bc");
+        assert_eq!(sanitize_tag("主角·凛"), "主角·凛");
+    }
+
+    #[test]
+    fn sanitize_tag_empty_when_all_stripped() {
+        assert_eq!(sanitize_tag("<>&\"'/"), "");
+    }
+
+    #[test]
+    fn maybe_wrap_wraps_only_when_flag_on() {
+        let mut d = Definition::new("char", "Alice Smith", "body");
+        assert_eq!(maybe_wrap(&d, "body".into()), "body"); // 默认关
+        d.meta = serde_json::json!({ "wrap_in_tag": true });
+        assert_eq!(maybe_wrap(&d, "body".into()), "<Alice_Smith>\nbody\n</Alice_Smith>");
+    }
+
+    #[test]
+    fn maybe_wrap_falls_back_to_def_type_when_name_empty() {
+        let mut d = Definition::new("world", "<>", "body");
+        d.meta = serde_json::json!({ "wrap_in_tag": true });
+        assert_eq!(maybe_wrap(&d, "body".into()), "<world>\nbody\n</world>");
+    }
+
+    #[test]
+    fn ref_node_wraps_content_when_definition_flag_on() {
+        let mut d = def("char", "Hero", "I am hero");
+        d.meta = serde_json::json!({ "wrap_in_tag": true });
+        let r = PromptNode::new_ref(OwnerKind::Template, "t", None, 0, &d.id);
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(d.id.clone(), d);
+        let plan = assemble_from_nodes(
+            &[r],
+            &defs,
+            &serde_json::json!({}),
+            &serde_json::json!({}),
+            &[],
+            &mut || 0.0,
+        );
+        assert_eq!(plan.segments.len(), 1);
+        assert_eq!(plan.segments[0].content, "<Hero>\nI am hero\n</Hero>");
     }
 
     #[test]
