@@ -20,6 +20,10 @@ describe('ChatView', () => {
     setActivePinia(createPinia())
     vi.restoreAllMocks()
     vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as never)
+    vi.spyOn(client, 'getSessionState').mockResolvedValue({
+      schema: [{ name: 'hp', type: 'number', initial: 100, scope: 'template' }],
+      values: { hp: 100 },
+    } as never)
   })
 
   it('loads messages on mount', async () => {
@@ -92,5 +96,15 @@ describe('ChatView', () => {
     await wrapper.find('[data-test="send-btn"]').trigger('click')
     await flushPromises()
     expect(sendSpy).toHaveBeenCalledWith('s1', 'hello')
+  })
+
+  it('shows the variables panel from session state', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="variables-panel"]').exists()).toBe(true)
   })
 })
