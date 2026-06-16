@@ -153,6 +153,18 @@ pub async fn fork_session(
         new_leaf = Some(nm.id.clone());
     }
     let _ = state.storage.set_session_active_leaf(&dup.id, new_leaf.as_deref()).await;
+
+    // 复制源会话的滚动摘要，把 cutoff 重映射到新会话的消息 id（与消息深拷的 idmap 一致）。
+    // idmap 只覆盖 active path slice（root→message_id）；fork 点之后的摘要不带（合理）。
+    if let Ok(summaries) = state.storage.list_summaries(&session_id).await {
+        for s in summaries {
+            if let Some(new_cutoff) = idmap.get(&s.cutoff_message_id) {
+                let copy = shirita_core::models::summary::Summary::new(&dup.id, new_cutoff, &s.content);
+                let _ = state.storage.create_summary(&copy).await;
+            }
+        }
+    }
+
     let out = state
         .storage
         .get_session(&dup.id)
