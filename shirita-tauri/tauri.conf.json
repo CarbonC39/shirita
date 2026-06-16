@@ -18,6 +18,9 @@
   "bundle": {
     "active": true,
     "targets": ["appimage", "deb"],
+    "category": "Utility",
+    "shortDescription": "Shirita desktop",
+    "longDescription": "Shirita — a local AI chat desktop app.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

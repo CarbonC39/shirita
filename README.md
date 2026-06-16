@@ -39,12 +39,16 @@ cargo tauri dev          # 自动起 vite dev + 桌面窗口
 ### 构建安装包
 
 ```bash
-cargo tauri build --bundles appimage,deb   # 本机 Linux
+cargo tauri build --bundles deb        # 本机 Linux（.deb，无需 FUSE）
 ```
 
-Windows(.msi) / macOS(.dmg) 由 GitHub Actions（`.github/workflows/desktop.yml`，
-`workflow_dispatch` 或 `v*` tag 触发）构建，产物为 **未签名** 安装包——macOS 需
-右键「打开」绕过 Gatekeeper，Windows 会有 SmartScreen 警告。
+> AppImage（`--bundles appimage`）依赖 `linuxdeploy`：需要 FUSE，且其 GTK 插件在
+> Debian trixie 上对 `librsvg-2.0` 存在 `libdir` 兼容问题。本机若无 FUSE/遇该问题，
+> 用 `.deb` 即可；`.AppImage` 由 CI（ubuntu-latest）产出。
+
+Windows(.msi) / macOS(.dmg) / Linux(.AppImage) 由 GitHub Actions
+（`.github/workflows/desktop.yml`，`workflow_dispatch` 或 `v*` tag 触发）构建，产物为
+**未签名** 安装包——macOS 需右键「打开」绕过 Gatekeeper，Windows 会有 SmartScreen 警告。
 
 ### provider 配置（桌面）
 
