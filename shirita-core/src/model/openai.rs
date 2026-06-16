@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::StreamExt;
+use serde_json::json;
 
 use crate::{Error, Result};
 
@@ -12,6 +13,25 @@ pub struct OpenAiProvider {
     client: reqwest::Client,
     base_url: String,
     api_key: String,
+}
+
+/// 构造 OpenAI `messages` 数组：把 `req.summary`（若有）拼到首条 system 尾部；无 system 则前插一条 system。
+pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
+    let mut msgs: Vec<serde_json::Value> = req
+        .messages
+        .iter()
+        .map(|m| json!({ "role": m.role.as_str(), "content": m.content }))
+        .collect();
+    if let Some(sum) = &req.summary {
+        let block = format!("\n\n[Summary of earlier conversation]\n{sum}");
+        if let Some(sys) = msgs.iter_mut().find(|m| m["role"] == "system") {
+            let cur = sys["content"].as_str().unwrap_or("").to_string();
+            sys["content"] = json!(format!("{cur}{block}"));
+        } else {
+            msgs.insert(0, json!({ "role": "system", "content": block.trim_start() }));
+        }
+    }
+    msgs
 }
 
 impl OpenAiProvider {
@@ -28,13 +48,10 @@ impl OpenAiProvider {
 impl ModelProvider for OpenAiProvider {
     async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let body = serde_json::json!({
+        let body = json!({
             "model": req.model,
             "stream": true,
-            "messages": req.messages.iter().map(|m| serde_json::json!({
-                "role": m.role.as_str(),
-                "content": m.content,
-            })).collect::<Vec<_>>(),
+            "messages": openai_messages(&req),
         });
 
         let resp = self
@@ -84,5 +101,46 @@ impl ModelProvider for OpenAiProvider {
             }
         };
         Ok(Box::pin(stream))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::ChatMessage;
+    use crate::models::message::Role;
+
+    fn req(messages: Vec<ChatMessage>, summary: Option<&str>) -> ChatRequest {
+        ChatRequest { model: "m".into(), messages, summary: summary.map(|s| s.into()) }
+    }
+
+    #[test]
+    fn summary_appended_to_existing_system() {
+        let r = req(vec![
+            ChatMessage { role: Role::System, content: "SYS".into() },
+            ChatMessage { role: Role::User, content: "hi".into() },
+        ], Some("earlier stuff"));
+        let msgs = openai_messages(&r);
+        assert_eq!(msgs[0]["role"], "system");
+        let sys = msgs[0]["content"].as_str().unwrap();
+        assert!(sys.starts_with("SYS"));
+        assert!(sys.contains("earlier stuff"));
+        assert_eq!(msgs[1]["content"], "hi");
+    }
+
+    #[test]
+    fn summary_prepends_system_when_none() {
+        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], Some("S"));
+        let msgs = openai_messages(&r);
+        assert_eq!(msgs[0]["role"], "system");
+        assert!(msgs[0]["content"].as_str().unwrap().contains("S"));
+    }
+
+    #[test]
+    fn no_summary_passes_through() {
+        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        let msgs = openai_messages(&r);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["content"], "hi");
     }
 }
