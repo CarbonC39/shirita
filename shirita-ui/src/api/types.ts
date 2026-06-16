@@ -104,3 +104,17 @@ export interface RegexRule {
   enabled: boolean
   scope: { ai_output: boolean; user_input: boolean; display_only: boolean }
 }
+
+export interface ImportItem {
+  kind: 'definition' | 'template'
+  id: string
+  name: string
+}
+
+export interface ImportSummary {
+  created: ImportItem[]
+  skipped: ImportItem[]
+  overwritten: ImportItem[]
+}
+
+export type OnConflict = 'skip' | 'overwrite' | 'duplicate'
