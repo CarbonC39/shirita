@@ -23,8 +23,12 @@ import {
     promoteLocalDefinition,
     materializeNodes,
     setLocalVariables,
+    importFile,
+    downloadExport,
+    exportDefinitionPath,
+    exportTemplatePath,
 } from "../api/client";
-import type { PromptNode, Definition, Trigger, Session, VarDecl } from "../api/types";
+import type { PromptNode, Definition, Trigger, Session, VarDecl, OnConflict, ImportSummary } from "../api/types";
 import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 import VariablesEditor from "../components/VariablesEditor.vue";
@@ -49,6 +53,39 @@ const templateTokens = computed(() => {
         return sum + estimateTokens(byId.get(n.definition_id)?.content ?? "");
     }, 0);
 });
+
+// ── M7 import / export ──────────────────────────────────────
+const importConflict = ref<OnConflict>("skip");
+const importSummary = ref<ImportSummary | null>(null);
+const importBusy = ref(false);
+const importInput = ref<HTMLInputElement | null>(null);
+
+async function onImportPicked(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    importBusy.value = true;
+    try {
+        importSummary.value = await importFile(file, importConflict.value);
+        await library.loadAll();
+    } catch (err) {
+        importSummary.value = null;
+        error.value = (err as Error).message;
+    } finally {
+        importBusy.value = false;
+        input.value = ""; // allow re-picking the same file
+    }
+}
+
+async function exportDefinition(d: Definition) {
+    if (!d.id) return;
+    await downloadExport(exportDefinitionPath(d.id), `${d.name || "definition"}.json`);
+}
+
+async function exportSelectedTemplate() {
+    if (!selectedTemplateId.value) return;
+    await downloadExport(exportTemplatePath(selectedTemplateId.value), `${templateName.value || "template"}.json`);
+}
 
 function blankDef(): Definition {
     return { id: "", type: "char", name: "", content: "", meta: {} };
@@ -787,17 +824,35 @@ async function duplicateDef() {
                     </option>
                 </select>
                 <div class="flex items-center">
+                    <select
+                        v-model="importConflict"
+                        class="field !py-1 !px-1.5 text-[12px] mr-1"
+                        title="On conflict"
+                    >
+                        <option value="skip">Skip</option>
+                        <option value="overwrite">Overwrite</option>
+                        <option value="duplicate">Duplicate</option>
+                    </select>
                     <button
-                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg"
-                        title="Import"
-                        disabled
+                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
+                        title="Import card / world / template (.png, .json)"
+                        :disabled="importBusy"
+                        @click="importInput?.click()"
                     >
                         <Upload :size="16" />
                     </button>
+                    <input
+                        ref="importInput"
+                        type="file"
+                        accept=".png,.json,application/json,image/png"
+                        class="hidden"
+                        @change="onImportPicked"
+                    />
                     <button
-                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg"
-                        title="Export"
-                        disabled
+                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
+                        title="Export template (enabled part)"
+                        :disabled="!selectedTemplateId"
+                        @click="exportSelectedTemplate"
                     >
                         <Download :size="16" />
                     </button>
@@ -819,6 +874,12 @@ async function duplicateDef() {
                     </button>
                 </div>
             </div>
+
+            <p v-if="importSummary" data-test="import-summary" class="text-[12px] text-muted mt-2">
+                Imported: {{ importSummary.created.length }} created,
+                {{ importSummary.skipped.length }} skipped,
+                {{ importSummary.overwritten.length }} overwritten.
+            </p>
 
             <!-- name + save/saved state -->
             <div
@@ -893,6 +954,15 @@ async function duplicateDef() {
                 @create-type="createTypeFromEditor"
                 @delete-type="deleteTypeFromEditor"
             />
+
+            <button
+                v-if="defActive && editDef.id"
+                data-test="export-def"
+                class="inline-flex items-center gap-1 mt-2 text-[12px] text-muted hover:text-ink"
+                @click="exportDefinition(editDef)"
+            >
+                <Download :size="14" /> Export this definition
+            </button>
 
             <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>
             </section>
