@@ -78,3 +78,21 @@ async fn get_state_merges_schema_seed_and_leaf() {
     assert!(names.contains(&"$avatar")); // system var present in schema
     assert!(names.contains(&"hp"));
 }
+
+#[tokio::test]
+async fn set_local_variables_adds_to_the_schema() {
+    let state = test_state().await;
+    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    let (st, _) = send(&state, "PUT", &format!("/api/sessions/{sid}/local-variables"),
+        Some(r#"{"variables":[{"name":"reputation","type":"number","initial":5}]}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let (_, state_out) = send(&state, "GET", &format!("/api/sessions/{sid}/state"), None).await;
+    let body = json(&state_out);
+    assert_eq!(body["values"]["reputation"], 5); // backfilled from the new local schema initial
+    let names: Vec<&str> = body["schema"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"reputation"));
+}

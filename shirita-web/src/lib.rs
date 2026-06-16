@@ -62,6 +62,7 @@ pub fn app(state: AppState) -> Router {
             post(routes::local_overrides::materialize_nodes),
         )
         .route("/sessions/{id}/state", get(routes::variables::get_state))
+        .route("/sessions/{id}/local-variables", put(routes::variables::set_local_variables))
         .route(
             "/definitions",
             get(routes::definitions::list).post(routes::definitions::create),
