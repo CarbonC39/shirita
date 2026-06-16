@@ -8,6 +8,7 @@ use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
+use crate::budget::trim_history;
 use crate::models::session::Session;
 use crate::models::summary::Summary;
 use crate::state::{
@@ -23,6 +24,18 @@ async fn session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl
         None => None,
     };
     resolve_schema(template_meta.as_ref(), &session.override_config)
+}
+
+/// 读上下文窗口（settings `context.window`，默认 200000）。
+async fn context_window(storage: &dyn Storage) -> usize {
+    storage
+        .get_setting("context.window")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+        .unwrap_or(200_000)
 }
 
 /// 选当前分支适用摘要：cutoff 必须落在 active path 上，多条取 path 中最靠后的那条。
@@ -183,6 +196,14 @@ pub fn send_message(
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
+        // best-effort 裁剪：超窗口则丢最旧的中段历史（溢出由 provider 报错沿 Error 路径暴露）。
+        let window = context_window(storage.as_ref()).await;
+        let (trimmed, dropped) = trim_history(&req.messages, window, counter.as_ref());
+        if dropped > 0 {
+            tracing::warn!(dropped, "context over window: trimmed oldest history");
+        }
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary };
+
         let prompt_text: String =
             req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
         tracing::debug!(prompt_tokens = counter.count(&prompt_text), "assembled prompt");
@@ -226,7 +247,7 @@ pub fn send_message(
 pub fn regenerate(
     storage: Arc<dyn Storage>,
     provider: Arc<dyn ModelProvider>,
-    _counter: Arc<dyn TokenCounter>,
+    counter: Arc<dyn TokenCounter>,
     model: String,
     session_id: String,
     target_id: String,
@@ -268,6 +289,14 @@ pub fn regenerate(
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
+
+        // best-effort 裁剪：超窗口则丢最旧的中段历史（溢出由 provider 报错沿 Error 路径暴露）。
+        let window = context_window(storage.as_ref()).await;
+        let (trimmed, dropped) = trim_history(&req.messages, window, counter.as_ref());
+        if dropped > 0 {
+            tracing::warn!(dropped, "context over window: trimmed oldest history");
+        }
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary };
 
         let mut full = String::new();
         let mut stream = match provider.stream_chat(req).await {
@@ -650,6 +679,41 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(req.messages[0].content.contains("HP is 42"), "assembly must read the branch leaf snapshot");
+    }
+
+    #[tokio::test]
+    async fn oversized_history_is_trimmed_before_send() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+        // 造一串长 user/assistant 历史（无摘要）
+        let mut parent: Option<String> = None;
+        let mut leaf = String::new();
+        for i in 0..6 {
+            let content = format!("turn-{i}-{}", "x".repeat(50));
+            let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+            let m = Message::new(&session.id, parent.clone(), role, &content);
+            storage.create_message(&m).await.unwrap();
+            parent = Some(m.id.clone());
+            leaf = m.id.clone();
+        }
+        storage.set_session_active_leaf(&session.id, Some(&leaf)).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        // window 设得很小 → 触发裁剪
+        storage.set_setting("context.window", &serde_json::json!(20)).await.unwrap();
+
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        let joined: String = req.messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("|");
+        assert!(joined.contains("newest"), "末条本次 user 必须保留");
+        assert!(!joined.contains("turn-0"), "最旧历史应被裁掉");
     }
 
     #[tokio::test]
