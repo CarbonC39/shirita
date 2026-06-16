@@ -9,6 +9,8 @@ pub mod error;
 pub mod keyword;
 pub mod model;
 pub mod models;
+pub mod pngcard;
+pub mod portable;
 pub mod seed;
 pub mod state;
 pub mod storage;
@@ -17,8 +19,8 @@ pub mod tokenizer;
 pub mod tree;
 
 pub use assembly::{
-    apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, AssembledPlan,
-    Placement, PromptSegment,
+    apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, sanitize_tag,
+    AssembledPlan, Placement, PromptSegment,
 };
 pub use budget::{over_threshold, trim_history};
 pub use config::Config;
@@ -38,6 +40,10 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::summary::Summary;
 pub use models::template::Template;
+pub use pngcard::read_card_json;
+pub use portable::{
+    export_definition, export_template, parse_portable, PortableDef, PortableDoc, PortableNode,
+};
 pub use seed::ensure_default_template;
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,

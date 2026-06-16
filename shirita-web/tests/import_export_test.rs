@@ -54,7 +54,7 @@ async fn import_worldinfo_creates_world_defs() {
     let body = r#"{"entries":{"0":{"key":["zion"],"comment":"Zion","content":"Last city","constant":false}}}"#;
     let (st, out) = send(&state, "POST", "/api/import/worldinfo", Some(body)).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(json(&out)["created"], 1);
+    assert_eq!(json(&out)["created"].as_array().unwrap().len(), 1);
     // it is now listed as a world definition
     let (_, defs) = send(&state, "GET", "/api/definitions?type=world", None).await;
     assert!(json(&defs).as_array().unwrap().iter().any(|d| d["name"] == "Zion"));
@@ -66,5 +66,5 @@ async fn import_charcard_creates_char_and_book() {
     let card = r#"{"spec":"chara_card_v2","data":{"name":"Neo","description":"The One","character_book":{"entries":[{"keys":["zion"],"comment":"Zion","content":"x"}]}}}"#;
     let (st, out) = send(&state, "POST", "/api/import/charcard", Some(card)).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(json(&out)["created"], 2); // char + 1 world
+    assert_eq!(json(&out)["created"].as_array().unwrap().len(), 2); // char + 1 world
 }
