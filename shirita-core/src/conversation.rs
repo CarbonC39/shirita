@@ -9,6 +9,7 @@ use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
+use crate::models::summary::Summary;
 use crate::state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, strip_state_tags, VarDecl,
 };
@@ -22,6 +23,21 @@ async fn session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl
         None => None,
     };
     resolve_schema(template_meta.as_ref(), &session.override_config)
+}
+
+/// 选当前分支适用摘要：cutoff 必须落在 active path 上，多条取 path 中最靠后的那条。
+/// 返回（摘要内容, path 中 cutoff 的下标）。
+async fn applicable_summary(
+    storage: &dyn Storage,
+    session_id: &str,
+    path: &[&Message],
+) -> Option<(String, usize)> {
+    let summaries: Vec<Summary> = storage.list_summaries(session_id).await.ok()?;
+    let pos = |mid: &str| path.iter().position(|m| m.id == mid);
+    summaries
+        .into_iter()
+        .filter_map(|s| pos(&s.cutoff_message_id).map(|i| (s.content, i)))
+        .max_by_key(|(_, i)| *i)
 }
 
 /// 会话有效节点树：自有节点优先（fork 后），否则引用模板。
@@ -48,6 +64,7 @@ async fn assemble_request(
     model: String,
     context: &[ChatMessage],
     state: &serde_json::Value,
+    summary: Option<String>,
 ) -> crate::Result<(ChatRequest, Vec<Definition>)> {
     let nodes = effective_nodes(storage, session).await?;
     let mut defs = std::collections::HashMap::new();
@@ -97,7 +114,7 @@ async fn assemble_request(
         .filter(|d| d.def_type == "regex_rule")
         .collect();
 
-    Ok((ChatRequest { model, messages: chat_messages, summary: None }, regex_rules))
+    Ok((ChatRequest { model, messages: chat_messages, summary }, regex_rules))
 }
 
 /// 流式发送过程对外暴露的事件。
@@ -149,14 +166,19 @@ pub fn send_message(
             return;
         }
 
-        // 2) 组装：context = 当前分支可见消息（过滤隐藏）+ 本次 user。
-        let mut context: Vec<ChatMessage> = path
+        // 当前分支适用摘要：替换 cutoff 之前的历史，cutoff 之后照常带入。
+        let summary = applicable_summary(storage.as_ref(), &session_id, &path).await;
+        let visible_start = summary.as_ref().map(|(_, i)| i + 1).unwrap_or(0);
+        let summary_text = summary.map(|(c, _)| c);
+
+        // 2) 组装：context = cutoff 之后的分支可见消息（过滤隐藏）+ 本次 user。
+        let mut context: Vec<ChatMessage> = path[visible_start..]
             .iter()
             .filter(|m| !m.is_hidden)
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
             .collect();
         context.push(ChatMessage { role: Role::User, content: user_text.clone() });
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -225,7 +247,13 @@ pub fn regenerate(
         };
         // context = path root→(target's parent = the user turn that prompted it)
         let path = crate::tree::active_path(&all, target.parent_id.as_deref());
-        let context: Vec<ChatMessage> = path
+
+        // 父分支适用摘要：替换 cutoff 之前的历史。
+        let summary = applicable_summary(storage.as_ref(), &session_id, &path).await;
+        let visible_start = summary.as_ref().map(|(_, i)| i + 1).unwrap_or(0);
+        let summary_text = summary.map(|(c, _)| c);
+
+        let context: Vec<ChatMessage> = path[visible_start..]
             .iter()
             .filter(|m| !m.is_hidden)
             .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
@@ -236,7 +264,7 @@ pub fn regenerate(
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -622,6 +650,44 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(req.messages[0].content.contains("HP is 42"), "assembly must read the branch leaf snapshot");
+    }
+
+    #[tokio::test]
+    async fn assembly_uses_applicable_summary_and_truncates_history() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+
+        // 线性历史：u1 -> a1 -> u2 -> a2（a2 为活动叶子）
+        let u1 = Message::new(&session.id, None, Role::User, "u1");
+        storage.create_message(&u1).await.unwrap();
+        let a1 = Message::new(&session.id, Some(u1.id.clone()), Role::Assistant, "a1");
+        storage.create_message(&a1).await.unwrap();
+        let u2 = Message::new(&session.id, Some(a1.id.clone()), Role::User, "u2");
+        storage.create_message(&u2).await.unwrap();
+        let a2 = Message::new(&session.id, Some(u2.id.clone()), Role::Assistant, "a2");
+        storage.create_message(&a2).await.unwrap();
+        storage.set_session_active_leaf(&session.id, Some(&a2.id)).await.unwrap();
+
+        // 摘要覆盖到 a1（cutoff = a1）：u1/a1 不应进 context，summary 应被携带。
+        let sum = crate::models::summary::Summary::new(&session.id, &a1.id, "[sum] u1 a1 happened");
+        storage.create_summary(&sum).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        assert_eq!(req.summary.as_deref(), Some("[sum] u1 a1 happened"));
+        let joined: String = req.messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("|");
+        assert!(!joined.contains("u1"), "cutoff 之前的历史不应进 context: {joined}");
+        assert!(!joined.contains("a1"), "cutoff 之前的历史不应进 context: {joined}");
+        assert!(joined.contains("u2"), "cutoff 之后的历史应保留");
+        assert!(joined.contains("u3"), "本次 user 应保留");
     }
 
     #[tokio::test]
