@@ -11,8 +11,9 @@ import type {
   VarDecl,
 } from './types'
 
-const BASE = import.meta.env.VITE_API_BASE ?? ''
-const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
+const RT = (globalThis as { __SHIRITA_RUNTIME__?: { base?: string; token?: string } }).__SHIRITA_RUNTIME__
+const BASE = RT?.base ?? import.meta.env.VITE_API_BASE ?? ''
+const TOKEN = RT?.token ?? import.meta.env.VITE_API_TOKEN ?? ''
 
 function authHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { Authorization: `Bearer ${TOKEN}`, ...extra }

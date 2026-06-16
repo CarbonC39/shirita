@@ -170,3 +170,19 @@ describe('importFile', () => {
     expect((init.body as FormData).get('file')).toBeInstanceOf(File)
   })
 })
+
+describe('runtime config injection', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('prefers injected window.__SHIRITA_RUNTIME__ for BASE and TOKEN', async () => {
+    vi.resetModules()
+    vi.stubGlobal('__SHIRITA_RUNTIME__', { base: 'http://127.0.0.1:9999', token: 'inj-tok' })
+    const fm = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [] })
+    vi.stubGlobal('fetch', fm)
+    const { listSessions } = await import('./client')
+    await listSessions()
+    expect(fm).toHaveBeenCalledWith('http://127.0.0.1:9999/api/sessions', {
+      headers: { Authorization: 'Bearer inj-tok' },
+    })
+  })
+})
