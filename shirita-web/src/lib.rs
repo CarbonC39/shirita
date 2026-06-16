@@ -2,15 +2,19 @@
 
 pub mod auth;
 pub mod generations;
+pub mod provider_select;
 pub mod routes;
 pub mod state;
 
 pub use generations::Generations;
+pub use provider_select::{provider_from_env, provider_kind, ProviderKind};
 pub use state::AppState;
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, Method};
 use axum::routing::{delete, post, put};
 use axum::{middleware, routing::get, Router};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 /// 构建应用路由。`/`、`/health`、`GET /assets/*` 公开；`/api/*` 走 Bearer 中间件。
@@ -106,4 +110,35 @@ pub fn app(state: AppState) -> Router {
         .nest("/api", protected)
         .nest_service("/assets", ServeDir::new(assets_dir))
         .with_state(state)
+}
+
+/// 桌面 webview 的 origin：
+/// - 生产（`tauri build`，custom-protocol）：`tauri://localhost`（Linux/macOS）/
+///   `https://tauri.localhost`（Windows）；
+/// - 开发（`tauri dev`，加载 devUrl）：`http://localhost:<port>`。
+/// 内嵌 server 绑 127.0.0.1 且受 Bearer 守护，故放行 localhost/127.0.0.1 任意端口是安全的。
+fn is_desktop_origin(origin: &header::HeaderValue) -> bool {
+    let o = origin.as_bytes();
+    o == b"tauri://localhost"
+        || o == b"https://tauri.localhost"
+        || o == b"http://tauri.localhost"
+        || o.starts_with(b"http://localhost:")
+        || o.starts_with(b"http://127.0.0.1:")
+}
+
+/// 桌面（内嵌 server）专用：在 `app()` 外层套 CORS，放行 Tauri webview origin。
+/// CorsLayer 作为最外层——preflight `OPTIONS` 由它短路应答，不进 Bearer 鉴权；
+/// 真实请求穿过 CORS → auth → handler，响应回程补上 `Access-Control-Allow-Origin`。
+pub fn app_with_cors(state: AppState) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(AllowOrigin::predicate(|origin, _req| is_desktop_origin(origin)))
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE]);
+    app(state).layer(cors)
 }
