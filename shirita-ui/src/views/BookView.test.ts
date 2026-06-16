@@ -20,6 +20,8 @@ vi.mock('../api/client', () => ({
   setLocalDefinition: vi.fn().mockResolvedValue(undefined),
   clearLocalDefinition: vi.fn().mockResolvedValue(undefined),
   promoteLocalDefinition: vi.fn().mockResolvedValue(undefined),
+  materializeNodes: vi.fn().mockResolvedValue(undefined),
+  setLocalVariables: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../stores/library', () => ({

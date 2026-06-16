@@ -22,10 +22,12 @@ import {
     clearLocalDefinition,
     promoteLocalDefinition,
     materializeNodes,
+    setLocalVariables,
 } from "../api/client";
-import type { PromptNode, Definition, Trigger, Session } from "../api/types";
+import type { PromptNode, Definition, Trigger, Session, VarDecl } from "../api/types";
 import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
+import VariablesEditor from "../components/VariablesEditor.vue";
 
 const library = useLibraryStore();
 const ui = useUiStore();
@@ -158,6 +160,36 @@ async function setLocalPatch(defId: string, fields: Record<string, unknown>) {
     try {
         const existing = localDefs.value[defId] ?? {};
         await setLocalDefinition(ui.activeChatId, defId, { ...existing, ...fields });
+        await loadLocal();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+
+// ── variables: global (template meta) + local (this chat) ──
+const templateVars = computed<VarDecl[]>(() => {
+    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
+    return ((t?.meta as Record<string, unknown> | undefined)?.variables as VarDecl[]) ?? [];
+});
+async function saveTemplateVars(vars: VarDecl[]) {
+    if (!selectedTemplateId.value) return;
+    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
+    const meta = { ...((t?.meta as Record<string, unknown>) ?? {}), variables: vars };
+    try {
+        await updateTemplate(selectedTemplateId.value, templateName.value.trim() || "Template", meta);
+        await library.loadTemplates();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+
+const localVars = computed<VarDecl[]>(
+    () => ((localSession.value?.override_config as Record<string, unknown> | undefined)?.local_variables as VarDecl[]) ?? [],
+);
+async function saveLocalVars(vars: VarDecl[]) {
+    if (!ui.activeChatId) return;
+    try {
+        await setLocalVariables(ui.activeChatId, vars);
         await loadLocal();
     } catch (e) {
         error.value = (e as Error).message;
@@ -712,6 +744,11 @@ async function duplicateDef() {
                     <div class="h-px bg-line my-5" />
                 </template>
 
+                <div class="mb-4">
+                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">Variables (this chat)</h3>
+                    <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
+                </div>
+
                 <DefinitionEditor
                     :definition="localEditDef"
                     :all-definitions="library.definitions"
@@ -834,6 +871,10 @@ async function duplicateDef() {
                 @delete-node="handleDeleteNode"
                 @reorder="handleReorder"
             />
+            <div v-if="selectedTemplateId" class="mt-4">
+                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">Variables</h3>
+                <VariablesEditor :model-value="templateVars" @update:model-value="saveTemplateVars" />
+            </div>
             <div class="h-px bg-line my-6" />
 
             <DefinitionEditor
