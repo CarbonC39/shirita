@@ -129,6 +129,37 @@ pub fn strip_state_tags(text: &str) -> String {
     tag_re.replace_all(text, "").trim().to_string()
 }
 
+fn parse_decls(v: Option<&Value>, scope: &str) -> Vec<VarDecl> {
+    let Some(arr) = v.and_then(|x| x.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .filter_map(|item| {
+            let mut d: VarDecl = serde_json::from_value(item.clone()).ok()?;
+            d.scope = Some(scope.to_string());
+            Some(d)
+        })
+        .collect()
+}
+
+fn merge_decls(out: &mut Vec<VarDecl>, decls: Vec<VarDecl>) {
+    for d in decls {
+        if let Some(existing) = out.iter_mut().find(|x| x.name == d.name) {
+            *existing = d; // 后者覆盖（precedence: system < template < local）
+        } else {
+            out.push(d);
+        }
+    }
+}
+
+/// 解析会话的有效 schema：系统 ∪ 模板 `meta.variables` ∪ 会话 `override_config.local_variables`。
+pub fn resolve_schema(template_meta: Option<&Value>, override_config: &Value) -> Vec<VarDecl> {
+    let mut out = system_variables();
+    merge_decls(&mut out, parse_decls(template_meta.and_then(|m| m.get("variables")), "template"));
+    merge_decls(&mut out, parse_decls(override_config.get("local_variables"), "local"));
+    out
+}
+
 fn num_value(n: f64) -> Value {
     if n.fract() == 0.0 && n.abs() < 1e15 {
         Value::Number(serde_json::Number::from(n as i64))
@@ -286,5 +317,27 @@ mod tests {
         let st = json!({ "bag": ["key", "map", "key"] });
         let out = apply_updates(&st, &s, &[Update { action: Action::Remove, key: "bag".into(), value: Some("key".into()) }]);
         assert_eq!(out["bag"], json!(["map", "key"]));
+    }
+
+    #[test]
+    fn resolve_schema_unions_system_template_local() {
+        let tmeta = json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        let cfg = json!({ "local_variables": [ {"name":"reputation","type":"number","initial":0} ] });
+        let s = resolve_schema(Some(&tmeta), &cfg);
+        let names: Vec<&str> = s.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"$avatar")); // system always present
+        assert!(names.contains(&"hp")); // template
+        assert!(names.contains(&"reputation")); // local
+        assert_eq!(s.iter().find(|d| d.name == "hp").unwrap().scope.as_deref(), Some("template"));
+    }
+
+    #[test]
+    fn local_overrides_template_on_name_clash() {
+        let tmeta = json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        let cfg = json!({ "local_variables": [ {"name":"hp","type":"number","initial":250} ] });
+        let s = resolve_schema(Some(&tmeta), &cfg);
+        let hp = s.iter().find(|d| d.name == "hp").unwrap();
+        assert_eq!(hp.initial, 250);
+        assert_eq!(hp.scope.as_deref(), Some("local"));
     }
 }
