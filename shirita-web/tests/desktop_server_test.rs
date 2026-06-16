@@ -55,6 +55,38 @@ async fn cors_preflight_bypasses_auth_and_allows_tauri_origin() {
 }
 
 #[tokio::test]
+async fn cors_allows_vite_dev_origin() {
+    // `tauri dev` 下 webview origin = http://localhost:5173，必须放行，否则 dev 白屏。
+    let req = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/ping")
+        .header(header::ORIGIN, "http://localhost:5173")
+        .header("access-control-request-method", "GET")
+        .body(Body::empty())
+        .unwrap();
+    let res = app_with_cors(test_state().await).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_eq!(
+        res.headers().get("access-control-allow-origin").unwrap(),
+        "http://localhost:5173"
+    );
+}
+
+#[tokio::test]
+async fn cors_rejects_unknown_origin() {
+    // 非桌面 origin 不应拿到放行头。
+    let req = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/ping")
+        .header(header::ORIGIN, "https://evil.example.com")
+        .header("access-control-request-method", "GET")
+        .body(Body::empty())
+        .unwrap();
+    let res = app_with_cors(test_state().await).oneshot(req).await.unwrap();
+    assert!(res.headers().get("access-control-allow-origin").is_none());
+}
+
+#[tokio::test]
 async fn real_request_carries_cors_header() {
     let req = Request::builder()
         .method("GET")
