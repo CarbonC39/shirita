@@ -198,6 +198,16 @@ function startNew() {
       <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" title="Fullscreen" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
     </div>
 
+    <label class="flex items-center gap-2 mt-3 text-[13px] text-ink">
+      <input
+        type="checkbox"
+        data-test="wrap-in-tag"
+        :checked="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
+        @change="emit('update:meta', { ...definition.meta, wrap_in_tag: ($event.target as HTMLInputElement).checked })"
+      />
+      Wrap content in a tag named after this definition
+    </label>
+
     <div class="flex items-center justify-between mt-3">
       <span class="text-[11.5px] text-muted tabular-nums">~{{ formatTokens(contentTokens) }} tokens</span>
       <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">Save</button>

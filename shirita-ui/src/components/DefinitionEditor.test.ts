@@ -18,6 +18,19 @@ describe('DefinitionEditor trigger', () => {
   })
 })
 
+describe('DefinitionEditor wrap_in_tag', () => {
+  it('emits update:meta with wrap_in_tag toggled', async () => {
+    const d = { id: 'd1', type: 'char', name: 'Alice', content: 'body', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    const box = w.get('[data-test="wrap-in-tag"]')
+    await box.setValue(true)
+    const events = w.emitted('update:meta')
+    expect(events).toBeTruthy()
+    const last = events![events!.length - 1][0] as Record<string, unknown>
+    expect(last.wrap_in_tag).toBe(true)
+  })
+})
+
 describe('DefinitionEditor reveal', () => {
   it('hides the editor body until a definition is active', () => {
     const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
