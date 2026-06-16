@@ -169,7 +169,7 @@ mod tests {
         let mut leaf = String::new();
         for i in 0..turns {
             let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
-            let m = Message::new(&session.id, parent.clone(), role, &format!("turn-{i}-{}", "x".repeat(40)));
+            let m = Message::new(&session.id, parent.clone(), role, format!("turn-{i}-{}", "x".repeat(40)));
             storage.create_message(&m).await.unwrap();
             parent = Some(m.id.clone());
             leaf = m.id.clone();
