@@ -129,6 +129,74 @@ pub fn strip_state_tags(text: &str) -> String {
     tag_re.replace_all(text, "").trim().to_string()
 }
 
+fn num_value(n: f64) -> Value {
+    if n.fract() == 0.0 && n.abs() < 1e15 {
+        Value::Number(serde_json::Number::from(n as i64))
+    } else {
+        serde_json::Number::from_f64(n).map(Value::Number).unwrap_or(Value::Null)
+    }
+}
+
+fn coerce(value: &Option<String>, vt: VarType) -> Option<Value> {
+    let s = value.as_ref()?;
+    match vt {
+        VarType::Number => s.parse::<f64>().ok().map(num_value),
+        VarType::Bool => match s.to_ascii_lowercase().as_str() {
+            "true" => Some(Value::Bool(true)),
+            "false" => Some(Value::Bool(false)),
+            _ => None,
+        },
+        VarType::String => Some(Value::String(s.clone())),
+        VarType::List => serde_json::from_str::<Vec<Value>>(s).ok().map(Value::Array),
+    }
+}
+
+/// 按 schema 类型逐条应用更新；未声明的 key 或类型不符的动作一律忽略（沙箱不执行代码）。
+pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> Value {
+    let mut obj = state.as_object().cloned().unwrap_or_default();
+    for u in updates {
+        let Some(vt) = schema.iter().find(|d| d.name == u.key).map(|d| d.var_type) else {
+            continue; // 未声明
+        };
+        match (u.action, vt) {
+            (Action::Set, _) => {
+                if let Some(v) = coerce(&u.value, vt) {
+                    obj.insert(u.key.clone(), v);
+                }
+            }
+            (Action::Add, VarType::Number) | (Action::Sub, VarType::Number) => {
+                let cur = obj.get(&u.key).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                if let Some(n) = u.value.as_ref().and_then(|s| s.parse::<f64>().ok()) {
+                    let next = if u.action == Action::Add { cur + n } else { cur - n };
+                    obj.insert(u.key.clone(), num_value(next));
+                }
+            }
+            (Action::Toggle, VarType::Bool) => {
+                let cur = obj.get(&u.key).and_then(|v| v.as_bool()).unwrap_or(false);
+                obj.insert(u.key.clone(), Value::Bool(!cur));
+            }
+            (Action::Append, VarType::List) => {
+                if let Some(val) = &u.value {
+                    let mut arr = obj.get(&u.key).and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                    arr.push(Value::String(val.clone()));
+                    obj.insert(u.key.clone(), Value::Array(arr));
+                }
+            }
+            (Action::Remove, VarType::List) => {
+                if let Some(val) = &u.value {
+                    let mut arr = obj.get(&u.key).and_then(|v| v.as_array().cloned()).unwrap_or_default();
+                    if let Some(pos) = arr.iter().position(|e| e.as_str() == Some(val.as_str())) {
+                        arr.remove(pos);
+                    }
+                    obj.insert(u.key.clone(), Value::Array(arr));
+                }
+            }
+            _ => {} // 动作/类型不匹配
+        }
+    }
+    Value::Object(obj)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -181,5 +249,42 @@ mod tests {
     #[test]
     fn unknown_action_is_dropped() {
         assert!(parse_state_updates("<state_update action=\"NUKE\" key=\"hp\" value=\"1\"/>").is_empty());
+    }
+
+    fn full_schema() -> Vec<VarDecl> {
+        vec![
+            VarDecl { name: "hp".into(), var_type: VarType::Number, initial: json!(100), scope: None },
+            VarDecl { name: "alarmed".into(), var_type: VarType::Bool, initial: json!(false), scope: None },
+            VarDecl { name: "name".into(), var_type: VarType::String, initial: json!(""), scope: None },
+            VarDecl { name: "bag".into(), var_type: VarType::List, initial: json!([]), scope: None },
+        ]
+    }
+
+    #[test]
+    fn applies_typed_actions_and_ignores_invalid() {
+        let s = full_schema();
+        let st = json!({ "hp": 100, "alarmed": false, "bag": [] });
+        let ups = vec![
+            Update { action: Action::Sub, key: "hp".into(), value: Some("30".into()) },
+            Update { action: Action::Toggle, key: "alarmed".into(), value: None },
+            Update { action: Action::Set, key: "name".into(), value: Some("Ada".into()) },
+            Update { action: Action::Append, key: "bag".into(), value: Some("key".into()) },
+            Update { action: Action::Add, key: "hp".into(), value: Some("oops".into()) }, // non-numeric -> ignored
+            Update { action: Action::Set, key: "ghost".into(), value: Some("x".into()) }, // undeclared -> ignored
+        ];
+        let out = apply_updates(&st, &s, &ups);
+        assert_eq!(out["hp"], 70);
+        assert_eq!(out["alarmed"], true);
+        assert_eq!(out["name"], "Ada");
+        assert_eq!(out["bag"], json!(["key"]));
+        assert!(out.get("ghost").is_none());
+    }
+
+    #[test]
+    fn remove_drops_first_match() {
+        let s = full_schema();
+        let st = json!({ "bag": ["key", "map", "key"] });
+        let out = apply_updates(&st, &s, &[Update { action: Action::Remove, key: "bag".into(), value: Some("key".into()) }]);
+        assert_eq!(out["bag"], json!(["map", "key"]));
     }
 }
