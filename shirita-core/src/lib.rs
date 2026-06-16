@@ -33,6 +33,9 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::template::Template;
 pub use seed::ensure_default_template;
-pub use state::{effective_state, schema_initials, system_variables, VarDecl, VarType};
+pub use state::{
+    effective_state, parse_state_updates, schema_initials, strip_state_tags, system_variables,
+    Update, VarDecl, VarType,
+};
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
