@@ -14,3 +14,4 @@ pub mod sessions;
 pub mod settings;
 pub mod templates;
 pub mod types;
+pub mod variables;
