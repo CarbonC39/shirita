@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod assembly;
+pub mod budget;
 pub mod config;
 pub mod conversation;
 pub mod error;
@@ -18,6 +19,7 @@ pub use assembly::{
     apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, AssembledPlan,
     Placement, PromptSegment,
 };
+pub use budget::{over_threshold, trim_history};
 pub use config::Config;
 pub use conversation::{regenerate, send_message, SendEvent};
 pub use error::{Error, Result};
