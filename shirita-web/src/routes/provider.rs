@@ -14,7 +14,7 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
     let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
     let model = state.storage.get_setting("provider_model").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "gpt-4o".into());
     let provider = OpenAiProvider::new(&base_url, &api_key);
-    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into() }] };
+    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into() }], summary: None };
     match provider.stream_chat(req).await {
         // Only the first streamed chunk matters: it confirms the credentials
         // and endpoint accept a request.
