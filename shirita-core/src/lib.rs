@@ -9,6 +9,7 @@ pub mod error;
 pub mod keyword;
 pub mod model;
 pub mod models;
+pub mod pngcard;
 pub mod seed;
 pub mod state;
 pub mod storage;
@@ -38,6 +39,7 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::summary::Summary;
 pub use models::template::Template;
+pub use pngcard::read_card_json;
 pub use seed::ensure_default_template;
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,
