@@ -34,8 +34,8 @@ pub use models::session::Session;
 pub use models::template::Template;
 pub use seed::ensure_default_template;
 pub use state::{
-    effective_state, parse_state_updates, schema_initials, strip_state_tags, system_variables,
-    Update, VarDecl, VarType,
+    apply_updates, effective_state, parse_state_updates, schema_initials, strip_state_tags,
+    system_variables, Update, VarDecl, VarType,
 };
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
