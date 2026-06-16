@@ -8,6 +8,7 @@ use crate::models::definition::Definition;
 use crate::models::message::Message;
 use crate::models::prompt_node::{OwnerKind, PromptNode};
 use crate::models::session::Session;
+use crate::models::summary::Summary;
 use crate::models::template::Template;
 use crate::Result;
 
@@ -63,6 +64,10 @@ pub trait Storage: Send + Sync {
 
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()>;
+
+    // --- summaries (M6 rolling context summaries) ---
+    async fn create_summary(&self, summary: &Summary) -> Result<()>;
+    async fn list_summaries(&self, session_id: &str) -> Result<Vec<Summary>>;
 
     // --- settings ---
     async fn get_setting(&self, key: &str) -> Result<Option<serde_json::Value>>;
