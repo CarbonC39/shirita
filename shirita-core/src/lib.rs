@@ -24,7 +24,9 @@ pub use budget::{over_threshold, trim_history};
 pub use config::Config;
 pub use conversation::{regenerate, send_message, SendEvent};
 pub use error::{Error, Result};
-pub use model::{ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider};
+pub use model::{
+    AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
+};
 pub use adapters::charcard::{charcard_to_defs, def_to_charcard};
 pub use adapters::preset::tree_to_preset;
 pub use adapters::worldinfo::{defs_to_worldinfo, worldinfo_to_defs};
