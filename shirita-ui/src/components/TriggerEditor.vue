@@ -27,13 +27,13 @@ function removeKey(k: string) {
 <template>
   <div class="space-y-2.5" data-test="trigger-editor">
     <div class="flex items-center gap-2">
-      <span class="text-[12px] text-muted">Trigger</span>
+      <span class="text-[12px] text-muted">{{ $t('prompt.trigger') }}</span>
       <SegmentedControl
         :model-value="modelValue.mode"
         :options="[
-          { value: 'constant', label: 'Constant' },
-          { value: 'keyword', label: 'Keyword' },
-          { value: 'random', label: 'Random' },
+          { value: 'constant', label: $t('prompt.triggerConstant') },
+          { value: 'keyword', label: $t('prompt.triggerKeyword') },
+          { value: 'random', label: $t('prompt.triggerRandom') },
         ]"
         @update:model-value="patch({ mode: $event as Trigger['mode'] })"
       />
@@ -52,7 +52,7 @@ function removeKey(k: string) {
         <input
           v-model="draft"
           type="text"
-          placeholder="Add keyword…"
+          :placeholder="$t('prompt.addKeyword')"
           class="flex-1 min-w-[80px] text-[13px] bg-transparent outline-none placeholder:text-muted/60"
           @keydown.enter.prevent="addKey"
         />
@@ -62,7 +62,7 @@ function removeKey(k: string) {
     <div v-else-if="modelValue.mode === 'random'">
       <SliderControl
         :model-value="modelValue.probability"
-        label="Probability %"
+        :label="$t('prompt.probability')"
         :min="0"
         :max="100"
         :step="1"

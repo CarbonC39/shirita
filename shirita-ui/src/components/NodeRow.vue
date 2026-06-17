@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2, Plus, GripVertical } from 'lucide-vue-next'
 import type { Definition, PromptNode, Trigger } from '../api/types'
 import { triggerFromMeta } from '../api/types'
@@ -15,6 +16,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: []; updateTrigger: [trigger: Trigger]; add: [] }>()
 
+const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
 const isHistory = computed(() => props.node.kind === 'history')
 
@@ -23,9 +25,9 @@ const def = computed<Definition | null>(() =>
 )
 
 const label = computed(() => {
-  if (isHistory.value) return 'Chat history'
-  if (isFolder.value) return props.node.tag || '(folder)'
-  return def.value ? def.value.name : '(missing)'
+  if (isHistory.value) return t('prompt.chatHistory')
+  if (isFolder.value) return props.node.tag || t('prompt.folderFallback')
+  return def.value ? def.value.name : t('prompt.missing')
 })
 
 // palette tint per definition/container type
@@ -58,7 +60,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       <span
         data-test="drag-handle"
         class="shrink-0 -ml-1 cursor-grab active:cursor-grabbing text-muted/35 group-hover:text-muted/70 transition-colors"
-        title="Drag to reorder"
+        :title="$t('chat.dragReorder')"
       ><GripVertical :size="15" /></span>
 
       <!-- enable checkbox: rounded square, teal when on -->
@@ -84,7 +86,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-if="isFolder"
         data-test="node-add"
         class="text-muted/70 hover:text-primary shrink-0 p-0.5 transition-colors"
-        title="Add to container"
+        :title="$t('prompt.addToContainer')"
         @click.stop="emit('add')"
       ><Plus :size="15" /></button>
 
@@ -93,7 +95,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-if="!isHistory"
         data-test="node-delete"
         class="text-muted/0 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
-        title="Delete"
+        :title="$t('common.delete')"
         @click.stop="emit('delete')"
       ><Trash2 :size="15" /></button>
 
@@ -112,13 +114,13 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
           rows="3"
           data-test="node-content"
           class="w-full resize-y rounded-[9px] border border-line bg-card px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-ink/75 outline-none focus:border-primary/50"
-          placeholder="Definition content…"
+          :placeholder="$t('definition.contentPlaceholder')"
           @blur="commit"
         />
         <button
           data-test="node-fullscreen"
           class="absolute right-2 top-2 text-muted/70 hover:text-ink"
-          title="Fullscreen"
+          :title="$t('settings.fullscreen')"
           @click="fullscreenOpen = true"
         >
           <Maximize2 :size="15" />

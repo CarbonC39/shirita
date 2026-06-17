@@ -43,22 +43,22 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
     <div class="flex-1 min-w-0">
       <div class="font-semibold text-ink truncate">{{ session.name }}</div>
       <div class="flex items-center gap-1.5 text-[13px] text-muted">
-        <span class="truncate">{{ session.preview || 'No messages yet' }}</span>
+        <span class="truncate">{{ session.preview || $t('chat.noMessages') }}</span>
         <span v-if="session.preview && time" class="shrink-0 text-muted/70">· {{ time }}</span>
       </div>
     </div>
 
     <!-- edit mode: drag handle + delete float on the card -->
     <template v-if="editMode">
-      <button data-test="chat-delete" class="text-muted hover:text-coral p-1 shrink-0 transition-colors" title="Delete" @click.stop.prevent="emit('delete', session.id)">
+      <button data-test="chat-delete" class="text-muted hover:text-coral p-1 shrink-0 transition-colors" :title="$t('common.delete')" @click.stop.prevent="emit('delete', session.id)">
         <Trash2 :size="17" />
       </button>
-      <span class="text-muted shrink-0" title="Drag to reorder"><GripVertical :size="18" /></span>
+      <span class="text-muted shrink-0" :title="$t('chat.dragReorder')"><GripVertical :size="18" /></span>
     </template>
 
     <!-- normal mode: three-dot menu -->
     <template v-else>
-      <button data-test="chat-menu" class="text-muted/50 hover:text-ink p-1 -mr-1 shrink-0 transition-colors" title="Options" @click.stop.prevent="menuOpen = !menuOpen">
+      <button data-test="chat-menu" class="text-muted/50 hover:text-ink p-1 -mr-1 shrink-0 transition-colors" :title="$t('chat.options')" @click.stop.prevent="menuOpen = !menuOpen">
         <MoreVertical :size="18" />
       </button>
 
@@ -66,9 +66,9 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
       <div v-if="menuOpen" class="fixed inset-0 z-20" @click.stop.prevent="menuOpen = false" />
       <transition name="expand">
       <div v-if="menuOpen" class="absolute right-3 top-12 z-30 bg-card border border-line rounded-xl shadow-lg overflow-hidden min-w-[150px]">
-        <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('duplicate', session.id))"><Copy :size="14" /> Duplicate</button>
-        <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('export', session.id))"><Download :size="14" /> Export</button>
-        <button data-test="menu-delete" class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-coral hover:bg-surface text-left transition-colors" @click="act($event, () => emit('delete', session.id))"><Trash2 :size="14" /> Delete</button>
+        <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('duplicate', session.id))"><Copy :size="14" /> {{ $t('common.duplicate') }}</button>
+        <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('export', session.id))"><Download :size="14" /> {{ $t('common.export') }}</button>
+        <button data-test="menu-delete" class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-coral hover:bg-surface text-left transition-colors" @click="act($event, () => emit('delete', session.id))"><Trash2 :size="14" /> {{ $t('common.delete') }}</button>
       </div>
       </transition>
     </template>

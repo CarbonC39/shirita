@@ -16,7 +16,7 @@ import AssetPicker from "../components/AssetPicker.vue";
 import FullscreenEditor from "../components/FullscreenEditor.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
-import { Maximize2, Eye, EyeOff, Check } from "lucide-vue-next";
+import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
 
 const settings = useSettingsStore();
 const ui = useUiStore();
@@ -272,11 +272,11 @@ async function handleTestConnection() {
 <template>
     <div class="max-w-[520px] mx-auto px-5 pt-8 pb-12">
         <p v-if="loading" class="text-muted text-sm text-center pt-12">
-            Loading…
+            {{ $t("common.loading") }}
         </p>
         <template v-else>
             <div class="flex items-center justify-between mb-8">
-                <h2 class="text-lg font-semibold">Settings</h2>
+                <h2 class="text-lg font-semibold">{{ $t("settings.title") }}</h2>
                 <span
                     class="flex items-center gap-1.5 text-[12px] text-muted transition-opacity"
                     :class="saveState === 'idle' ? 'opacity-0' : 'opacity-100'"
@@ -284,14 +284,14 @@ async function handleTestConnection() {
                     <template v-if="saveState === 'saving'"
                         ><span
                             class="w-2.5 h-2.5 rounded-full border-2 border-muted border-t-transparent animate-spin"
-                        />Saving…</template
+                        />{{ $t("common.saving") }}</template
                     >
                     <template v-else-if="saveState === 'saved'"
                         ><Check
                             :size="13"
                             :stroke-width="2.6"
                             class="text-primary"
-                        />Saved</template
+                        />{{ $t("common.saved") }}</template
                     >
                 </span>
             </div>
@@ -301,12 +301,12 @@ async function handleTestConnection() {
                 <h3
                     class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
                 >
-                    Provider
+                    {{ $t("settings.provider") }}
                 </h3>
                 <div class="space-y-4">
                     <div>
                         <label class="text-[13px] text-ink block mb-1.5"
-                            >Source</label
+                            >{{ $t("settings.source") }}</label
                         >
                         <select
                             :value="providerSource"
@@ -328,7 +328,7 @@ async function handleTestConnection() {
                     </div>
                     <div>
                         <label class="text-[13px] text-ink block mb-1.5"
-                            >Base URL</label
+                            >{{ $t("settings.baseUrl") }}</label
                         ><input
                             :value="providerBaseUrl"
                             type="text"
@@ -342,7 +342,7 @@ async function handleTestConnection() {
                     </div>
                     <div>
                         <label class="text-[13px] text-ink block mb-1.5"
-                            >API Key</label
+                            >{{ $t("settings.apiKey") }}</label
                         >
                         <div class="relative">
                             <input
@@ -368,7 +368,7 @@ async function handleTestConnection() {
                     </div>
                     <div>
                         <label class="text-[13px] text-ink block mb-1.5"
-                            >Model</label
+                            >{{ $t("settings.model") }}</label
                         >
                         <div class="flex items-center gap-2">
                             <select
@@ -382,7 +382,7 @@ async function handleTestConnection() {
                                 "
                             >
                                 <option value="" disabled>
-                                    — select model —
+                                    {{ $t("settings.selectModel") }}
                                 </option>
                                 <option
                                     v-for="m in modelOptions"
@@ -396,7 +396,7 @@ async function handleTestConnection() {
                                 v-else-if="!settings.modelsLoading"
                                 class="flex-1 text-[13px] text-muted/80"
                             >
-                                Add a Base URL and API key to load models.
+                                {{ $t("settings.modelsHint") }}
                             </p>
                             <div v-else class="flex-1" />
                             <span
@@ -404,7 +404,7 @@ async function handleTestConnection() {
                                 class="flex items-center gap-1.5 text-[12px] text-muted whitespace-nowrap"
                                 ><span
                                     class="w-2.5 h-2.5 rounded-full border-2 border-muted border-t-transparent animate-spin"
-                                />Fetching…</span
+                                />{{ $t("settings.fetching") }}</span
                             >
                             <span
                                 v-else-if="
@@ -413,11 +413,10 @@ async function handleTestConnection() {
                                     settings.modelsSource === 'live'
                                 "
                                 class="flex items-center gap-1 text-[12px] text-primary whitespace-nowrap"
-                                title="Fetched live from your provider"
+                                :title="$t('settings.modelsLiveTitle')"
                                 ><Check :size="13" :stroke-width="2.6" />{{
-                                    settings.models.length
-                                }}
-                                models</span
+                                    $t("settings.modelsLive", settings.models.length)
+                                }}</span
                             >
                             <span
                                 v-else-if="
@@ -425,8 +424,8 @@ async function handleTestConnection() {
                                     !settings.modelsError
                                 "
                                 class="text-[12px] text-muted whitespace-nowrap"
-                                title="Built-in suggestions — add an API key to fetch your provider's models"
-                                >{{ settings.models.length }} common</span
+                                :title="$t('settings.modelsCommonTitle')"
+                                >{{ $t("settings.modelsCommon", { count: settings.models.length }) }}</span
                             >
                         </div>
                         <p
@@ -438,7 +437,7 @@ async function handleTestConnection() {
                     </div>
                     <div class="flex items-center justify-between">
                         <span class="text-[14px] text-ink"
-                            >Stream responses</span
+                            >{{ $t("settings.streamResponses") }}</span
                         >
                         <ToggleSwitch
                             :model-value="providerStream"
@@ -464,8 +463,8 @@ async function handleTestConnection() {
                         />
                         {{
                             settings.testStatus === "testing"
-                                ? "Testing…"
-                                : "Test connection"
+                                ? $t("settings.testing")
+                                : $t("settings.testConnection")
                         }}
                     </button>
                     <p v-if="settings.testError" class="text-[12px] text-coral">
@@ -481,39 +480,39 @@ async function handleTestConnection() {
                 <h3
                     class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
                 >
-                    Generation
+                    {{ $t("settings.generation") }}
                 </h3>
                 <SliderControl
                     v-model="genTemp"
-                    label="Temperature"
+                    :label="$t('settings.temperature')"
                     :min="0"
                     :max="2"
                     :step="0.01"
                 />
                 <SliderControl
                     v-model="genTopP"
-                    label="Top P"
+                    :label="$t('settings.topP')"
                     :min="0"
                     :max="1"
                     :step="0.01"
                 />
                 <SliderControl
                     v-model="genFreqPenalty"
-                    label="Frequency penalty"
+                    :label="$t('settings.frequencyPenalty')"
                     :min="-2"
                     :max="2"
                     :step="0.01"
                 />
                 <SliderControl
                     v-model="genPresPenalty"
-                    label="Presence penalty"
+                    :label="$t('settings.presencePenalty')"
                     :min="-2"
                     :max="2"
                     :step="0.01"
                 />
                 <div class="flex items-center justify-between">
                     <span class="text-[14px] text-ink"
-                        >Max response tokens</span
+                        >{{ $t("settings.maxResponseTokens") }}</span
                     >
                     <input
                         :value="genMaxTokens"
@@ -537,16 +536,16 @@ async function handleTestConnection() {
                 <h3
                     class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
                 >
-                    Appearance
+                    {{ $t("settings.appearance") }}
                 </h3>
                 <div class="space-y-4">
                     <div class="flex items-center justify-between">
-                        <span class="text-[14px] text-ink">Message style</span>
+                        <span class="text-[14px] text-ink">{{ $t("settings.messageStyle") }}</span>
                         <SegmentedControl
                             :model-value="ui.messageStyle"
                             :options="[
-                                { value: 'bubble', label: 'Bubble' },
-                                { value: 'flat', label: 'Flat' },
+                                { value: 'bubble', label: $t('settings.styleBubble') },
+                                { value: 'flat', label: $t('settings.styleFlat') },
                             ]"
                             @update:model-value="
                                 ui.setMessageStyle($event as 'bubble' | 'flat')
@@ -554,13 +553,13 @@ async function handleTestConnection() {
                         />
                     </div>
                     <div class="flex items-center justify-between">
-                        <span class="text-[14px] text-ink">Theme</span>
+                        <span class="text-[14px] text-ink">{{ $t("settings.theme") }}</span>
                         <SegmentedControl
                             :model-value="ui.theme"
                             :options="[
-                                { value: 'light', label: 'Light' },
-                                { value: 'dark', label: 'Dark' },
-                                { value: 'system', label: 'System' },
+                                { value: 'light', label: $t('settings.themeLight') },
+                                { value: 'dark', label: $t('settings.themeDark') },
+                                { value: 'system', label: $t('settings.themeSystem') },
                             ]"
                             @update:model-value="
                                 ui.setTheme(
@@ -571,7 +570,7 @@ async function handleTestConnection() {
                     </div>
                     <div>
                         <span class="text-[14px] text-ink block mb-2"
-                            >Background</span
+                            >{{ $t("settings.background") }}</span
                         >
                         <div class="border border-line rounded-xl p-3 bg-card">
                             <AssetPicker
@@ -586,11 +585,11 @@ async function handleTestConnection() {
                             class="flex items-center justify-between mb-1.5 relative"
                         >
                             <label class="text-[13px] text-ink"
-                                >Custom CSS</label
+                                >{{ $t("settings.customCss") }}</label
                             ><button
                                 data-test="fullscreen-btn"
                                 class="absolute top-8 right-2 p-1 text-muted/70 hover:text-ink"
-                                title="Fullscreen"
+                                :title="$t('settings.fullscreen')"
                                 @click="cssFullscreen = true"
                             >
                                 <Maximize2 :size="15" />
@@ -624,7 +623,7 @@ async function handleTestConnection() {
                 <h3
                     class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
                 >
-                    Regex
+                    {{ $t("settings.regex") }}
                 </h3>
                 <RegexRuleEditor
                     v-for="rule in regexRules"
@@ -706,7 +705,7 @@ async function handleTestConnection() {
                         }
                     "
                 >
-                    + Add rule
+                    {{ $t("settings.addRule") }}
                 </button>
             </section>
 
@@ -715,13 +714,28 @@ async function handleTestConnection() {
             <!-- Language -->
             <section class="mb-8">
                 <h3
-                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4 flex items-center gap-1.5"
                 >
-                    Language
+                    <Languages :size="14" />{{ $t("settings.language") }}
                 </h3>
-                <select class="field w-full">
+                <select
+                    data-test="locale-switcher"
+                    :value="ui.locale"
+                    class="field w-full"
+                    @change="
+                        ui.setLocale(
+                            ($event.target as HTMLSelectElement).value as
+                                | 'en'
+                                | 'zh-Hans'
+                                | 'zh-Hant'
+                                | 'ja',
+                        )
+                    "
+                >
                     <option value="en">English</option>
-                    <option value="zh">中文</option>
+                    <option value="zh-Hans">简体中文</option>
+                    <option value="zh-Hant">繁體中文</option>
+                    <option value="ja">日本語</option>
                 </select>
             </section>
 
@@ -732,19 +746,19 @@ async function handleTestConnection() {
                 <h3
                     class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
                 >
-                    About
+                    {{ $t("settings.about") }}
                 </h3>
                 <div class="text-[14px] text-muted space-y-2">
-                    <p>Shirita — a SillyTavern alternative.</p>
+                    <p>{{ $t("settings.aboutText") }}</p>
                     <p class="flex items-center gap-3">
                         <button
                             class="hover:text-ink underline underline-offset-2"
                         >
-                            Export all data</button
+                            {{ $t("settings.exportAll") }}</button
                         ><button
                             class="hover:text-ink underline underline-offset-2"
                         >
-                            Import all data
+                            {{ $t("settings.importAll") }}
                         </button>
                     </p>
                 </div>

@@ -181,7 +181,7 @@ function onDrop(targetId: string) {
 
     <!-- root add: one omnibox for prompts + containers -->
     <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary transition-colors" @click="openRoot">
-      <Plus :size="16" /> Add node
+      <Plus :size="16" /> {{ $t('prompt.addNode') }}
     </button>
 
     <transition name="expand">
@@ -193,7 +193,7 @@ function onDrop(targetId: string) {
               v-model="omniQuery"
               data-test="omni-input"
               type="text"
-              placeholder="Type to add a prompt or container…"
+              :placeholder="$t('prompt.omniPlaceholder')"
               class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/60"
             />
           </div>
@@ -209,14 +209,14 @@ function onDrop(targetId: string) {
             <span class="flex-1 text-[13.5px] text-ink truncate">{{ item.name }}</span>
             <span class="text-[11px] text-muted/70 lowercase">{{ item.kind }}</span>
           </button>
-          <p v-if="omniItems.length === 0 && !trimmedQuery" class="px-3 py-2 text-[12px] text-muted/70">No prompts or container types yet — type a name to create one.</p>
+          <p v-if="omniItems.length === 0 && !trimmedQuery" class="px-3 py-2 text-[12px] text-muted/70">{{ $t('prompt.omniEmpty') }}</p>
 
           <template v-if="trimmedQuery">
             <button data-test="omni-new-prompt" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newPrompt">
-              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New prompt “{{ trimmedQuery }}”</span>
+              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">{{ $t('prompt.omniNewPrompt', { name: trimmedQuery }) }}</span>
             </button>
             <button data-test="omni-new-type" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newType">
-              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">New container type “{{ trimmedQuery }}”</span>
+              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">{{ $t('prompt.omniNewType', { name: trimmedQuery }) }}</span>
             </button>
           </template>
         </div>

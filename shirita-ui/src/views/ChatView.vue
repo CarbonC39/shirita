@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref, watch, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
@@ -12,6 +13,7 @@ import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
 import { ArrowLeft } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const chat = useChatStore()
@@ -96,14 +98,14 @@ async function handleFork(id: string) {
     :style="bgStyle"
   >
     <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
-      <router-link to="/" class="text-muted hover:text-ink shrink-0" aria-label="Back"><ArrowLeft :size="18" /></router-link>
+      <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
-      <span class="font-semibold text-ink truncate">Chat</span>
-      <span v-if="chat.messages.length" class="ml-auto text-[11.5px] text-muted tabular-nums shrink-0">~{{ formatTokens(convoTokens) }} tokens</span>
+      <span class="font-semibold text-ink truncate">{{ $t('chat.title') }}</span>
+      <span v-if="chat.messages.length" class="ml-auto text-[11.5px] text-muted tabular-nums shrink-0">{{ t('common.tokensEstimate', { tokens: formatTokens(convoTokens) }, convoTokens) }}</span>
     </div>
 
     <p v-if="chat.error" class="text-coral text-sm px-5 py-4">{{ chat.error }}</p>
-    <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm px-5 pt-12 text-center">Loading…</p>
+    <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm px-5 pt-12 text-center">{{ $t('common.loading') }}</p>
 
     <MessageList
       v-else
