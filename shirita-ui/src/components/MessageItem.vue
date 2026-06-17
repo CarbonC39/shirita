@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
 import type { Message } from '../api/types'
 
@@ -20,9 +21,10 @@ const emit = defineEmits<{
   swipe: [delta: -1 | 1]
 }>()
 
+const { t } = useI18n()
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
-const label = computed(() => (isAssistant.value ? 'Assistant' : 'You'))
+const label = computed(() => (isAssistant.value ? t('chat.assistant') : t('chat.you')))
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
 
@@ -59,8 +61,8 @@ function cancelEdit() { editing.value = false }
             class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
           />
           <div class="flex gap-2 mt-1.5">
-            <button data-test="edit-save" class="text-primary hover:text-primary-strong" title="Save" @click="saveEdit"><Check :size="16" /></button>
-            <button class="text-muted hover:text-ink" title="Cancel" @click="cancelEdit"><X :size="16" /></button>
+            <button data-test="edit-save" class="text-primary hover:text-primary-strong" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
+            <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
           </div>
         </template>
         <template v-else>{{ displayText }}<span
@@ -81,19 +83,19 @@ function cancelEdit() { editing.value = false }
           <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
         </span>
         <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
+        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :title="$t('chat.regenerate')" @click="emit('regenerate')">
           <RefreshCw :size="15" :stroke-width="1.8" />
         </button>
-        <button v-if="isAssistant" class="hover:text-ink" title="Fork" @click="emit('fork')">
+        <button v-if="isAssistant" class="hover:text-ink" :title="$t('chat.fork')" @click="emit('fork')">
           <GitFork :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="copy-btn" class="hover:text-ink" title="Copy" @click="emit('copy', message.raw_content)">
+        <button data-test="copy-btn" class="hover:text-ink" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
           <Copy :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="startEdit">
+        <button data-test="edit-btn" class="hover:text-ink" :title="$t('chat.edit')" @click="startEdit">
           <Pencil :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? 'Unhide' : 'Hide'" @click="emit('toggle-hidden')">
+        <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
           <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
         </button>
       </div>
@@ -115,8 +117,8 @@ function cancelEdit() { editing.value = false }
           class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
         />
         <div class="flex gap-2 mt-1.5">
-          <button data-test="edit-save" class="text-primary hover:text-primary-strong" title="Save" @click="saveEdit"><Check :size="16" /></button>
-          <button class="text-muted hover:text-ink" title="Cancel" @click="cancelEdit"><X :size="16" /></button>
+          <button data-test="edit-save" class="text-primary hover:text-primary-strong" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
+          <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
         </div>
       </template>
       <template v-else>{{ message.raw_content }}<span
@@ -132,19 +134,19 @@ function cancelEdit() { editing.value = false }
         <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
       </span>
       <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" title="Regenerate" @click="emit('regenerate')">
+      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :title="$t('chat.regenerate')" @click="emit('regenerate')">
         <RefreshCw :size="15" :stroke-width="1.8" />
       </button>
-      <button v-if="isAssistant" class="hover:text-ink" title="Fork" @click="emit('fork')">
+      <button v-if="isAssistant" class="hover:text-ink" :title="$t('chat.fork')" @click="emit('fork')">
         <GitFork :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="copy-btn" class="hover:text-ink" title="Copy" @click="emit('copy', message.raw_content)">
+      <button data-test="copy-btn" class="hover:text-ink" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
         <Copy :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="edit-btn" class="hover:text-ink" title="Edit" @click="startEdit">
+      <button data-test="edit-btn" class="hover:text-ink" :title="$t('chat.edit')" @click="startEdit">
         <Pencil :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? 'Unhide' : 'Hide'" @click="emit('toggle-hidden')">
+      <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
         <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
       </button>
     </div>
