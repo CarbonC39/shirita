@@ -98,6 +98,19 @@ const en = {
     deleteTypeInUse:
       'Delete type "{id}"? Definitions using it will keep the type id but it won\'t be selectable.',
   },
+  definition: {
+    heading: 'Definition',
+    searchPlaceholder: 'Search a definition, or type a new name…',
+    newDefinition: '+ New definition',
+    typeLabel: 'Type',
+    deleteTypeTitle: 'Delete type',
+    addType: '+ Type',
+    newTypePlaceholder: 'New type…',
+    scanDepth: 'Scan depth',
+    recursive: 'Recursive',
+    contentPlaceholder: 'Definition content…',
+    wrapInTag: 'Wrap content in a tag named after this definition',
+  },
   settings: {
     title: 'Settings',
     language: 'Language',
