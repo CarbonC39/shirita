@@ -20,6 +20,15 @@ const en = {
     // is the pre-formatted display value; pass the raw number as the plural
     // choice: t('common.tokensEstimate', { tokens: formatTokens(n) }, n).
     tokensEstimate: '~{tokens} token | ~{tokens} tokens',
+    avatarPickHint: 'Pick from the library or upload a new image.',
+    imageDeleteConfirm: 'Delete this image from the library?',
+    imageNone: 'No image',
+    imageName: 'Image name',
+    imageDelete: 'Delete from library',
+    uploading: 'Uploading…',
+    imageUpload: 'Upload image',
+    fullscreenEditor: 'Fullscreen editor',
+    startTyping: 'Start typing…',
   },
   shell: {
     chats: 'Chats',
