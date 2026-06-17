@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 保留类型（代码常量，永不入 def_types 表，不进节点树容器）。
-pub const RESERVED: [&str; 3] = ["prompt", "regex_rule", "tool"];
+pub const RESERVED: [&str; 4] = ["prompt", "regex_rule", "tool", "first_message"];
 
 /// 是否保留类型（prompt / regex_rule / tool）。
 pub fn is_reserved(t: &str) -> bool {
@@ -50,6 +50,12 @@ mod tests {
         assert!(!is_reserved("char"));
         assert!(is_prompt("prompt"));
         assert!(!is_prompt("char"));
+    }
+
+    #[test]
+    fn first_message_is_reserved() {
+        assert!(is_reserved("first_message"));
+        assert!(!is_prompt("first_message"));
     }
 
     #[test]
