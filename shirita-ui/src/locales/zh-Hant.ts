@@ -11,7 +11,7 @@ const zhHant: MessageSchema = {
     import: '匯入',
     export: '匯出',
     loading: '載入中…',
-    tokensEstimate: '~{count} tokens',
+    tokensEstimate: '~{tokens} tokens',
   },
   shell: {
     chats: '對話',
@@ -40,6 +40,10 @@ const zhHant: MessageSchema = {
     creating: '建立中…',
     create: '建立對話',
     deleteContainerConfirm: '刪除此容器及其中的 {count} 個項目？',
+  },
+  chat: {
+    back: '返回',
+    title: '對話',
   },
   settings: {
     title: '設定',

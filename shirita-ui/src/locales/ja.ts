@@ -11,7 +11,7 @@ const ja: MessageSchema = {
     import: 'インポート',
     export: 'エクスポート',
     loading: '読み込み中…',
-    tokensEstimate: '~{count} トークン',
+    tokensEstimate: '~{tokens} トークン',
   },
   shell: {
     chats: 'チャット',
@@ -40,6 +40,10 @@ const ja: MessageSchema = {
     creating: '作成中…',
     create: '会話を作成',
     deleteContainerConfirm: 'このコンテナと中の {count} 件の項目を削除しますか？',
+  },
+  chat: {
+    back: '戻る',
+    title: 'チャット',
   },
   settings: {
     title: '設定',
