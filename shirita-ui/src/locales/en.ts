@@ -14,8 +14,10 @@ const en = {
     import: 'Import',
     export: 'Export',
     loading: 'Loading…',
-    // Plural example: en distinguishes 1 vs many; zh/ja use a single form.
-    tokensEstimate: '~{count} token | ~{count} tokens',
+    // Plural: en distinguishes 1 vs many; zh/ja use a single form. `{tokens}`
+    // is the pre-formatted display value; pass the raw number as the plural
+    // choice: t('common.tokensEstimate', { tokens: formatTokens(n) }, n).
+    tokensEstimate: '~{tokens} token | ~{tokens} tokens',
   },
   shell: {
     chats: 'Chats',
@@ -45,6 +47,10 @@ const en = {
     create: 'Create conversation',
     deleteContainerConfirm:
       'Delete this container and its {count} item? | Delete this container and its {count} items?',
+  },
+  chat: {
+    back: 'Back',
+    title: 'Chat',
   },
   settings: {
     title: 'Settings',

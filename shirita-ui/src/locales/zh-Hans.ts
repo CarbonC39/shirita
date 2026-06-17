@@ -11,7 +11,7 @@ const zhHans: MessageSchema = {
     import: '导入',
     export: '导出',
     loading: '加载中…',
-    tokensEstimate: '~{count} tokens',
+    tokensEstimate: '~{tokens} tokens',
   },
   shell: {
     chats: '对话',
@@ -40,6 +40,10 @@ const zhHans: MessageSchema = {
     creating: '创建中…',
     create: '创建对话',
     deleteContainerConfirm: '删除此容器及其中的 {count} 个条目？',
+  },
+  chat: {
+    back: '返回',
+    title: '对话',
   },
   settings: {
     title: '设置',
