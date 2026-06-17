@@ -1,92 +1,289 @@
-//! SillyTavern Character Card V2/V3 ↔ char 定义（+ 内嵌 character_book → world 定义）。
+//! SillyTavern Character Card v2/v3 -> Shirita loreset (Template + Definitions + Nodes).
+//! One-way lossy translation: every non-empty ST field becomes its own
+//! definition + ref node, placed in the loreset's 2-level template tree.
 
-use crate::adapters::worldinfo::{defs_to_worldinfo, worldinfo_to_defs};
+use crate::adapters::worldinfo::worldinfo_to_defs;
 use crate::models::definition::Definition;
+use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
+use crate::models::template::Template;
 
-/// 解析 chara_card_v2/v3：返回 (char 定义, 内嵌世界书定义列表)。
-pub fn charcard_to_defs(card: &serde_json::Value) -> (Definition, Vec<Definition>) {
-    let data = card.get("data").unwrap_or(card);
-    let name = data.get("name").and_then(|v| v.as_str()).unwrap_or("Imported character").to_string();
-    let description = data.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string();
-
-    let mut def = Definition::new("char", name, description);
-    // 保留 ST 扩展字段以便回出口（不丢信息）。
-    def.meta = serde_json::json!({
-        "st": {
-            "personality": data.get("personality"),
-            "scenario": data.get("scenario"),
-            "first_mes": data.get("first_mes"),
-            "mes_example": data.get("mes_example"),
-            "system_prompt": data.get("system_prompt"),
-            "post_history_instructions": data.get("post_history_instructions"),
-        }
-    });
-
-    let book_defs = data
-        .get("character_book")
-        .map(worldinfo_to_defs)
-        .unwrap_or_default();
-    (def, book_defs)
+/// The full result of translating one ST card: a template, the definitions it
+/// references, and the 2-level node tree wiring them together.
+pub struct LoreSet {
+    pub template: Template,
+    pub definitions: Vec<Definition>,
+    pub nodes: Vec<PromptNode>,
 }
 
-/// char 定义 (+ 关联世界书定义) → chara_card_v2 JSON。
-pub fn def_to_charcard(ch: &Definition, book: &[Definition]) -> serde_json::Value {
-    let st = ch.meta.get("st");
-    let pick = |k: &str| st.and_then(|s| s.get(k)).cloned().unwrap_or(serde_json::Value::String(String::new()));
-    serde_json::json!({
-        "spec": "chara_card_v2",
-        "spec_version": "2.0",
-        "data": {
-            "name": ch.name,
-            "description": ch.content,
-            "personality": pick("personality"),
-            "scenario": pick("scenario"),
-            "first_mes": pick("first_mes"),
-            "mes_example": pick("mes_example"),
-            "system_prompt": pick("system_prompt"),
-            "post_history_instructions": pick("post_history_instructions"),
-            "alternate_greetings": [],
-            "tags": [],
-            "creator": "",
-            "character_version": "",
-            "character_book": defs_to_worldinfo(book),
-            "extensions": {}
+/// Return the field as a non-empty &str, or None.
+fn nonempty<'a>(data: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    data.get(key).and_then(|v| v.as_str()).filter(|s| !s.is_empty())
+}
+
+/// Map one ST `regex_scripts[i]` entry to a `regex_rule` definition. Stores the
+/// richer ST switches in meta (scope/targets/depth); only display-side
+/// application is wired in this slice (see assembly::apply_regex_rules).
+fn regex_rule_def(s: &serde_json::Value) -> Definition {
+    let name = s.get("scriptName").and_then(|v| v.as_str()).unwrap_or("regex").to_string();
+    let mut d = Definition::new("regex_rule", name, "");
+    let scope = match (
+        s.get("markdownOnly").and_then(|v| v.as_bool()).unwrap_or(false),
+        s.get("promptOnly").and_then(|v| v.as_bool()).unwrap_or(false),
+    ) {
+        (true, false) => "display",
+        (false, true) => "prompt",
+        _ => "both",
+    };
+    let targets: Vec<&str> = s
+        .get("placement")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_u64())
+                .map(|n| if n == 1 { "user_input" } else { "ai_output" })
+                .collect()
+        })
+        .unwrap_or_default();
+    d.meta = serde_json::json!({
+        "pattern": s.get("findRegex").and_then(|v| v.as_str()).unwrap_or(""),
+        "replacement": s.get("replaceString").and_then(|v| v.as_str()).unwrap_or(""),
+        "disabled": s.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false),
+        "scope": scope,
+        "targets": targets,
+        "min_depth": s.get("minDepth"),
+        "max_depth": s.get("maxDepth"),
+        "st_raw": s.clone(),
+    });
+    d
+}
+
+/// Translate an ST character card (v1 top-level / v2/v3 under `data`) into a loreset.
+pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
+    let data = card.get("data").unwrap_or(card);
+    let name = data
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Imported character")
+        .to_string();
+
+    let tmpl = Template::new(name.clone());
+    // OwnerKind is not Copy and the node constructors take it by value, so we
+    // pass OwnerKind::Template directly at each call (a zero-cost unit variant).
+    let mut defs: Vec<Definition> = Vec::new();
+    let mut nodes: Vec<PromptNode> = Vec::new();
+    let mut sort: i64 = 0;
+    let next = |s: &mut i64| -> i64 {
+        let v = *s;
+        *s += 1;
+        v
+    };
+
+    // --- before-history: system_prompt first ---
+    if let Some(sp) = nonempty(data, "system_prompt") {
+        let d = Definition::new("prompt", format!("{name}·system"), sp);
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+        defs.push(d);
+    }
+
+    // --- char folder: description + personality ---
+    let charf = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, next(&mut sort), "char");
+    let mut child_sort: i64 = 0;
+    let desc = Definition::new(
+        "char",
+        name.clone(),
+        data.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+    );
+    nodes.push(PromptNode::new_ref(
+        OwnerKind::Template,
+        &tmpl.id,
+        Some(charf.id.clone()),
+        next(&mut child_sort),
+        &desc.id,
+    ));
+    defs.push(desc);
+    if let Some(p) = nonempty(data, "personality") {
+        let d = Definition::new("char", format!("{name}·personality"), p);
+        nodes.push(PromptNode::new_ref(
+            OwnerKind::Template,
+            &tmpl.id,
+            Some(charf.id.clone()),
+            next(&mut child_sort),
+            &d.id,
+        ));
+        defs.push(d);
+    }
+    nodes.push(charf);
+
+    // --- world folder: scenario (constant) + character_book ---
+    let worldf =
+        PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, next(&mut sort), "world");
+    let mut wsort: i64 = 0;
+    if let Some(sc) = nonempty(data, "scenario") {
+        let mut d = Definition::new("world", format!("{name}·scenario"), sc);
+        d.meta = serde_json::json!({
+            "trigger": { "mode": "constant", "keys": [], "probability": 100, "order": 100 }
+        });
+        nodes.push(PromptNode::new_ref(
+            OwnerKind::Template,
+            &tmpl.id,
+            Some(worldf.id.clone()),
+            next(&mut wsort),
+            &d.id,
+        ));
+        defs.push(d);
+    }
+    if let Some(book) = data.get("character_book") {
+        for bd in worldinfo_to_defs(book) {
+            nodes.push(PromptNode::new_ref(
+                OwnerKind::Template,
+                &tmpl.id,
+                Some(worldf.id.clone()),
+                next(&mut wsort),
+                &bd.id,
+            ));
+            defs.push(bd);
         }
-    })
+    }
+    nodes.push(worldf);
+
+    // --- before-history: mes_example ---
+    if let Some(ex) = nonempty(data, "mes_example") {
+        let d = Definition::new("prompt", format!("{name}·examples"), ex);
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+        defs.push(d);
+    }
+
+    // --- non-rendering root refs: regex_scripts + first_message ---
+    if let Some(scripts) = data
+        .get("extensions")
+        .and_then(|e| e.get("regex_scripts"))
+        .and_then(|v| v.as_array())
+    {
+        for s in scripts {
+            let d = regex_rule_def(s);
+            nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+            defs.push(d);
+        }
+    }
+    let first = nonempty(data, "first_mes");
+    let alts: Vec<String> = data
+        .get("alternate_greetings")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    if first.is_some() || !alts.is_empty() {
+        let mut d = Definition::new("first_message", format!("{name}·greeting"), first.unwrap_or(""));
+        d.meta = serde_json::json!({ "alternate_greetings": alts });
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+        defs.push(d);
+    }
+
+    // --- history node ---
+    let mut hist =
+        PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, next(&mut sort), "history");
+    hist.kind = NodeKind::History;
+    hist.tag = None;
+    nodes.push(hist);
+
+    // --- after-history: post_history_instructions ---
+    if let Some(ph) = nonempty(data, "post_history_instructions") {
+        let d = Definition::new("prompt", format!("{name}·post"), ph);
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+        defs.push(d);
+    }
+
+    // --- preserve un-interpreted extensions on the main char def (lossless) ---
+    if let Some(ext) = data.get("extensions") {
+        if let Some(ch) = defs.iter_mut().find(|d| d.def_type == "char" && d.name == name) {
+            ch.meta = serde_json::json!({ "st_raw": ext.clone() });
+        }
+    }
+
+    LoreSet { template: tmpl, definitions: defs, nodes }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn imports_v2_card_with_book() {
-        let card = serde_json::json!({
-            "spec": "chara_card_v2", "spec_version": "2.0",
-            "data": {
-                "name": "Neo", "description": "The One",
-                "character_book": { "entries": [ { "keys": ["zion"], "comment": "Zion", "content": "Last city" } ] }
-            }
-        });
-        let (ch, book) = charcard_to_defs(&card);
-        assert_eq!(ch.def_type, "char");
-        assert_eq!(ch.name, "Neo");
-        assert_eq!(ch.content, "The One");
-        assert_eq!(book.len(), 1);
-        assert_eq!(book[0].def_type, "world");
-        assert_eq!(book[0].meta["trigger"]["keys"][0], "zion");
+    fn ty<'a>(s: &'a LoreSet, t: &str) -> Vec<&'a Definition> {
+        s.definitions.iter().filter(|d| d.def_type == t).collect()
     }
 
     #[test]
-    fn exports_char_with_book_to_v2() {
-        let ch = Definition::new("char", "Neo", "The One");
-        let mut lore = Definition::new("world", "Zion", "Last city");
-        lore.meta = serde_json::json!({ "trigger": { "mode": "keyword", "keys": ["zion"], "probability": 100 } });
-        let card = def_to_charcard(&ch, &[lore]);
-        assert_eq!(card["spec"], "chara_card_v2");
-        assert_eq!(card["data"]["name"], "Neo");
-        assert_eq!(card["data"]["description"], "The One");
-        // embedded book present (standalone WI map shape under character_book)
-        assert_eq!(card["data"]["character_book"]["entries"]["0"]["comment"], "Zion");
+    fn decomposes_every_nonempty_field() {
+        let card = serde_json::json!({
+            "spec": "chara_card_v3", "spec_version": "3.0",
+            "data": {
+                "name": "Neo", "description": "desc",
+                "personality": "calm", "scenario": "the matrix",
+                "mes_example": "<START>ex", "system_prompt": "be terse",
+                "post_history_instructions": "stay terse",
+                "first_mes": "wake up", "alternate_greetings": ["again", "third"],
+                "character_book": { "entries": [ { "keys": ["zion"], "comment": "Zion", "content": "Last city" } ] },
+                "extensions": { "regex_scripts": [
+                    { "scriptName": "r1", "findRegex": "a", "replaceString": "b", "disabled": false, "markdownOnly": true }
+                ] }
+            }
+        });
+        let s = charcard_to_loreset(&card);
+        // every non-empty field becomes a definition
+        assert_eq!(ty(&s, "char").len(), 2); // description + personality
+        assert_eq!(ty(&s, "world").len(), 2); // scenario(constant) + 1 book entry
+        assert_eq!(ty(&s, "prompt").len(), 3); // system_prompt + mes_example + post_history
+        assert_eq!(ty(&s, "first_message").len(), 1);
+        assert_eq!(ty(&s, "regex_rule").len(), 1);
+        // first_message carries the alternates
+        let fm = ty(&s, "first_message")[0];
+        assert_eq!(fm.content, "wake up");
+        assert_eq!(fm.meta["alternate_greetings"][1], "third");
+        // scenario world is constant
+        let worlds = ty(&s, "world");
+        let scen = worlds.iter().find(|d| d.content == "the matrix").unwrap();
+        assert_eq!(scen.meta["trigger"]["mode"], "constant");
+        // 2-level: every ref's parent is None or points to a folder
+        let folder_ids: std::collections::HashSet<_> = s
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Folder)
+            .map(|n| n.id.clone())
+            .collect();
+        for n in s.nodes.iter().filter(|n| n.kind == NodeKind::Ref) {
+            assert!(n.parent_id.is_none() || folder_ids.contains(n.parent_id.as_ref().unwrap()));
+        }
+        // system_prompt is before history, post_history is after (by sort_order)
+        let hist = s.nodes.iter().find(|n| n.kind == NodeKind::History).unwrap();
+        let sys_ref = s
+            .nodes
+            .iter()
+            .find(|n| {
+                n.parent_id.is_none()
+                    && n.kind == NodeKind::Ref
+                    && s.definitions.iter().any(|d| {
+                        Some(&d.id) == n.definition_id.as_ref() && d.content == "be terse"
+                    })
+            })
+            .unwrap();
+        let post_ref = s
+            .nodes
+            .iter()
+            .find(|n| {
+                n.parent_id.is_none()
+                    && n.kind == NodeKind::Ref
+                    && s.definitions.iter().any(|d| {
+                        Some(&d.id) == n.definition_id.as_ref() && d.content == "stay terse"
+                    })
+            })
+            .unwrap();
+        assert!(sys_ref.sort_order < hist.sort_order);
+        assert!(post_ref.sort_order > hist.sort_order);
+    }
+
+    #[test]
+    fn empty_fields_produce_no_defs() {
+        let card = serde_json::json!({ "data": { "name": "Bare", "description": "only desc" } });
+        let s = charcard_to_loreset(&card);
+        assert_eq!(s.definitions.len(), 1); // only the char(description)
+        assert_eq!(s.definitions[0].def_type, "char");
     }
 }
