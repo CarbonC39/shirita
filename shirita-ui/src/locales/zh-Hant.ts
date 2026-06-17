@@ -10,6 +10,7 @@ const zhHant: MessageSchema = {
     close: '關閉',
     import: '匯入',
     export: '匯出',
+    loading: '載入中…',
     tokensEstimate: '~{count} tokens',
   },
   shell: {
@@ -17,6 +18,14 @@ const zhHant: MessageSchema = {
     new: '新增',
     book: '設定集',
     settings: '設定',
+  },
+  home: {
+    empty: '尚無對話。',
+    importTitle: '匯入對話',
+    newChatAria: '新增對話',
+    done: '完成',
+    reorderDelete: '重新排序與刪除',
+    deleteConfirm: '刪除此對話及其所有訊息？',
   },
   settings: {
     title: '設定',

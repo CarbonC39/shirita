@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { Upload, Pencil, Check } from "lucide-vue-next";
 import { useSessionsStore } from "../stores/sessions";
 import { exportSession, importSession } from "../api/client";
 import type { Session } from "../api/types";
 import ChatCard from "../components/ChatCard.vue";
 
+const { t } = useI18n();
 const store = useSessionsStore();
 const importInput = ref<HTMLInputElement | null>(null);
 const editMode = ref(false);
@@ -48,7 +50,7 @@ async function onDuplicate(id: string) {
 }
 
 async function onDelete(id: string) {
-    if (!confirm("Delete this conversation and all its messages?")) return;
+    if (!confirm(t("home.deleteConfirm"))) return;
     await store.remove(id);
 }
 
@@ -89,12 +91,14 @@ async function onImportFile(e: Event) {
         class="relative max-w-[560px] mx-auto px-5 pt-7 pb-8 h-full flex flex-col"
     >
         <div class="flex-1 overflow-y-auto">
-            <p v-if="store.loading" class="text-muted text-sm">Loading…</p>
+            <p v-if="store.loading" class="text-muted text-sm">
+                {{ $t("common.loading") }}
+            </p>
             <p v-else-if="store.error" class="text-coral text-sm">
                 {{ store.error }}
             </p>
             <p v-else-if="store.items.length === 0" class="text-muted text-sm">
-                No conversations yet.
+                {{ $t("home.empty") }}
             </p>
             <ChatCard
                 v-for="(s, i) in items"
@@ -116,7 +120,7 @@ async function onImportFile(e: Event) {
         <div class="absolute left-5 bottom-6 flex items-center gap-2 z-20">
             <button
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[13px] font-medium text-muted hover:text-ink backdrop-blur-sm transition-colors"
-                title="Import a conversation"
+                :title="$t('home.importTitle')"
                 @click="importInput?.click()"
             >
                 <Upload :size="15" />
@@ -137,17 +141,21 @@ async function onImportFile(e: Event) {
                         ? 'bg-primary text-white'
                         : ' text-muted hover:text-ink',
                 ]"
-                :title="editMode ? 'Done' : 'Reorder & delete'"
+                :title="editMode ? $t('home.done') : $t('home.reorderDelete')"
                 @click="editMode = !editMode"
             >
                 <component :is="editMode ? Check : Pencil" :size="15" />
-                {{ editMode ? "Done" : "" }}
+                {{ editMode ? $t("home.done") : "" }}
             </button>
         </div>
 
         <!-- Edit + Import are flat secondary actions beside the new-chat button -->
         <div class="absolute right-5 bottom-6 flex items-center gap-2 z-20">
-            <router-link to="/new" aria-label="New chat" class="block ml-1">
+            <router-link
+                to="/new"
+                :aria-label="$t('home.newChatAria')"
+                class="block ml-1"
+            >
                 <svg
                     width="54"
                     height="54"
