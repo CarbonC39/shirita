@@ -11,7 +11,7 @@ use serde_json::json;
 
 use shirita_core::{regenerate, send_message, summarize, SendEvent};
 
-use crate::AppState;
+use crate::{resolve_provider, AppState};
 
 #[derive(Deserialize)]
 pub struct SendBody {
@@ -41,12 +41,11 @@ fn spawn_summary(state: &AppState, session_id: String) {
     if !try_claim(&session_id) {
         return;
     }
-    let storage = state.storage.clone();
-    let provider = state.provider.clone();
-    let counter = state.token_counter.clone();
-    let model = state.model.clone();
+    let state = state.clone();
     tokio::spawn(async move {
-        summarize::run(storage, provider, counter, model, session_id.clone()).await;
+        // 与生成同源：从 settings 解析实际 provider/model（未配置则 env 兜底）。
+        let (provider, model) = resolve_provider(&state).await;
+        summarize::run(state.storage.clone(), provider, state.token_counter.clone(), model, session_id.clone()).await;
         release(&session_id);
     });
 }
@@ -57,11 +56,13 @@ pub async fn send(
     Json(body): Json<SendBody>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let reg_id = session_id.clone();
+    // 运行期解析 provider/model：settings 配置胜出，未配置回退 env。
+    let (provider, model) = resolve_provider(&state).await;
     let events = send_message(
         state.storage.clone(),
-        state.provider.clone(),
+        provider,
         state.token_counter.clone(),
-        state.model.clone(),
+        model,
         session_id,
         body.text,
     );
@@ -92,11 +93,12 @@ pub async fn regenerate_message(
     Path((session_id, msg_id)): Path<(String, String)>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let reg_id = session_id.clone();
+    let (provider, model) = resolve_provider(&state).await;
     let events = regenerate(
         state.storage.clone(),
-        state.provider.clone(),
+        provider,
         state.token_counter.clone(),
-        state.model.clone(),
+        model,
         session_id,
         msg_id,
     );

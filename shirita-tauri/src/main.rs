@@ -50,7 +50,8 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
         .map_err(|e| format!("初始化默认模板失败：{e}"))?;
     let pool = storage.pool().clone();
 
-    let provider = shirita_web::provider_from_env(&config);
+    let http_client = shirita_web::new_http_client();
+    let provider = shirita_web::provider_from_env(&config, http_client.clone());
     let storage: Arc<dyn Storage> = Arc::new(storage);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     let state = AppState {
@@ -60,6 +61,7 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
         token_counter,
         model,
         generations: Arc::new(Generations::new()),
+        http_client,
     };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")

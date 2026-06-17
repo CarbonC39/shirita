@@ -15,6 +15,20 @@ pub struct OpenAiProvider {
     api_key: String,
 }
 
+/// 构造 OpenAI 请求体：messages 同 `openai_messages`；仅当 `req.max_tokens` 为 `Some` 时下发
+/// `max_tokens`（否则用服务端默认，保持历史行为）。
+pub fn openai_body(req: &ChatRequest) -> serde_json::Value {
+    let mut body = json!({
+        "model": req.model,
+        "stream": true,
+        "messages": openai_messages(req),
+    });
+    if let Some(mt) = req.max_tokens {
+        body["max_tokens"] = json!(mt);
+    }
+    body
+}
+
 /// 构造 OpenAI `messages` 数组：把 `req.summary`（若有）拼到首条 system 尾部；无 system 则前插一条 system。
 pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
     let mut msgs: Vec<serde_json::Value> = req
@@ -35,9 +49,14 @@ pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
 }
 
 impl OpenAiProvider {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
+    /// 复用共享的 `reqwest::Client`（克隆即共享连接池），避免 per-call `Client::new()`。
+    pub fn new(
+        client: reqwest::Client,
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.into(),
             api_key: api_key.into(),
         }
@@ -48,11 +67,7 @@ impl OpenAiProvider {
 impl ModelProvider for OpenAiProvider {
     async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
-        let body = json!({
-            "model": req.model,
-            "stream": true,
-            "messages": openai_messages(&req),
-        });
+        let body = openai_body(&req);
 
         let resp = self
             .client
@@ -111,7 +126,15 @@ mod tests {
     use crate::models::message::Role;
 
     fn req(messages: Vec<ChatMessage>, summary: Option<&str>) -> ChatRequest {
-        ChatRequest { model: "m".into(), messages, summary: summary.map(|s| s.into()) }
+        ChatRequest { model: "m".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None }
+    }
+
+    #[test]
+    fn body_includes_max_tokens_only_when_set() {
+        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        assert!(openai_body(&r).get("max_tokens").is_none()); // None → 省略
+        r.max_tokens = Some(8192);
+        assert_eq!(openai_body(&r)["max_tokens"], 8192);
     }
 
     #[test]

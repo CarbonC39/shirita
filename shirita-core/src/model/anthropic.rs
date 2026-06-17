@@ -17,8 +17,13 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    pub fn new(base_url: impl Into<String>, api_key: impl Into<String>) -> Self {
-        Self { client: reqwest::Client::new(), base_url: base_url.into(), api_key: api_key.into() }
+    /// 复用共享的 `reqwest::Client`（克隆即共享连接池），避免 per-call `Client::new()`。
+    pub fn new(
+        client: reqwest::Client,
+        base_url: impl Into<String>,
+        api_key: impl Into<String>,
+    ) -> Self {
+        Self { client, base_url: base_url.into(), api_key: api_key.into() }
     }
 }
 
@@ -51,7 +56,7 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     json!({
         "model": req.model,
         "stream": true,
-        "max_tokens": 4096,
+        "max_tokens": req.max_tokens.unwrap_or(8192),
         "system": system,
         "messages": messages,
     })
@@ -123,7 +128,15 @@ mod tests {
     use crate::model::ChatMessage;
 
     fn req(messages: Vec<ChatMessage>, summary: Option<&str>) -> ChatRequest {
-        ChatRequest { model: "claude".into(), messages, summary: summary.map(|s| s.into()) }
+        ChatRequest { model: "claude".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None }
+    }
+
+    #[test]
+    fn body_max_tokens_defaults_to_8192_and_honors_override() {
+        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        assert_eq!(anthropic_body(&r)["max_tokens"], 8192); // None → 默认 8192
+        r.max_tokens = Some(2000);
+        assert_eq!(anthropic_body(&r)["max_tokens"], 2000);
     }
 
     #[test]

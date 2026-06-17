@@ -30,7 +30,7 @@ async fn state_with_session() -> (AppState, String) {
         provider,
         token_counter,
         model: "m".into(),
-        generations: Arc::new(shirita_web::Generations::new()),
+        generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client(),
     };
     (state, session.id)
 }

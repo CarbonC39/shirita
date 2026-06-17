@@ -42,15 +42,14 @@ pub async fn set_local_variables(
     Path(id): Path<String>,
     Json(body): Json<LocalVarsBody>,
 ) -> Result<StatusCode, StatusCode> {
-    let session = state.storage.get_session(&id).await
+    if state.storage.get_session(&id).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let mut cfg = session.override_config.clone();
-    if !cfg.is_object() {
-        cfg = json!({});
+        .is_none()
+    {
+        return Err(StatusCode::NOT_FOUND);
     }
-    cfg.as_object_mut().unwrap().insert("local_variables".into(), body.variables);
-    state.storage.update_session_override_config(&id, &cfg).await
+    // 原子整列替换 override_config.local_variables（无读改写竞争）。
+    state.storage.set_local_variables(&id, &body.variables).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }

@@ -28,6 +28,9 @@ pub struct ChatRequest {
     pub messages: Vec<ChatMessage>,
     /// 当前分支的滚动摘要（若有）。放进请求体哪里由各 provider 决定（见 M6 spec §4）。
     pub summary: Option<String>,
+    /// 回复（输出）最大 token 数。非上下文窗口。`None` 时 Anthropic 取内置默认、
+    /// OpenAI 省略该字段（用服务端默认）。来源：settings `provider_max_tokens`。
+    pub max_tokens: Option<u32>,
 }
 
 /// 流式聊天：每个元素是一段文本增量；流结束即 done。

@@ -26,7 +26,7 @@ async fn test_state() -> AppState {
         provider,
         token_counter,
         model: "m".into(),
-        generations: Arc::new(shirita_web::Generations::new()),
+        generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client(),
     }
 }
 
@@ -131,6 +131,58 @@ async fn bad_type_is_rejected() {
             "POST",
             "/api/definitions",
             Some(r#"{"type":"nope","name":"x","content":"y"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn regex_rule_with_bad_pattern_is_rejected() {
+    let state = test_state().await;
+
+    // 非法 pattern（未闭合的字符类）→ 400。
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/definitions",
+            Some(r#"{"type":"regex_rule","name":"r","content":"","meta":{"pattern":"["}}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    // 合法 pattern → 200。
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/definitions",
+            Some(r#"{"type":"regex_rule","name":"r","content":"","meta":{"pattern":"\\d+"}}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let id = created["id"].as_str().unwrap().to_string();
+
+    // 空 pattern 宽容放行（创作中途）→ 200。
+    let res = app(state.clone())
+        .oneshot(req(
+            "POST",
+            "/api/definitions",
+            Some(r#"{"type":"regex_rule","name":"r2","content":"","meta":{"pattern":""}}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // 更新为非法 pattern 同样 400。
+    let res = app(state)
+        .oneshot(req(
+            "PUT",
+            &format!("/api/definitions/{id}"),
+            Some(r#"{"type":"regex_rule","name":"r","content":"","meta":{"pattern":"(unclosed"}}"#),
         ))
         .await
         .unwrap();

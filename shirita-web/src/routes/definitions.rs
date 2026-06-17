@@ -32,6 +32,18 @@ fn build(id: String, body: DefinitionBody) -> Definition {
     }
 }
 
+/// regex_rule 创作期校验：非空 `meta.pattern` 必须能编译，否则 400（运行期则宽容跳过）。
+fn validate_regex_rule(body: &DefinitionBody) -> Result<(), StatusCode> {
+    if body.r#type == "regex_rule" {
+        if let Some(p) = body.meta.get("pattern").and_then(|v| v.as_str()) {
+            if !p.is_empty() && !shirita_core::is_valid_regex(p) {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// type 必须是保留类型，或已注册的容器类型。
 async fn validate_type(state: &AppState, t: &str) -> Result<(), StatusCode> {
     if shirita_core::is_reserved(t) {
@@ -74,6 +86,7 @@ pub async fn create(
     Json(body): Json<DefinitionBody>,
 ) -> Result<Json<Definition>, StatusCode> {
     validate_type(&state, &body.r#type).await?;
+    validate_regex_rule(&body)?;
     let def = build(uuid::Uuid::new_v4().to_string(), body);
     state
         .storage
@@ -104,6 +117,7 @@ pub async fn update(
     Json(body): Json<DefinitionBody>,
 ) -> Result<Json<Definition>, StatusCode> {
     validate_type(&state, &body.r#type).await?;
+    validate_regex_rule(&body)?;
     let def = build(id.clone(), body);
     if state
         .storage

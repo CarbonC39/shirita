@@ -104,6 +104,13 @@ pub async fn run(
     }
 
     let instruction = setting_string(storage.as_ref(), "summarize.instruction", DEFAULT_INSTRUCTION).await;
+    let max_tokens = storage
+        .get_setting("provider_max_tokens")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32);
     let req = ChatRequest {
         model,
         messages: vec![
@@ -111,6 +118,7 @@ pub async fn run(
             ChatMessage { role: Role::User, content: body },
         ],
         summary: None,
+        max_tokens,
     };
 
     // 聚合调用（非流式语义：收集全部 delta）。

@@ -7,8 +7,13 @@ pub mod routes;
 pub mod state;
 
 pub use generations::Generations;
-pub use provider_select::{provider_from_env, provider_kind, ProviderKind};
+pub use provider_select::{provider_from_env, provider_kind, resolve_provider, ProviderKind};
 pub use state::AppState;
+
+/// 构造全进程共享的 HTTP 客户端。两个入口（web/tauri）各调一次，存入 `AppState.http_client`。
+pub fn new_http_client() -> reqwest::Client {
+    reqwest::Client::new()
+}
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::{header, Method};
@@ -86,9 +91,6 @@ pub fn app(state: AppState) -> Router {
         .route("/templates/{id}/nodes", get(routes::prompt_nodes::list_nodes).post(routes::prompt_nodes::create_node))
         .route("/nodes/{id}", put(routes::prompt_nodes::update_node).delete(routes::prompt_nodes::delete_node))
         .route("/templates/{id}/nodes/reorder", put(routes::prompt_nodes::reorder_nodes))
-        .route("/sessions/{id}/overrides", get(routes::overrides::list_overrides))
-        .route("/sessions/{id}/overrides/{def_id}", put(routes::overrides::set_override).delete(routes::overrides::reset_override))
-        .route("/sessions/{id}/overrides/{def_id}/promote", post(routes::overrides::promote_override))
         .route("/types", get(routes::types::list).post(routes::types::create))
         .route("/types/{id}", delete(routes::types::delete))
         .route("/import/worldinfo", post(routes::import_export::import_worldinfo))

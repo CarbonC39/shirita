@@ -19,8 +19,8 @@ pub mod tokenizer;
 pub mod tree;
 
 pub use assembly::{
-    apply_regex_rules, assemble_from_nodes, build_chat_messages, render_vars, sanitize_tag,
-    AssembledPlan, Placement, PromptSegment,
+    apply_regex_rules, assemble_from_nodes, build_chat_messages, is_valid_regex, render_vars,
+    sanitize_tag, AssembledPlan, Placement, PromptSegment,
 };
 pub use budget::{over_threshold, trim_history};
 pub use config::{apply_provider_env, Config};
