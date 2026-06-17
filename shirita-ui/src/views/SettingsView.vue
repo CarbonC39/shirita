@@ -16,7 +16,7 @@ import AssetPicker from "../components/AssetPicker.vue";
 import FullscreenEditor from "../components/FullscreenEditor.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
-import { Maximize2, Eye, EyeOff, Check } from "lucide-vue-next";
+import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
 
 const settings = useSettingsStore();
 const ui = useUiStore();
@@ -715,13 +715,28 @@ async function handleTestConnection() {
             <!-- Language -->
             <section class="mb-8">
                 <h3
-                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4 flex items-center gap-1.5"
                 >
-                    Language
+                    <Languages :size="14" />{{ $t("settings.language") }}
                 </h3>
-                <select class="field w-full">
+                <select
+                    data-test="locale-switcher"
+                    :value="ui.locale"
+                    class="field w-full"
+                    @change="
+                        ui.setLocale(
+                            ($event.target as HTMLSelectElement).value as
+                                | 'en'
+                                | 'zh-Hans'
+                                | 'zh-Hant'
+                                | 'ja',
+                        )
+                    "
+                >
                     <option value="en">English</option>
-                    <option value="zh">中文</option>
+                    <option value="zh-Hans">简体中文</option>
+                    <option value="zh-Hant">繁體中文</option>
+                    <option value="ja">日本語</option>
                 </select>
             </section>
 
