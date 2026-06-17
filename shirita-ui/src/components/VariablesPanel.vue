@@ -21,11 +21,11 @@ function fmt(v: unknown): string {
   <div v-if="schema.length" data-test="variables-panel" class="border-t border-line/70 px-5 py-2 text-[13px]">
     <button data-test="variables-toggle" class="flex items-center gap-1 text-muted hover:text-ink" @click="open = !open">
       <component :is="open ? ChevronDown : ChevronRight" :size="14" />
-      <span>Variables</span>
+      <span>{{ $t('variables.heading') }}</span>
     </button>
     <div v-if="open" class="mt-2 space-y-2">
       <div v-if="system.length" data-test="var-system">
-        <span class="text-[11px] uppercase tracking-[0.06em] text-muted">System</span>
+        <span class="text-[11px] uppercase tracking-[0.06em] text-muted">{{ $t('variables.system') }}</span>
         <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
           <span v-for="d in system" :key="d.name" data-test="var-row" class="tabular-nums">
             <span class="text-muted">{{ d.name }}</span> {{ fmt(values[d.name]) }}
@@ -33,7 +33,7 @@ function fmt(v: unknown): string {
         </div>
       </div>
       <div v-if="custom.length" data-test="var-custom">
-        <span class="text-[11px] uppercase tracking-[0.06em] text-muted">Custom</span>
+        <span class="text-[11px] uppercase tracking-[0.06em] text-muted">{{ $t('variables.custom') }}</span>
         <div class="flex flex-wrap gap-x-4 gap-y-1 mt-1">
           <span v-for="d in custom" :key="d.name" data-test="var-row" class="tabular-nums">
             <span class="text-muted">{{ d.name }}</span> {{ fmt(values[d.name]) }}

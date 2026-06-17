@@ -46,7 +46,7 @@ const streamingMsg = computed<Message | null>(() => {
 <template>
   <div class="flex-1 overflow-y-auto px-5 py-4">
     <p v-if="messages.length === 0 && !streamingMsg && !streamingError" class="text-muted text-sm text-center pt-12">
-      No messages yet.
+      {{ $t('chat.empty') }}
     </p>
 
     <MessageItem

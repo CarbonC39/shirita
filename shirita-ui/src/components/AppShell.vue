@@ -45,8 +45,8 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
           </router-link>
           <template v-for="(c, i) in crumbs" :key="i">
             <ChevronRight :size="13" class="text-muted/50 shrink-0" />
-            <router-link v-if="c.to" :to="c.to" class="text-[13px] text-muted hover:text-ink whitespace-nowrap">{{ c.label }}</router-link>
-            <span v-else class="text-[13px] text-ink whitespace-nowrap">{{ c.label }}</span>
+            <router-link v-if="c.to" :to="c.to" class="text-[13px] text-muted hover:text-ink whitespace-nowrap">{{ $t(c.label) }}</router-link>
+            <span v-else class="text-[13px] text-ink whitespace-nowrap">{{ $t(c.label) }}</span>
           </template>
         </div>
         <nav class="flex items-center gap-8">

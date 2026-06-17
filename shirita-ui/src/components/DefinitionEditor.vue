@@ -80,7 +80,7 @@ function startNew() {
 
 <template>
   <div>
-    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">Definition</h3>
+    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
 
     <!-- merged search + name combobox + ops -->
     <div class="flex items-center gap-2 mb-3">
@@ -90,7 +90,7 @@ function startNew() {
           <input
             :value="definition.name"
             type="text"
-            placeholder="Search a definition, or type a new name…"
+            :placeholder="$t('definition.searchPlaceholder')"
             class="flex-1 bg-transparent outline-none text-[14px] text-ink placeholder:text-muted/60"
             @focus="open = true"
             @input="emit('update:name', ($event.target as HTMLInputElement).value); open = true"
@@ -99,7 +99,7 @@ function startNew() {
         </div>
         <transition name="expand">
         <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-card border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
-          <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @mousedown.prevent="startNew">+ New definition</button>
+          <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @mousedown.prevent="startNew">{{ $t('definition.newDefinition') }}</button>
           <button
             v-for="d in matches"
             :key="d.id"
@@ -113,10 +113,10 @@ function startNew() {
         </transition>
       </div>
       <div class="flex items-center">
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" title="Import" @click="emit('import')"><Upload :size="16" /></button>
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" title="Export" @click="emit('export')"><Download :size="16" /></button>
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" title="Duplicate" @click="emit('duplicate')"><Copy :size="16" /></button>
-        <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" title="Delete" @click="emit('delete')"><Trash2 :size="16" /></button>
+        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
+        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
+        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
+        <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
       </div>
     </div>
 
@@ -124,7 +124,7 @@ function startNew() {
     <template v-if="active">
     <!-- type chips (with create / delete custom types) -->
     <div class="flex items-center gap-2 flex-wrap mb-3">
-      <span class="text-[12px] text-muted">Type</span>
+      <span class="text-[12px] text-muted">{{ $t('definition.typeLabel') }}</span>
       <span v-for="t in typeChips" :key="t.id" class="inline-flex items-center">
         <button
           data-test="type-chip"
@@ -137,7 +137,7 @@ function startNew() {
           v-if="!t.builtin"
           data-test="type-delete"
           class="ml-0.5 text-muted/60 hover:text-coral transition-colors"
-          title="Delete type"
+          :title="$t('definition.deleteTypeTitle')"
           @click.stop="emit('delete-type', t.id)"
         ><X :size="13" /></button>
       </span>
@@ -147,18 +147,18 @@ function startNew() {
         data-test="type-new"
         class="text-[12px] rounded-full px-2.5 py-1 border border-dashed border-line text-muted hover:text-primary hover:border-primary/40 transition-colors"
         @click="addingType = true"
-      >+ Type</button>
+      >{{ $t('definition.addType') }}</button>
       <span v-else class="inline-flex items-center gap-1">
         <input
           v-model="newTypeName"
           data-test="type-new-input"
           type="text"
-          placeholder="New type…"
+          :placeholder="$t('definition.newTypePlaceholder')"
           class="field w-[120px] !py-1 text-[12px]"
           @keyup.enter="confirmNewType"
         />
-        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">Add</button>
-        <button class="text-muted hover:text-ink" title="Cancel" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
+        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">{{ $t('common.add') }}</button>
+        <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
       </span>
     </div>
 
@@ -170,7 +170,7 @@ function startNew() {
       />
       <div class="flex items-center gap-4 flex-wrap">
         <label class="flex items-center gap-2 text-[13px] text-ink">
-          Scan depth
+          {{ $t('definition.scanDepth') }}
           <input
             data-test="scan-depth"
             :value="scan.depth"
@@ -180,7 +180,7 @@ function startNew() {
           />
         </label>
         <label class="flex items-center gap-2 text-[13px] text-ink">
-          Recursive
+          {{ $t('definition.recursive') }}
           <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
         </label>
       </div>
@@ -192,10 +192,10 @@ function startNew() {
         :value="definition.content"
         rows="5"
         class="w-full border border-line rounded-[9px] bg-card px-3 py-2.5 pr-9 text-[13px] leading-relaxed text-ink/75 resize-y outline-none focus:border-primary/50 font-mono"
-        placeholder="Definition content…"
+        :placeholder="$t('definition.contentPlaceholder')"
         @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
       />
-      <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" title="Fullscreen" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
+      <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
     </div>
 
     <label class="flex items-center gap-2 mt-3 text-[13px] text-ink">
@@ -205,12 +205,12 @@ function startNew() {
         :checked="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
         @change="emit('update:meta', { ...definition.meta, wrap_in_tag: ($event.target as HTMLInputElement).checked })"
       />
-      Wrap content in a tag named after this definition
+      {{ $t('definition.wrapInTag') }}
     </label>
 
     <div class="flex items-center justify-between mt-3">
-      <span class="text-[11.5px] text-muted tabular-nums">~{{ formatTokens(contentTokens) }} tokens</span>
-      <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">Save</button>
+      <span class="text-[11.5px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(contentTokens) }, contentTokens) }}</span>
+      <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">{{ $t('common.save') }}</button>
     </div>
 
     <FullscreenEditor :model-value="definition.content" :open="fullscreenOpen" @close="fullscreenOpen = false" @update:model-value="emit('update:content', $event)" />

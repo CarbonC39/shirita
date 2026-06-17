@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Search, Plus, LayoutGrid, ChevronRight } from 'lucide-vue-next'
 import type { Definition, DefType } from '../api/types'
 
 const props = defineProps<{ definitions: Definition[]; filterType: string | null; types: DefType[] }>()
 const emit = defineEmits<{ select: [definitionId: string]; createNew: [type: string] }>()
+
+const { t } = useI18n()
 
 const query = ref('')
 const showTypes = ref(false)
@@ -29,7 +32,11 @@ const filtered = computed(() => {
 
 const visible = computed(() => filtered.value.slice(0, 4))
 const moreCount = computed(() => Math.max(0, filtered.value.length - visible.value.length))
-const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…` : 'New definition…'))
+const newLabel = computed(() =>
+  activeType.value
+    ? t('prompt.pickerNewTyped', { type: activeType.value })
+    : t('prompt.pickerNewDefault'),
+)
 </script>
 
 <template>
@@ -40,7 +47,7 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
       <input
         v-model="query"
         type="text"
-        :placeholder="activeType ? `Search ${activeType}…` : 'Search…'"
+        :placeholder="activeType ? $t('prompt.pickerSearchTyped', { type: activeType }) : $t('prompt.pickerSearch')"
         class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/60"
       />
     </div>
@@ -55,8 +62,8 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
       <span :class="['w-5 h-5 rounded-full shrink-0', typeTint[def.type] || 'bg-muted/30']" />
       <span class="flex-1 text-[13.5px] text-ink truncate">{{ def.name }}</span>
     </button>
-    <div v-if="moreCount > 0" class="px-3 pb-1.5 -mt-0.5 text-[11px] text-muted/70">+{{ moreCount }} more</div>
-    <p v-if="filtered.length === 0" class="px-3 py-2 text-[12px] text-muted/70">No matching definitions</p>
+    <div v-if="moreCount > 0" class="px-3 pb-1.5 -mt-0.5 text-[11px] text-muted/70">{{ $t('prompt.moreCount', { count: moreCount }) }}</div>
+    <p v-if="filtered.length === 0" class="px-3 py-2 text-[12px] text-muted/70">{{ $t('prompt.noMatching') }}</p>
 
     <!-- new -->
     <button
@@ -74,7 +81,7 @@ const newLabel = computed(() => (activeType.value ? `New ${activeType.value}…`
       @click="showTypes = !showTypes"
     >
       <LayoutGrid :size="15" class="shrink-0" />
-      <span class="flex-1 text-[13.5px]">Other type</span>
+      <span class="flex-1 text-[13.5px]">{{ $t('prompt.otherType') }}</span>
       <ChevronRight :size="15" :class="showTypes ? 'rotate-90' : ''" class="transition-transform" />
     </button>
     <div v-if="showTypes" class="flex flex-wrap gap-1.5 px-3 py-2 border-t border-line bg-card/50">

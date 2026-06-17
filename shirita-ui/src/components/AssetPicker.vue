@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Upload, X, ImageOff } from 'lucide-vue-next'
 import { useMediaStore } from '../stores/media'
+
+const { t } = useI18n()
 
 const props = withDefaults(
   defineProps<{ modelValue: string; shape?: 'rect' | 'circle'; clearable?: boolean }>(),
@@ -30,7 +33,7 @@ async function onFile(e: Event) {
 }
 
 async function onDelete(id: string, path: string) {
-  if (!confirm('Delete this image from the library?')) return
+  if (!confirm(t('common.imageDeleteConfirm'))) return
   await media.remove(id)
   if (props.modelValue === path) emit('update:modelValue', '') // clear if it was selected
 }
@@ -46,7 +49,7 @@ async function onDelete(id: string, path: string) {
         :class="[shape === 'circle' ? 'w-[60px] h-[60px] rounded-full' : 'w-[92px] h-[58px] rounded-lg',
                  'border grid place-items-center text-muted shrink-0 transition-colors',
                  modelValue === '' ? 'border-primary ring-2 ring-primary/30' : 'border-line hover:border-primary/40']"
-        title="No image"
+        :title="$t('common.imageNone')"
         @click="emit('update:modelValue', '')"
       >
         <ImageOff :size="16" />
@@ -68,7 +71,7 @@ async function onDelete(id: string, path: string) {
           <button
             type="button"
             class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"
-            title="Delete from library"
+            :title="$t('common.imageDelete')"
             @click.stop="onDelete(a.id, a.path)"
           >
             <X :size="12" />
@@ -77,7 +80,7 @@ async function onDelete(id: string, path: string) {
         <input
           :value="a.name"
           class="mt-1 w-full bg-transparent text-[11px] text-muted text-center outline-none focus:text-ink truncate"
-          aria-label="Image name"
+          :aria-label="$t('common.imageName')"
           @change="media.rename(a.id, ($event.target as HTMLInputElement).value.trim() || a.name)"
         />
       </div>
@@ -87,7 +90,7 @@ async function onDelete(id: string, path: string) {
         type="button"
         :class="[shape === 'circle' ? 'w-[60px] h-[60px] rounded-full' : 'w-[92px] h-[58px] rounded-lg',
                  'border-[1.5px] border-dashed border-line grid place-items-center text-muted hover:text-ink hover:border-muted shrink-0 transition-colors']"
-        :title="uploading ? 'Uploading…' : 'Upload image'"
+        :title="uploading ? $t('common.uploading') : $t('common.imageUpload')"
         @click="pick"
       >
         <Upload :size="16" :class="uploading ? 'animate-pulse' : ''" />
