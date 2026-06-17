@@ -4,8 +4,9 @@ use axum::Json;
 use serde_json::Value;
 use futures::StreamExt;
 
-use shirita_core::{ChatMessage, ChatRequest, ModelProvider, OpenAiProvider, Role};
+use shirita_core::{ChatMessage, ChatRequest, Role};
 
+use crate::provider_select::{build_provider, default_base_url};
 use crate::AppState;
 
 pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
@@ -13,8 +14,9 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
     let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
     let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
     let model = state.storage.get_setting("provider_model").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "gpt-4o".into());
-    let provider = OpenAiProvider::new(&base_url, &api_key);
-    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into() }], summary: None };
+    // 与真实生成同源的 builder（anthropic/ollama/openai 兼容皆对），复用共享 client。
+    let provider = build_provider(state.http_client.clone(), &source, &base_url, &api_key);
+    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into() }], summary: None, max_tokens: Some(16) };
     match provider.stream_chat(req).await {
         // Only the first streamed chunk matters: it confirms the credentials
         // and endpoint accept a request.
@@ -31,7 +33,7 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, S
     let source = state.storage.get_setting("provider_source").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "openai".into());
     let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
     let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
-    let client = reqwest::Client::new();
+    let client = state.http_client.clone();
     let url = format!("{}/models", base_url.trim_end_matches('/'));
     match client.get(&url).header("Authorization", format!("Bearer {}", api_key)).send().await {
         Ok(resp) => {
@@ -39,16 +41,5 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, S
             Ok(Json(json))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
-    }
-}
-
-fn default_base_url(source: &str) -> &str {
-    match source {
-        "openai" => "https://api.openai.com/v1", "anthropic" => "https://api.anthropic.com/v1",
-        "google" => "https://generativelanguage.googleapis.com/v1beta", "openrouter" => "https://openrouter.ai/api/v1",
-        "mistral" => "https://api.mistral.ai/v1", "deepseek" => "https://api.deepseek.com/v1",
-        "groq" => "https://api.groq.com/openai/v1", "xai" => "https://api.x.ai/v1",
-        "cohere" => "https://api.cohere.ai/v1", "together" => "https://api.together.xyz/v1",
-        "perplexity" => "https://api.perplexity.ai", _ => "https://api.openai.com/v1",
     }
 }

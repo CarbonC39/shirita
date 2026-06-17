@@ -26,7 +26,7 @@ async fn test_state() -> (AppState, std::path::PathBuf) {
     let config = Arc::new(Config::new("ignored", assets.to_str().unwrap(), "secret-token").unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-    let state = AppState { storage, config, provider, token_counter, model: "m".into(), generations: Arc::new(shirita_web::Generations::new()) };
+    let state = AppState { storage, config, provider, token_counter, model: "m".into(), generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client() };
     (state, assets)
 }
 

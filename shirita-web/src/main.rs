@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use shirita_core::{Config, SqliteStorage, Storage, TiktokenCounter, TokenCounter};
-use shirita_web::{app, provider_from_env, AppState};
+use shirita_web::{app, new_http_client, provider_from_env, AppState};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -19,8 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shirita_core::ensure_default_template(&storage).await?;
     tokio::fs::create_dir_all(&config.assets_dir).await.ok();
 
-    // 按 PROVIDER env 选择适配器（默认 OpenAI 兼容；无 key 则离线 Echo）。
-    let provider = provider_from_env(&config);
+    // 共享 HTTP 客户端：env 兜底 provider 与运行期 settings provider 复用同一连接池。
+    let http_client = new_http_client();
+    // 按 PROVIDER env 选择兜底适配器（默认 OpenAI 兼容；无 key 则离线 Echo）。
+    let provider = provider_from_env(&config, http_client.clone());
 
     let model = config.openai_model.clone();
     let storage: Arc<dyn Storage> = Arc::new(storage);
@@ -32,6 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         token_counter,
         model,
         generations: Arc::new(shirita_web::Generations::new()),
+        http_client,
     };
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());

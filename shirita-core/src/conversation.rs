@@ -38,6 +38,18 @@ async fn context_window(storage: &dyn Storage) -> usize {
         .unwrap_or(200_000)
 }
 
+/// 读回复（输出）最大 token 数（settings `provider_max_tokens`）。`None` 时由各 provider 兜底
+/// （Anthropic 8192 / OpenAI 省略）。注意：这是输出上限，与上下文窗口（`context.window`）无关。
+async fn provider_max_tokens(storage: &dyn Storage) -> Option<u32> {
+    storage
+        .get_setting("provider_max_tokens")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_u64())
+        .map(|n| n as u32)
+}
+
 /// 选当前分支适用摘要：cutoff 必须落在 active path 上，多条取 path 中最靠后的那条。
 /// 返回（摘要内容, path 中 cutoff 的下标）。
 async fn applicable_summary(
@@ -127,7 +139,8 @@ async fn assemble_request(
         .filter(|d| d.def_type == "regex_rule")
         .collect();
 
-    Ok((ChatRequest { model, messages: chat_messages, summary }, regex_rules))
+    let max_tokens = provider_max_tokens(storage).await;
+    Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
 }
 
 /// 流式发送过程对外暴露的事件。
@@ -202,7 +215,7 @@ pub fn send_message(
         if dropped > 0 {
             tracing::warn!(dropped, "context over window: trimmed oldest history");
         }
-        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary };
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens };
 
         let prompt_text: String =
             req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
@@ -296,7 +309,7 @@ pub fn regenerate(
         if dropped > 0 {
             tracing::warn!(dropped, "context over window: trimmed oldest history");
         }
-        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary };
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens };
 
         let mut full = String::new();
         let mut stream = match provider.stream_chat(req).await {

@@ -7,58 +7,40 @@ use shirita_core::OwnerKind;
 
 use crate::AppState;
 
-fn ensure_obj(v: &mut Value) -> &mut serde_json::Map<String, Value> {
-    if !v.is_object() {
-        *v = json!({});
+/// 存在性检查：会话不存在返回 404（保持既有行为）。
+async fn ensure_session(state: &AppState, session_id: &str) -> Result<(), StatusCode> {
+    match state.storage.get_session(session_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
+        Some(_) => Ok(()),
+        None => Err(StatusCode::NOT_FOUND),
     }
-    v.as_object_mut().unwrap()
 }
 
-/// Read the session's override_config and mutate `local_definitions` via `f`.
-async fn with_local_defs<F>(state: &AppState, session_id: &str, f: F) -> Result<(), StatusCode>
-where
-    F: FnOnce(&mut serde_json::Map<String, Value>),
-{
-    let session = state
-        .storage
-        .get_session(session_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::NOT_FOUND)?;
-    let mut cfg = session.override_config.clone();
-    let cfg_obj = ensure_obj(&mut cfg);
-    let mut locals = cfg_obj.get("local_definitions").cloned().unwrap_or_else(|| json!({}));
-    f(ensure_obj(&mut locals));
-    cfg_obj.insert("local_definitions".into(), locals);
-    state
-        .storage
-        .update_session_override_config(session_id, &cfg)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-/// Write/replace the field-level patch for `def_id` (only the changed fields).
+/// Write/replace the field-level patch for `def_id`（原子合并，无读改写竞争）。
 pub async fn set_local_definition(
     State(state): State<AppState>,
     Path((session_id, def_id)): Path<(String, String)>,
     Json(patch): Json<Value>,
 ) -> Result<StatusCode, StatusCode> {
-    with_local_defs(&state, &session_id, |locals| {
-        locals.insert(def_id.clone(), patch);
-    })
-    .await?;
+    ensure_session(&state, &session_id).await?;
+    state
+        .storage
+        .set_local_definition(&session_id, &def_id, &patch)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }
 
-/// Revert: drop the local patch for `def_id`.
+/// Revert: drop the local patch for `def_id`（原子删除）。
 pub async fn clear_local_definition(
     State(state): State<AppState>,
     Path((session_id, def_id)): Path<(String, String)>,
 ) -> Result<StatusCode, StatusCode> {
-    with_local_defs(&state, &session_id, |locals| {
-        locals.remove(&def_id);
-    })
-    .await?;
+    ensure_session(&state, &session_id).await?;
+    state
+        .storage
+        .clear_local_definition(&session_id, &def_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }
 
@@ -139,9 +121,10 @@ pub async fn promote_local_definition(
         .update_definition(&def)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    with_local_defs(&state, &session_id, |locals| {
-        locals.remove(&def_id);
-    })
-    .await?;
+    state
+        .storage
+        .clear_local_definition(&session_id, &def_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }

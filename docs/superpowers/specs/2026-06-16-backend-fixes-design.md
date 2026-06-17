@@ -18,7 +18,7 @@
 
 ## 2. 已确认的关键决策（brainstorm 结论）
 
-- **① provider/model 解析时机 = 生成时从 settings 解析**。新增 `resolve_provider(&AppState)`，读 `provider_source/base_url/api_key/model/max_tokens` 设置，构造匹配 provider；**settings 有配置则胜出**，否则回退到 env 构造的 `state.provider`/`state.model`。无「热重载」机制——每次生成现读现建（即解决了 ⑤「没有动态重载」）。client 复用缓存留作后续优化，不在本轮。
+- **① provider/model 解析时机 = 生成时从 settings 解析**。新增 `resolve_provider(&AppState)`，读 `provider_source/base_url/api_key/model` 设置，构造匹配 provider；**settings 有配置则胜出**，否则回退到 env 构造的 `state.provider`/`state.model`。无「热重载」机制——每次生成现读现建（即解决了 ⑤「没有动态重载」）。`max_tokens` 不走该函数透传，而由 core 在装配时自读 `provider_max_tokens` 设置（与既有 `context.window` 读法一致），避免给 `send_message`/`regenerate`/`summarize::run` 增形参、churn ~12 处测试调用点。client 复用 `state.http_client` 单例。
 - **② 两套局部覆盖 = 删除 `overrides.rs`（裸字符串、死代码），保留 `local_overrides`（结构化 patch）**。前端只调 `/local-definitions`、且直接读 `session.override_config.local_definitions`，确认零前端影响。
 - **③ 节点树深度 = API 层强制 2 层**（而非实现 n 层递归）。匹配现有 UI 与装配器；附带消除环→`export_template` 死循环风险。
 - **④ 非法正则 = 创作期校验**（定义 create/update）。运行期 `apply_regex_rules` 保持宽容（跳过 + `warn!`）。
@@ -69,18 +69,18 @@ fn build_provider(client: reqwest::Client, source: &str, base_url: &str, api_key
 }
 
 /// 生成时解析：settings 有配置则胜出，否则回退 env 构造的 state.provider/model。
-/// 返回 (provider, model, max_tokens)。复用 state.http_client。
+/// 返回 (provider, model)。复用 state.http_client。max_tokens 不在此处——由 core 自读设置。
 pub async fn resolve_provider(state: &AppState)
-    -> (Arc<dyn ModelProvider>, String, Option<u32>);
+    -> (Arc<dyn ModelProvider>, String);
 ```
 
-- 读设置：`provider_source`、`provider_base_url`、`provider_api_key`、`provider_model`、`provider_max_tokens`（u64→u32）。
+- 读设置：`provider_source`、`provider_base_url`、`provider_api_key`、`provider_model`。`provider_max_tokens` 不在此读，见 ⑥（由 core 装配时自读）。
 - **「已配置」判定**：`provider_source` 非空 **或** `provider_api_key` 非空 **或** `provider_model` 非空。满足则用 `build_provider(state.http_client.clone(), …)` 构造：`base_url` 缺省走 `default_base_url(source)`；`model` 缺省走 `state.model`（兜底）。否则整体回退 `(state.provider.clone(), state.model.clone())`。这样无任何配置（桌面首启）仍是 env 的 Echo/默认，不破离线。
 - `provider_from_env(config, client)` 增 client 形参，把 `client.clone()` 传给各 provider 构造（env 兜底也共享单例）。
 - `default_base_url` 从 `provider.rs` 提升为该模块内 `pub(crate)` 复用（或移到此处），`provider.rs` 改为引用。
 
 **接线**：
-- `chat::send`、`chat::regenerate`、`spawn_summary`：把 `state.provider.clone()`/`state.model.clone()` 换成 `let (provider, model, max_tokens) = resolve_provider(&state).await;`。`max_tokens` 需透传进 `ChatRequest`（见 ⑥），故 `send_message`/`regenerate`/`summarize::run` 的签名增加一个 `max_tokens: Option<u32>` 参数，下沉到 `assemble_request` 写入 `ChatRequest.max_tokens`。
+- `chat::send`、`chat::regenerate`、`spawn_summary`：把 `state.provider.clone()`/`state.model.clone()` 换成 `let (provider, model) = resolve_provider(&state).await;`。`max_tokens` 不经此透传——`assemble_request`/`summarize::run` 在 core 内自读 `provider_max_tokens` 设置写入 `ChatRequest.max_tokens`（见 ⑥），故这些函数签名不变。`spawn_summary` 内 clone `state` 进 task，在 task 内 `resolve_provider`。
 - `provider::test_connection`：改用 `build_provider(state.http_client.clone(), source, base_url, api_key)` 而非恒 `OpenAiProvider`，使「测试」与真实生成一致（顺带让 anthropic/ollama 源能正确测试）。`list_models` 本轮不动（OpenAI 形，记为后续）。
 
 **注**：provider 实例每生成新建（轻量：仅持 client clone + url/key 字符串），底层 `reqwest::Client` 是 AppState 单例，无 per-call `Client::new()`。
@@ -114,8 +114,8 @@ pub async fn resolve_provider(state: &AppState)
 ### ⑥ 可配置 max_tokens
 
 - `ChatRequest` 增字段 `pub max_tokens: Option<u32>`（`model/mod.rs`）。所有构造点补该字段：
-  - `assemble_request`（`conversation.rs`）：`max_tokens` 由上层透传（见 ①）。
-  - `summarize::run`：签名加 `max_tokens: Option<u32>`，由 `spawn_summary` 经 `resolve_provider` 透传，写入摘要 `ChatRequest`（与 send/regenerate 一致；未配置时 `None` → Anthropic 默认 8192 / OpenAI 省略）。
+  - `assemble_request`（`conversation.rs`）：新增 `async fn provider_max_tokens(storage) -> Option<u32>` 读 `provider_max_tokens` 设置（u64→u32），末尾写入 `ChatRequest.max_tokens`。trim 重建分支保留 `req.max_tokens`。**不**给 `send_message`/`regenerate` 加形参。
+  - `summarize::run`：函数内联读 `provider_max_tokens` 设置，写入摘要 `ChatRequest`（未配置时 `None` → Anthropic 默认 8192 / OpenAI 省略）。
   - `provider::test_connection` 的 ping：`max_tokens: Some(16)`（廉价探针）。
   - 测试内的 `ChatRequest` 字面量补 `max_tokens: None`。
 - `anthropic_body`：`"max_tokens": req.max_tokens.unwrap_or(8192)`。
@@ -174,8 +174,8 @@ async fn set_local_variables(&self, session_id: &str, variables: &Value) -> Resu
 - `shirita-web/src/state.rs`：`AppState` 加 `http_client: reqwest::Client`。
 - `shirita-web/src/main.rs`、`shirita-tauri/src/main.rs`：启动时建一个 `reqwest::Client`，传给 `provider_from_env` 并存入 `AppState`。
 - `shirita-core/src/assembly.rs`：导出 `is_valid_regex`；`apply_regex_rules` 加 warn。
-- `shirita-core/src/conversation.rs`：`send_message`/`regenerate`/`assemble_request` 透传 `max_tokens`。
-- `shirita-core/src/summarize.rs`：`run` 透传 `max_tokens`（或固定 `None`）。
+- `shirita-core/src/conversation.rs`：新增 `provider_max_tokens(storage)`，`assemble_request` 自读设置写入 `ChatRequest.max_tokens`（`send_message`/`regenerate` 签名不变）。
+- `shirita-core/src/summarize.rs`：`run` 内联读 `provider_max_tokens` 设置写入摘要 `ChatRequest`。
 - `shirita-core/src/storage/mod.rs` + `sqlite.rs`：trait 加 3 原子方法 + 实现。
 - `shirita-web/src/provider_select.rs`：`build_provider` + `resolve_provider` + `default_base_url` 迁入/复用。
 - `shirita-web/src/routes/chat.rs`：send/regenerate/spawn_summary 用 `resolve_provider`。
@@ -188,11 +188,11 @@ async fn set_local_variables(&self, session_id: &str, variables: &Value) -> Resu
 
 ## 6. 测试策略
 
-- **provider 解析**（`provider_select.rs` 单测）：settings 全空 → 回退 env（Echo）；设 `provider_source=anthropic` + key → `build_provider` 得 Anthropic；OpenAI 兼容源 → OpenAi；`provider_model` 覆盖 model；`provider_max_tokens` 读出为 `Some`。
+- **provider 解析**（`provider_select.rs` 单测）：settings 全空 → 回退 env（Echo）；设 `provider_source=anthropic` + key → `build_provider` 得 Anthropic；OpenAI 兼容源 → OpenAi；`provider_model` 覆盖 model。`provider_max_tokens` 的读取由 core 侧 `anthropic_body`/`openai_body` 单测覆盖（默认 8192 / 仅 `Some` 时下发）。
 - **生成走 settings**（web 集成测，用现有 `RecordingProvider` 思路较难，因 provider 由 settings 构造真 HTTP）——退一步：单测 `resolve_provider` 的决策即可；端到端「设置→生成」由 `build_provider` + 决策覆盖。
 - **overrides 删除**：确认路由 404（或编译期移除）；`local-definitions` 行为不变（既有 `local_overrides_test.rs` 仍绿）。
-- **2 层强制**：folder 带 parent → 400；ref parent 指向 ref/history/异 owner/不存在 → 400；ref parent 指向同 owner 根 folder → 201。
-- **正则校验**：create/update `regex_rule` 带非法 pattern → 400；合法 / 无 pattern → 201。
+- **2 层强制**（`tests/node_validation_test.rs`）：folder 带 parent → 400；ref parent 指向 ref/不存在 → 400；ref parent 指向同 owner 根 folder / 根 ref（parent=None）→ 200；`update_node` 把 folder 移到他 folder 下 → 400。
+- **正则校验**（`tests/definitions_test.rs`）：create/update `regex_rule` 带非法 pattern → 400；合法 / 空 pattern → 200。
 - **max_tokens**：`anthropic_body` 在 `Some(8192)`/`None(→8192)` 下输出对应值；`openai_messages` 仅 `Some` 时含 `max_tokens`。
 - **原子覆盖**（storage 单测）：`set_local_definition` 在 `override_config` 无 `local_definitions` 时由合并创建并写键；`clear`（`json('null')`）删该键且不动同对象其它 def；`set_local_variables` 整列替换数组；二次 set 同键合并为最新 patch；不串其它会话。
 - 回归：`cargo test` 全绿。

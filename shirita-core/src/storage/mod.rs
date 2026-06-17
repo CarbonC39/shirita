@@ -64,6 +64,12 @@ pub trait Storage: Send + Sync {
 
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()>;
+    /// 原子合并会话局部定义覆盖 `{local_definitions: {def_id: patch}}`（消除读改写丢更新）。
+    async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()>;
+    /// 原子清除某 def 的局部覆盖（RFC7396：值置 null 即删键）。
+    async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()>;
+    /// 原子整列替换会话局部变量声明（`override_config.local_variables`）。
+    async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()>;
 
     // --- summaries (M6 rolling context summaries) ---
     async fn create_summary(&self, summary: &Summary) -> Result<()>;

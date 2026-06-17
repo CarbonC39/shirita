@@ -31,7 +31,7 @@ async fn test_state() -> AppState {
         provider,
         token_counter,
         model: "m".into(),
-        generations: Arc::new(Generations::new()),
+        generations: Arc::new(Generations::new()), http_client: shirita_web::new_http_client(),
     }
 }
 
@@ -124,7 +124,7 @@ async fn embedded_server_binds_serves_and_shuts_down_gracefully() {
         provider: Arc::new(EchoProvider),
         token_counter: Arc::new(TiktokenCounter::new()),
         model: "m".into(),
-        generations: Arc::new(Generations::new()),
+        generations: Arc::new(Generations::new()), http_client: shirita_web::new_http_client(),
     };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

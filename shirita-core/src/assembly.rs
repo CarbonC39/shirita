@@ -155,7 +155,13 @@ pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
     .into_owned()
 }
 
+/// 校验一条 regex_rule 的 pattern 能否编译（创作期使用；空 pattern 视为合法/无操作）。
+pub fn is_valid_regex(pattern: &str) -> bool {
+    regex::Regex::new(pattern).is_ok()
+}
+
 /// 依挂载顺序对文本应用 regex_rule（meta: {pattern, replacement}）。无规则返回 None。
+/// 运行期宽容：非法 pattern 仅 warn 并跳过，绝不中断生成（校验在创作期做）。
 pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
     if rules.is_empty() {
         return None;
@@ -169,8 +175,9 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if let Some(p) = pattern {
-            if let Ok(re) = regex::Regex::new(p) {
-                out = re.replace_all(&out, replacement).into_owned();
+            match regex::Regex::new(p) {
+                Ok(re) => out = re.replace_all(&out, replacement).into_owned(),
+                Err(e) => tracing::warn!(rule = %rule.id, error = %e, "invalid regex_rule pattern, skipping"),
             }
         }
     }

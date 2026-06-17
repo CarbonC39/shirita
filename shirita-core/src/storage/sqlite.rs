@@ -444,6 +444,54 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()> {
+        // 合并 {"local_definitions": {"<def_id>": <patch>}}；键经 json_object 绑参构造，不拼 path。
+        let patch_str = serde_json::to_string(patch)?;
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_patch(\
+                COALESCE(override_config, '{}'), \
+                json_object('local_definitions', json_object(?, json(?)))) \
+             WHERE id = ?",
+        )
+        .bind(def_id)
+        .bind(patch_str)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()> {
+        // RFC7396：把该键置 JSON null → json_patch 删除之，不动同对象其它 def。
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_patch(\
+                COALESCE(override_config, '{}'), \
+                json_object('local_definitions', json_object(?, json('null')))) \
+             WHERE id = ?",
+        )
+        .bind(def_id)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()> {
+        // RFC7396 对数组是整体替换，正合「整列替换变量声明」语义。
+        let vars_str = serde_json::to_string(variables)?;
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_patch(\
+                COALESCE(override_config, '{}'), \
+                json_object('local_variables', json(?))) \
+             WHERE id = ?",
+        )
+        .bind(vars_str)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     // --- summaries ---
     async fn create_summary(&self, summary: &Summary) -> Result<()> {
         sqlx::query(
@@ -816,6 +864,42 @@ mod tests {
         storage.delete_asset(&a.id).await.unwrap();
         assert!(storage.get_asset(&a.id).await.unwrap().is_none());
         assert!(storage.list_assets().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn override_config_atomic_json_ops() {
+        let storage = temp_storage().await;
+        let s = Sess::new("ov");
+        storage.create_session(&s).await.unwrap();
+
+        // set 在无 local_definitions 时由合并创建并写键
+        storage
+            .set_local_definition(&s.id, "def-a", &serde_json::json!({ "content": "A" }))
+            .await
+            .unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert_eq!(got.override_config["local_definitions"]["def-a"]["content"], "A");
+
+        // 第二个 def 不互相覆盖
+        storage
+            .set_local_definition(&s.id, "def-b", &serde_json::json!({ "content": "B" }))
+            .await
+            .unwrap();
+        // 局部变量整列替换，且与 local_definitions 共存
+        storage
+            .set_local_variables(&s.id, &serde_json::json!([{ "name": "hp", "type": "number", "initial": 100 }]))
+            .await
+            .unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert_eq!(got.override_config["local_definitions"]["def-a"]["content"], "A");
+        assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
+        assert_eq!(got.override_config["local_variables"][0]["name"], "hp");
+
+        // clear 仅删该键，不动其它
+        storage.clear_local_definition(&s.id, "def-a").await.unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert!(got.override_config["local_definitions"].get("def-a").is_none());
+        assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
     }
 
     #[tokio::test]
