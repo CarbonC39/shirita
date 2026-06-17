@@ -173,6 +173,18 @@ const zhHans: MessageSchema = {
     aboutText: 'Shirita —— 一个 SillyTavern 替代品。',
     exportAll: '导出全部数据',
     importAll: '导入全部数据',
+    regexUnnamed: '未命名规则',
+    regexName: '名称',
+    regexNamePlaceholder: '规则名称',
+    regexFind: '查找',
+    regexPatternPlaceholder: '正则表达式',
+    regexReplace: '替换',
+    regexReplacementPlaceholder: '替换文本',
+    regexApplyTo: '应用于',
+    regexAiOutput: 'AI 输出',
+    regexUserInput: '用户输入',
+    regexDisplayOnly: '仅显示',
+    regexDelete: '删除规则',
   },
 }
 
