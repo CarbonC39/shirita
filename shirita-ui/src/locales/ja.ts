@@ -174,6 +174,18 @@ const ja: MessageSchema = {
     aboutText: 'Shirita —— SillyTavern の代替アプリ。',
     exportAll: 'すべてのデータをエクスポート',
     importAll: 'すべてのデータをインポート',
+    regexUnnamed: '無名のルール',
+    regexName: '名前',
+    regexNamePlaceholder: 'ルール名',
+    regexFind: '検索',
+    regexPatternPlaceholder: '正規表現パターン',
+    regexReplace: '置換',
+    regexReplacementPlaceholder: '置換テキスト',
+    regexApplyTo: '適用先',
+    regexAiOutput: 'AI 出力',
+    regexUserInput: 'ユーザー入力',
+    regexDisplayOnly: '表示のみ',
+    regexDelete: 'ルールを削除',
   },
 }
 

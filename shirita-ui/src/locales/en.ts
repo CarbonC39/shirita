@@ -183,6 +183,18 @@ const en = {
     aboutText: 'Shirita — a SillyTavern alternative.',
     exportAll: 'Export all data',
     importAll: 'Import all data',
+    regexUnnamed: 'Unnamed rule',
+    regexName: 'Name',
+    regexNamePlaceholder: 'rule name',
+    regexFind: 'Find',
+    regexPatternPlaceholder: 'regex pattern',
+    regexReplace: 'Replace',
+    regexReplacementPlaceholder: 'replacement text',
+    regexApplyTo: 'Apply to',
+    regexAiOutput: 'AI output',
+    regexUserInput: 'User input',
+    regexDisplayOnly: 'Display only',
+    regexDelete: 'Delete rule',
   },
 }
 
