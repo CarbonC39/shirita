@@ -124,6 +124,14 @@ const ja: MessageSchema = {
     contentPlaceholder: '定義の内容…',
     wrapInTag: 'この定義名のタグで内容を囲む',
   },
+  variables: {
+    heading: '変数',
+    system: 'システム',
+    custom: 'カスタム',
+    namePlaceholder: '名前',
+    initialPlaceholder: '初期値',
+    add: '変数を追加',
+  },
   settings: {
     title: '設定',
     language: '言語',

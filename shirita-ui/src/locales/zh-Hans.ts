@@ -124,6 +124,14 @@ const zhHans: MessageSchema = {
     contentPlaceholder: '定义内容…',
     wrapInTag: '用以此定义命名的标签包裹内容',
   },
+  variables: {
+    heading: '变量',
+    system: '系统',
+    custom: '自定义',
+    namePlaceholder: '名称',
+    initialPlaceholder: '初始值',
+    add: '添加变量',
+  },
   settings: {
     title: '设置',
     language: '语言',
