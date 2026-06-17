@@ -168,6 +168,16 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
     }
     let mut out = text.to_string();
     for rule in rules {
+        // Honor ST-derived switches: disabled rules are skipped; prompt-only
+        // rules don't apply to display output (prompt-side application is a
+        // later slice). Default scope is "display".
+        if rule.meta.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let scope = rule.meta.get("scope").and_then(|v| v.as_str()).unwrap_or("display");
+        if scope == "prompt" {
+            continue;
+        }
         let pattern = rule.meta.get("pattern").and_then(|v| v.as_str());
         let replacement = rule
             .meta
@@ -205,6 +215,15 @@ pub struct PromptSegment {
 pub struct AssembledPlan {
     pub segments: Vec<PromptSegment>,
     pub history_enabled: bool,
+    /// regex_rule definitions referenced by enabled refs in this tree — the
+    /// regex rules in effect for this loreset (scoped, not global).
+    pub regex_rules: Vec<Definition>,
+}
+
+/// regex_rule / first_message refs do not render as prompt segments — they are
+/// consumed by their own subsystems (regex engine / session greeting seeder).
+fn is_non_rendering(def_type: &str) -> bool {
+    matches!(def_type, "regex_rule" | "first_message")
 }
 
 /// 取定义的有效 trigger：会话局部覆盖优先，否则用 definition.meta。
@@ -302,6 +321,9 @@ pub fn assemble_from_nodes(
         let Some(def) = n.definition_id.as_ref().and_then(|id| definitions.get(id)) else {
             continue;
         };
+        if is_non_rendering(&def.def_type) {
+            continue;
+        }
         let (scan_depth, recursive) = effective_scan(def, overrides);
         entries.push(Entry {
             id: def.id.clone(),
@@ -321,6 +343,9 @@ pub fn assemble_from_nodes(
             return None;
         }
         let def = n.definition_id.as_ref().and_then(|id| definitions.get(id))?;
+        if is_non_rendering(&def.def_type) {
+            return None;
+        }
         if !active.contains(&def.id) {
             return None;
         }
@@ -376,7 +401,16 @@ pub fn assemble_from_nodes(
         }
     }
 
-    AssembledPlan { segments, history_enabled }
+    // Collect the regex_rule definitions referenced by enabled refs in this
+    // tree — these are the regex rules scoped to this loreset.
+    let regex_rules: Vec<Definition> = nodes
+        .iter()
+        .filter(|n| n.enabled && n.kind == NodeKind::Ref)
+        .filter_map(|n| n.definition_id.as_ref().and_then(|id| definitions.get(id)))
+        .filter(|d| d.def_type == "regex_rule")
+        .cloned()
+        .collect();
+    AssembledPlan { segments, history_enabled, regex_rules }
 }
 
 /// 段 + 真实历史 → provider 消息数组；末了合并相邻同角色。
@@ -657,6 +691,54 @@ mod tests {
     }
 
     #[test]
+    fn non_rendering_refs_skipped_and_regex_collected() {
+        let mut rx = def("regex_rule", "R", "");
+        rx.meta = serde_json::json!({ "pattern": "X", "replacement": "Y" });
+        let fm = def("first_message", "Hi", "hello there");
+        let neo = def("char", "Neo", "Neo body");
+        let charf = folder_node("t", 0, "char");
+        let cref = child_ref("t", &charf.id, 0, &neo.id);
+        let rxref = root_ref("t", 1, &rx.id);
+        let fmref = root_ref("t", 2, &fm.id);
+
+        let mut defs = HashMap::new();
+        for d in [&rx, &fm, &neo] {
+            defs.insert(d.id.clone(), d.clone());
+        }
+        let nodes = vec![charf, cref, rxref, fmref];
+        let mut roll = || 0.0;
+        let plan = assemble_from_nodes(
+            &nodes,
+            &defs,
+            &serde_json::json!({}),
+            &serde_json::json!({}),
+            &[],
+            &mut roll,
+        );
+
+        // regex_rule / first_message do not render into prompt segments
+        let joined: String = plan.segments.iter().map(|s| s.content.clone()).collect();
+        assert!(joined.contains("Neo body"));
+        assert!(!joined.contains("hello there"));
+        // regex rules collected from the tree
+        assert_eq!(plan.regex_rules.len(), 1);
+        assert_eq!(plan.regex_rules[0].name, "R");
+    }
+
+    #[test]
+    fn apply_regex_honors_disabled_and_scope() {
+        let mut on = Definition::new("regex_rule", "on", "");
+        on.meta = serde_json::json!({ "pattern": "a", "replacement": "b" });
+        let mut off = Definition::new("regex_rule", "off", "");
+        off.meta = serde_json::json!({ "pattern": "a", "replacement": "Z", "disabled": true });
+        let mut prompt_only = Definition::new("regex_rule", "po", "");
+        prompt_only.meta = serde_json::json!({ "pattern": "b", "replacement": "Q", "scope": "prompt" });
+        // disabled is skipped; scope=prompt doesn't touch display: only `on` applies a->b
+        let out = apply_regex_rules("aaa", &[on, off, prompt_only]).unwrap();
+        assert_eq!(out, "bbb");
+    }
+
+    #[test]
     fn build_messages_merges_same_role_and_inserts_history() {
         let plan = AssembledPlan {
             segments: vec![
@@ -665,6 +747,7 @@ mod tests {
                 seg(Placement::AfterHistory, "JB"),
             ],
             history_enabled: true,
+            regex_rules: vec![],
         };
         let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
         let msgs = build_chat_messages(&plan, &history, true);
@@ -682,6 +765,7 @@ mod tests {
         let plan = AssembledPlan {
             segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "B")],
             history_enabled: false,
+            regex_rules: vec![],
         };
         let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
         let msgs = build_chat_messages(&plan, &history, false);
