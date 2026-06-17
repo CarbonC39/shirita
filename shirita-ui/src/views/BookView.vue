@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { Check, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
@@ -33,6 +34,9 @@ import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 import VariablesEditor from "../components/VariablesEditor.vue";
 
+// Aliased to `tr` because `t` is already used as a local binding throughout
+// this file (template lookups, arrow params). Template uses the global `$t`.
+const { t: tr } = useI18n();
 const library = useLibraryStore();
 const ui = useUiStore();
 const loading = ref(true);
@@ -169,7 +173,7 @@ async function saveLocal() {
 }
 async function promoteLocal(defId: string) {
     if (!ui.activeChatId) return;
-    if (!confirm("Sync this definition to the global library?")) return;
+    if (!confirm(tr("book.promoteConfirm"))) return;
     try {
         await promoteLocalDefinition(ui.activeChatId, defId);
         await Promise.all([library.loadDefinitions(), loadLocal()]);
@@ -344,7 +348,7 @@ async function localDeleteNode(nodeId: string) {
     const node = localNodes.value.find((n) => n.id === nodeId);
     if (!node) return;
     const childCount = localNodes.value.filter((n) => n.parent_id === nodeId).length;
-    if (node.kind === "folder" && childCount > 0 && !confirm(`Delete this container and its ${childCount} item(s)?`)) return;
+    if (node.kind === "folder" && childCount > 0 && !confirm(tr("prompt.deleteContainerConfirm", childCount))) return;
     try {
         await ensureMaterialized();
         await deleteNode(nodeId);
@@ -559,8 +563,8 @@ async function createTypeFromEditor(name: string) {
 async function deleteTypeFromEditor(id: string) {
     const inUse = library.definitions.some((d) => d.type === id);
     const msg = inUse
-        ? `Delete type "${id}"? Definitions using it will keep the type id but it won't be selectable.`
-        : `Delete type "${id}"?`;
+        ? tr("book.deleteTypeInUse", { id })
+        : tr("book.deleteType", { id });
     if (!confirm(msg)) return;
     try {
         await library.removeType(id);
@@ -619,7 +623,7 @@ async function handleDeleteNode(nodeId: string) {
     if (
         node.kind === "folder" &&
         childCount > 0 &&
-        !confirm(`Delete this container and its ${childCount} item(s)?`)
+        !confirm(tr("prompt.deleteContainerConfirm", childCount))
     )
         return;
     try {
@@ -721,29 +725,29 @@ async function duplicateDef() {
 <template>
     <div class="max-w-[480px] mx-auto px-5 pt-6 pb-12">
         <p v-if="loading" class="text-muted text-sm text-center pt-12">
-            Loading…
+            {{ $t("common.loading") }}
         </p>
         <template v-else>
-            <!-- 局部 (this conversation) — copy-on-write overrides, shown only
-                 while you're inside a chat. Sits above the global library. -->
+            <!-- this-conversation copy-on-write overrides, shown only while
+                 you're inside a chat. Sits above the global library. -->
             <section v-if="ui.activeChatId" data-test="book-local" class="mb-6">
                 <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5">
-                    局部 · This conversation
+                    {{ $t("book.localHeading") }}
                 </h3>
                 <div
                     v-if="Object.keys(localDefs).length"
                     data-test="local-chips"
                     class="flex flex-wrap items-center gap-2 mb-3"
                 >
-                    <span class="text-[12px] text-muted">本对话已改</span>
+                    <span class="text-[12px] text-muted">{{ $t("book.localChangedLabel") }}</span>
                     <span
                         v-for="(_patch, defId) in localDefs"
                         :key="defId"
                         class="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[12px]"
                     >
                         <button class="text-ink" @click="editLocal(defId)">{{ defName(defId) }}</button>
-                        <button class="text-muted hover:text-primary" title="同步到全局" @click="promoteLocal(defId)">↥</button>
-                        <button class="text-muted hover:text-coral" title="还原为全局" @click="revertLocal(defId)">×</button>
+                        <button class="text-muted hover:text-primary" :title="$t('book.syncToGlobal')" @click="promoteLocal(defId)">↥</button>
+                        <button class="text-muted hover:text-coral" :title="$t('book.revertToGlobal')" @click="revertLocal(defId)">×</button>
                     </span>
                 </div>
                 <!-- local node tree: session-owned, materialized on first edit -->
@@ -752,13 +756,13 @@ async function duplicateDef() {
                         v-if="localNodes.length === 0"
                         class="text-[13px] text-muted py-3 flex items-center gap-2"
                     >
-                        <span>This conversation follows its template.</span>
+                        <span>{{ $t("book.followsTemplate") }}</span>
                         <button
                             data-test="customize-locally"
                             class="btn btn-primary !px-2.5 !py-1 text-[12px]"
                             @click="ensureMaterialized"
                         >
-                            Customize locally
+                            {{ $t("book.customizeLocally") }}
                         </button>
                     </div>
                     <PromptTree
@@ -782,7 +786,7 @@ async function duplicateDef() {
                 </template>
 
                 <div class="mb-4">
-                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">Variables (this chat)</h3>
+                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
                     <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
                 </div>
 
@@ -813,8 +817,8 @@ async function duplicateDef() {
                         )
                     "
                 >
-                    <option value="" disabled>Select a template…</option>
-                    <option value="__new__">+ New template</option>
+                    <option value="" disabled>{{ $t("book.selectTemplate") }}</option>
+                    <option value="__new__">{{ $t("book.newTemplate") }}</option>
                     <option
                         v-for="t in library.templates"
                         :key="t.id"
@@ -827,15 +831,15 @@ async function duplicateDef() {
                     <select
                         v-model="importConflict"
                         class="field !py-1 !px-1.5 text-[12px] mr-1"
-                        title="On conflict"
+                        :title="$t('book.onConflict')"
                     >
-                        <option value="skip">Skip</option>
-                        <option value="overwrite">Overwrite</option>
-                        <option value="duplicate">Duplicate</option>
+                        <option value="skip">{{ $t("book.conflictSkip") }}</option>
+                        <option value="overwrite">{{ $t("book.conflictOverwrite") }}</option>
+                        <option value="duplicate">{{ $t("book.conflictDuplicate") }}</option>
                     </select>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
-                        title="Import card / world / template (.png, .json)"
+                        :title="$t('book.importTitle')"
                         :disabled="importBusy"
                         @click="importInput?.click()"
                     >
@@ -850,7 +854,7 @@ async function duplicateDef() {
                     />
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
-                        title="Export template (enabled part)"
+                        :title="$t('book.exportTemplateTitle')"
                         :disabled="!selectedTemplateId"
                         @click="exportSelectedTemplate"
                     >
@@ -858,7 +862,7 @@ async function duplicateDef() {
                     </button>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
-                        title="Duplicate"
+                        :title="$t('common.duplicate')"
                         :disabled="!selectedTemplateId"
                         @click="dupTemplate"
                     >
@@ -866,7 +870,7 @@ async function duplicateDef() {
                     </button>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-40"
-                        title="Delete"
+                        :title="$t('common.delete')"
                         :disabled="!selectedTemplateId"
                         @click="delTemplate"
                     >
@@ -876,9 +880,13 @@ async function duplicateDef() {
             </div>
 
             <p v-if="importSummary" data-test="import-summary" class="text-[12px] text-muted mt-2">
-                Imported: {{ importSummary.created.length }} created,
-                {{ importSummary.skipped.length }} skipped,
-                {{ importSummary.overwritten.length }} overwritten.
+                {{
+                    $t("book.importSummary", {
+                        created: importSummary.created.length,
+                        skipped: importSummary.skipped.length,
+                        overwritten: importSummary.overwritten.length,
+                    })
+                }}
             </p>
 
             <!-- name + save/saved state -->
@@ -890,7 +898,7 @@ async function duplicateDef() {
                     v-model="templateName"
                     type="text"
                     class="field flex-1"
-                    placeholder="Template name"
+                    :placeholder="$t('book.templateNamePlaceholder')"
                     @change="renameTemplate"
                     @keydown.enter="($event.target as HTMLInputElement).blur()"
                 />
@@ -899,21 +907,21 @@ async function duplicateDef() {
                     class="btn btn-primary shrink-0"
                     @click="saveDraft"
                 >
-                    Save
+                    {{ $t("common.save") }}
                 </button>
                 <span v-else class="flex items-center gap-2.5 shrink-0">
                     <span class="text-[11.5px] text-muted tabular-nums"
-                        >~{{ formatTokens(templateTokens) }} tokens</span
+                        >{{ $t("common.tokensEstimate", { tokens: formatTokens(templateTokens) }, templateTokens) }}</span
                     >
                     <span class="flex items-center gap-1.5 text-primary">
                         <Check :size="13" :stroke-width="2.4" />
-                        <span class="text-[11.5px] text-muted">Saved</span>
+                        <span class="text-[11.5px] text-muted">{{ $t("common.saved") }}</span>
                     </span>
                 </span>
             </div>
 
             <p v-if="isDraft" class="text-muted text-[13px] py-4">
-                Save this template to start building its node tree.
+                {{ $t("book.draftHint") }}
             </p>
             <PromptTree
                 v-if="selectedTemplateId"
@@ -933,7 +941,7 @@ async function duplicateDef() {
                 @reorder="handleReorder"
             />
             <div v-if="selectedTemplateId" class="mt-4">
-                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">Variables</h3>
+                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variables") }}</h3>
                 <VariablesEditor :model-value="templateVars" @update:model-value="saveTemplateVars" />
             </div>
             <div class="h-px bg-line my-6" />
@@ -961,7 +969,7 @@ async function duplicateDef() {
                 class="inline-flex items-center gap-1 mt-2 text-[12px] text-muted hover:text-ink"
                 @click="exportDefinition(editDef)"
             >
-                <Download :size="14" /> Export this definition
+                <Download :size="14" /> {{ $t("book.exportDefinition") }}
             </button>
 
             <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>
