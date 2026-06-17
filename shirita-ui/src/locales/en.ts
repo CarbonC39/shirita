@@ -13,6 +13,7 @@ const en = {
     close: 'Close',
     import: 'Import',
     export: 'Export',
+    loading: 'Loading…',
     // Plural example: en distinguishes 1 vs many; zh/ja use a single form.
     tokensEstimate: '~{count} token | ~{count} tokens',
   },
@@ -21,6 +22,14 @@ const en = {
     new: 'New',
     book: 'Book',
     settings: 'Settings',
+  },
+  home: {
+    empty: 'No conversations yet.',
+    importTitle: 'Import a conversation',
+    newChatAria: 'New chat',
+    done: 'Done',
+    reorderDelete: 'Reorder & delete',
+    deleteConfirm: 'Delete this conversation and all its messages?',
   },
   settings: {
     title: 'Settings',
