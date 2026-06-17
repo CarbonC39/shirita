@@ -36,6 +36,7 @@ const ja: MessageSchema = {
   },
   prompt: {
     untitled: '無題',
+    crumb: 'プロンプト',
     subtitle: 'プロンプトテンプレートを選んでツリーを構成します。',
     template: 'テンプレート',
     none: 'なし（空から開始）',

@@ -42,6 +42,7 @@ const en = {
   },
   prompt: {
     untitled: 'Untitled',
+    crumb: 'Prompt',
     subtitle: 'Choose a prompt template and configure the tree.',
     template: 'Template',
     none: 'None (start empty)',

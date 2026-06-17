@@ -36,6 +36,7 @@ const zhHant: MessageSchema = {
   },
   prompt: {
     untitled: '未命名',
+    crumb: '提示詞',
     subtitle: '選擇一個提示詞範本並配置節點樹。',
     template: '範本',
     none: '無（從空白開始）',
