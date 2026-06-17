@@ -91,6 +91,7 @@ fn row_to_message(row: &SqliteRow) -> Result<Message> {
     let role_str: String = row.try_get("role")?;
     let snapshot: String = row.try_get("snapshot_state")?;
     let is_hidden: i64 = row.try_get("is_hidden")?;
+    let is_anchor: i64 = row.try_get("is_anchor")?;
     Ok(Message {
         id: row.try_get("id")?,
         session_id: row.try_get("session_id")?,
@@ -99,6 +100,7 @@ fn row_to_message(row: &SqliteRow) -> Result<Message> {
         raw_content: row.try_get("raw_content")?,
         display_content: row.try_get("display_content")?,
         is_hidden: is_hidden != 0,
+        is_anchor: is_anchor != 0,
         snapshot_state: serde_json::from_str(&snapshot)?,
         created_at: row.try_get("created_at")?,
     })
@@ -259,8 +261,8 @@ impl Storage for SqliteStorage {
         let snapshot = serde_json::to_string(&message.snapshot_state)?;
         sqlx::query(
             "INSERT INTO messages \
-             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, snapshot_state, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&message.id)
         .bind(&message.session_id)
@@ -269,6 +271,7 @@ impl Storage for SqliteStorage {
         .bind(&message.raw_content)
         .bind(&message.display_content)
         .bind(message.is_hidden as i64)
+        .bind(message.is_anchor as i64)
         .bind(snapshot)
         .bind(&message.created_at)
         .execute(&self.pool)
@@ -287,7 +290,7 @@ impl Storage for SqliteStorage {
 
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let rows = sqlx::query(
-            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, snapshot_state, created_at \
+            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at \
              FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC",
         )
         .bind(session_id)
@@ -298,7 +301,7 @@ impl Storage for SqliteStorage {
 
     async fn get_message(&self, id: &str) -> Result<Option<Message>> {
         let row = sqlx::query(
-            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, snapshot_state, created_at \
+            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at \
              FROM messages WHERE id = ?",
         )
         .bind(id)
@@ -693,6 +696,22 @@ mod tests {
         assert_eq!(got[0].content, "earlier summary");
         // 其他会话不串
         assert!(s.list_summaries("other").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn message_is_anchor_roundtrips() {
+        let store = temp_storage().await;
+        let s = Sess::new("anchor");
+        store.create_session(&s).await.unwrap();
+        let mut m = Msg::new(&s.id, None, Role::User, "<start>");
+        m.is_anchor = true;
+        store.create_message(&m).await.unwrap();
+        let got = store.get_message(&m.id).await.unwrap().unwrap();
+        assert!(got.is_anchor);
+        // a plain message defaults to false
+        let m2 = Msg::new(&s.id, None, Role::User, "hi");
+        store.create_message(&m2).await.unwrap();
+        assert!(!store.get_message(&m2.id).await.unwrap().unwrap().is_anchor);
     }
 
     #[tokio::test]
