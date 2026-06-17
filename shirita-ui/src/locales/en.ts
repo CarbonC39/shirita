@@ -55,6 +55,10 @@ const en = {
     back: 'Back',
     title: 'Chat',
   },
+  composer: {
+    attach: 'Attach',
+    placeholder: 'Type a message…',
+  },
   book: {
     localHeading: 'This conversation',
     localChangedLabel: 'Changed here',
