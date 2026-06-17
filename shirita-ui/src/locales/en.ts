@@ -133,6 +133,14 @@ const en = {
     contentPlaceholder: 'Definition content…',
     wrapInTag: 'Wrap content in a tag named after this definition',
   },
+  variables: {
+    heading: 'Variables',
+    system: 'System',
+    custom: 'Custom',
+    namePlaceholder: 'name',
+    initialPlaceholder: 'initial',
+    add: 'Add variable',
+  },
   settings: {
     title: 'Settings',
     language: 'Language',
