@@ -36,6 +36,16 @@ const en = {
     next: 'Next',
     skip: 'Skip',
   },
+  prompt: {
+    untitled: 'Untitled',
+    subtitle: 'Choose a prompt template and configure the tree.',
+    template: 'Template',
+    none: 'None (start empty)',
+    creating: 'Creating…',
+    create: 'Create conversation',
+    deleteContainerConfirm:
+      'Delete this container and its {count} item? | Delete this container and its {count} items?',
+  },
   settings: {
     title: 'Settings',
     language: 'Language',

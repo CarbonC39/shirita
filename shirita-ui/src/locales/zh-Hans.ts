@@ -32,6 +32,15 @@ const zhHans: MessageSchema = {
     next: '下一步',
     skip: '跳过',
   },
+  prompt: {
+    untitled: '未命名',
+    subtitle: '选择一个提示词模板并配置节点树。',
+    template: '模板',
+    none: '无（从空白开始）',
+    creating: '创建中…',
+    create: '创建对话',
+    deleteContainerConfirm: '删除此容器及其中的 {count} 个条目？',
+  },
   settings: {
     title: '设置',
     language: '语言',

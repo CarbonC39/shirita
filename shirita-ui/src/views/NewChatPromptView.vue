@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useLibraryStore } from '../stores/library'
 import { createSession, createNode, updateNode, deleteNode, reorderNodes, listNodes, updateDefinition, createDefinition } from '../api/client'
 import PromptTree from '../components/PromptTree.vue'
 import type { PromptNode, Trigger } from '../api/types'
 
+const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const library = useLibraryStore()
 
-const sessionName = (route.query.name as string) || 'Untitled'
+const sessionName = (route.query.name as string) || t('prompt.untitled')
 const selectedTemplateId = ref<string | null>(null)
 const nodes = ref<PromptNode[]>([])
 const creating = ref(false)
@@ -90,7 +92,7 @@ async function handleDeleteNode(nodeId: string) {
   if (!node) return
   const childCount = nodes.value.filter(n => n.parent_id === nodeId).length
   if (node.kind === 'folder' && childCount > 0
-      && !confirm(`Delete this container and its ${childCount} item(s)?`)) return
+      && !confirm(t('prompt.deleteContainerConfirm', childCount))) return
   try { await deleteNode(nodeId); await reload() } catch (e) { error.value = (e as Error).message }
 }
 
@@ -118,11 +120,11 @@ async function createChat() {
 <template>
   <div class="max-w-[480px] mx-auto px-5 pt-6 pb-12">
     <h2 class="text-lg font-semibold mb-1">{{ sessionName }}</h2>
-    <p class="text-[13px] text-muted mb-6">Choose a prompt template and configure the tree.</p>
+    <p class="text-[13px] text-muted mb-6">{{ $t('prompt.subtitle') }}</p>
     <div class="mb-4">
-      <label class="text-[13px] text-muted mb-1.5 block">Template</label>
+      <label class="text-[13px] text-muted mb-1.5 block">{{ $t('prompt.template') }}</label>
       <select :value="selectedTemplateId" class="field w-full" @change="selectTemplate(($event.target as HTMLSelectElement).value)">
-        <option :value="null">None (start empty)</option>
+        <option :value="null">{{ $t('prompt.none') }}</option>
         <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
       </select>
     </div>
@@ -133,7 +135,7 @@ async function createChat() {
       @update-content="handleUpdateContent" @update-trigger="handleUpdateTrigger" @delete-node="handleDeleteNode" @reorder="handleReorder" />
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
     <div class="mt-8">
-      <button :disabled="creating" class="w-full py-2.5 rounded-full font-medium bg-primary text-white hover:bg-primary-strong transition-colors disabled:opacity-50" @click="createChat">{{ creating ? 'Creating…' : 'Create conversation' }}</button>
+      <button :disabled="creating" class="w-full py-2.5 rounded-full font-medium bg-primary text-white hover:bg-primary-strong transition-colors disabled:opacity-50" @click="createChat">{{ creating ? $t('prompt.creating') : $t('prompt.create') }}</button>
     </div>
   </div>
 </template>
