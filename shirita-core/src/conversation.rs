@@ -131,13 +131,9 @@ async fn assemble_request(
     let include_history = plan.history_enabled || !has_history_node;
     let chat_messages = crate::assembly::build_chat_messages(&plan, context, include_history);
 
-    // regex 规则：所有 regex_rule 定义（Settings 拥有，全局生效）。
-    let regex_rules: Vec<Definition> = storage
-        .list_definitions()
-        .await?
-        .into_iter()
-        .filter(|d| d.def_type == "regex_rule")
-        .collect();
+    // Regex rules scoped to this loreset: collected from the session template
+    // tree during assembly (AssembledPlan.regex_rules), not global.
+    let regex_rules = plan.regex_rules.clone();
 
     let max_tokens = provider_max_tokens(storage).await;
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
@@ -549,11 +545,23 @@ mod tests {
     #[tokio::test]
     async fn regex_rule_sets_display_content() {
         let storage = Arc::new(temp_storage().await);
-        let session = Session::new("t");
-        // regex 规则现在是全局的（Settings 拥有），无需挂载即生效。
+        let mut session = Session::new("t");
         let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
         rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
         storage.create_definition(&rule).await.unwrap();
+        // Regex is now scoped to the session's template tree: build a template
+        // that references this rule and attach it to the session.
+        let tmpl = crate::models::template::Template::new("rx");
+        storage.create_template(&tmpl).await.unwrap();
+        let rxref = crate::models::prompt_node::PromptNode::new_ref(
+            crate::models::prompt_node::OwnerKind::Template,
+            &tmpl.id,
+            None,
+            0,
+            &rule.id,
+        );
+        storage.create_node(&rxref).await.unwrap();
+        session.template_id = Some(tmpl.id.clone());
         storage.create_session(&session).await.unwrap();
 
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
