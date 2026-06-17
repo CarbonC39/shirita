@@ -47,6 +47,18 @@ const ja: MessageSchema = {
   chat: {
     back: '戻る',
     title: 'チャット',
+    assistant: 'アシスタント',
+    you: 'あなた',
+    regenerate: '再生成',
+    fork: '分岐',
+    copy: 'コピー',
+    edit: '編集',
+    hide: '非表示',
+    unhide: '表示',
+    empty: 'まだメッセージがありません。',
+    noMessages: 'まだメッセージがありません',
+    dragReorder: 'ドラッグして並べ替え',
+    options: 'オプション',
   },
   composer: {
     attach: '添付',

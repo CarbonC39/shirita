@@ -54,6 +54,18 @@ const en = {
   chat: {
     back: 'Back',
     title: 'Chat',
+    assistant: 'Assistant',
+    you: 'You',
+    regenerate: 'Regenerate',
+    fork: 'Fork',
+    copy: 'Copy',
+    edit: 'Edit',
+    hide: 'Hide',
+    unhide: 'Unhide',
+    empty: 'No messages yet.',
+    noMessages: 'No messages yet',
+    dragReorder: 'Drag to reorder',
+    options: 'Options',
   },
   composer: {
     attach: 'Attach',

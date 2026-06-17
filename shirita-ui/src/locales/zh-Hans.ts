@@ -47,6 +47,18 @@ const zhHans: MessageSchema = {
   chat: {
     back: '返回',
     title: '对话',
+    assistant: '助手',
+    you: '你',
+    regenerate: '重新生成',
+    fork: '分支',
+    copy: '复制',
+    edit: '编辑',
+    hide: '隐藏',
+    unhide: '取消隐藏',
+    empty: '还没有消息。',
+    noMessages: '还没有消息',
+    dragReorder: '拖动以重排',
+    options: '选项',
   },
   composer: {
     attach: '附件',
