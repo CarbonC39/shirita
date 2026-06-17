@@ -1,4 +1,6 @@
 import { defineStore } from 'pinia'
+import { i18n } from '../i18n'
+import { resolveInitialLocale, type AppLocale } from '../locales/resolve'
 
 export type MessageStyle = 'bubble' | 'flat'
 export type Theme = 'light' | 'dark' | 'system'
@@ -14,6 +16,9 @@ export const useUiStore = defineStore('ui', {
     // The conversation you're "in" — drives the Book page's local section and
     // the shell's Chat tab. Not persisted; set as you navigate.
     activeChatId: null as string | null,
+    // UI language. Persisted to localStorage (key `ui.locale`); resolved on
+    // boot from localStorage -> navigator.language -> en. Mirrors `theme`.
+    locale: resolveInitialLocale() as AppLocale,
   }),
   actions: {
     setActiveChatId(id: string | null) {
@@ -31,6 +36,11 @@ export const useUiStore = defineStore('ui', {
       this.background = path
       if (path) localStorage.setItem('ui.background', path)
       else localStorage.removeItem('ui.background')
+    },
+    setLocale(locale: AppLocale) {
+      this.locale = locale
+      localStorage.setItem('ui.locale', locale)
+      i18n.global.locale.value = locale
     },
   },
 })
