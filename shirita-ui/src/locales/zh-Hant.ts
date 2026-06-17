@@ -32,6 +32,15 @@ const zhHant: MessageSchema = {
     next: '下一步',
     skip: '跳過',
   },
+  prompt: {
+    untitled: '未命名',
+    subtitle: '選擇一個提示詞範本並配置節點樹。',
+    template: '範本',
+    none: '無（從空白開始）',
+    creating: '建立中…',
+    create: '建立對話',
+    deleteContainerConfirm: '刪除此容器及其中的 {count} 個項目？',
+  },
   settings: {
     title: '設定',
     language: '語言',

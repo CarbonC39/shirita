@@ -32,6 +32,15 @@ const ja: MessageSchema = {
     next: '次へ',
     skip: 'スキップ',
   },
+  prompt: {
+    untitled: '無題',
+    subtitle: 'プロンプトテンプレートを選んでツリーを構成します。',
+    template: 'テンプレート',
+    none: 'なし（空から開始）',
+    creating: '作成中…',
+    create: '会話を作成',
+    deleteContainerConfirm: 'このコンテナと中の {count} 件の項目を削除しますか？',
+  },
   settings: {
     title: '設定',
     language: '言語',
