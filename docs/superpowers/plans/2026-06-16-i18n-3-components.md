@@ -49,9 +49,9 @@ grep -nE '>[A-Za-z][^<{]*<' shirita-ui/src/components/<Comp>.vue
 
 **E. Verify** (run every task):
 ```bash
-npm --prefix shirita-ui exec vitest run src/locales/parity.test.ts
-npm --prefix shirita-ui exec vue-tsc --noEmit
-npm --prefix shirita-ui exec vitest run
+npm --prefix shirita-ui run test -- src/locales/parity.test.ts
+npm --prefix shirita-ui run build
+npm --prefix shirita-ui run test --
 ```
 
 **F. Commit** `feat(ui): i18n <area> strings` + standard trailer.
@@ -112,7 +112,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 **Files:** `shirita-ui/src/components/DefinitionEditor.vue`, catalogs.
 
 - [ ] **Step 1:** Procedure A on `DefinitionEditor.vue`. Extract field labels (Name/Content/etc.), section headers, the `wrap_in_tag` toggle label, buttons. **Do NOT** extract the type chips `Character`/`World`/`Prompt` if `DefinitionEditor.test.ts` asserts them as derived from a system `def_type` id — verify whether they are display labels (extractable) or identifiers (not). If they are display labels mapped from ids, extract them under `definition.type*` keys and keep the English values identical so the test's `['Character','World','Prompt']` assertion still passes under the default `en` locale.
-- [ ] **Step 2–6:** Procedure B→F under `definition`. Run `DefinitionEditor.test.ts` specifically in Step 5: `npm --prefix shirita-ui exec vitest run src/components/DefinitionEditor.test.ts`. Commit: `feat(ui): i18n DefinitionEditor strings`.
+- [ ] **Step 2–6:** Procedure B→F under `definition`. Run `DefinitionEditor.test.ts` specifically in Step 5: `npm --prefix shirita-ui run test -- src/components/DefinitionEditor.test.ts`. Commit: `feat(ui): i18n DefinitionEditor strings`.
 
 ---
 
@@ -191,8 +191,8 @@ grep -nE '>[A-Za-z][^<{]*<|(placeholder|title|aria-label)="[A-Za-z]' shirita-ui/
 grep -rnE '>[A-Z][a-z]+[^<{]*<' shirita-ui/src/components/ | grep -v '\$t('
 ```
 Review each hit. Extract any genuine UI prose missed (re-run the relevant task's procedure + commit). Brand names, code, single-letter/icon content, and `data-test` are expected noise.
-- [ ] **Step 2:** Type-check — `npm --prefix shirita-ui exec vue-tsc --noEmit` → exit 0.
-- [ ] **Step 3:** Full tests — `npm --prefix shirita-ui exec vitest run` → all green (parity guards all four locales; resolve/switch/SettingsView i18n tests pass).
+- [ ] **Step 2:** Type-check — `npm --prefix shirita-ui run build` → exit 0.
+- [ ] **Step 3:** Full tests — `npm --prefix shirita-ui run test --` → all green (parity guards all four locales; resolve/switch/SettingsView i18n tests pass).
 - [ ] **Step 4:** Build — `npm --prefix shirita-ui run build` → succeeds (`vue-tsc -b` + `vite build`).
 - [ ] **Step 5:** Manual smoke (recommended): `npm --prefix shirita-ui run dev`, switch through all four languages in Settings, click through Home / New chat / Chat / Book / Settings and confirm no stray English remains in chrome and no `{{ }}` / missing-key artifacts appear. User content stays in its original language (expected).
 

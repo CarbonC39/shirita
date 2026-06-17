@@ -136,7 +136,7 @@ describe('resolveInitialLocale', () => {
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/locales/resolve.test.ts
+npm --prefix shirita-ui run test -- src/locales/resolve.test.ts
 ```
 Expected: FAIL — cannot resolve module `./resolve`.
 
@@ -185,7 +185,7 @@ export function resolveInitialLocale(): AppLocale {
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/locales/resolve.test.ts
+npm --prefix shirita-ui run test -- src/locales/resolve.test.ts
 ```
 Expected: PASS — all cases green.
 
@@ -388,7 +388,7 @@ export {}
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vue-tsc --noEmit
+npm --prefix shirita-ui run build
 ```
 Expected: exit 0, no errors. (The three translation modules already satisfy `MessageSchema`; this only adds the global key constraint.)
 
@@ -431,7 +431,7 @@ export const i18n = createI18n({
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vue-tsc --noEmit
+npm --prefix shirita-ui run build
 ```
 Expected: exit 0.
 
@@ -488,7 +488,7 @@ describe.each([
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/locales/parity.test.ts
+npm --prefix shirita-ui run test -- src/locales/parity.test.ts
 ```
 Expected: PASS — three locales align with en. (This test is the standing safety net for Plans 2 & 3.)
 
@@ -545,7 +545,7 @@ to:
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run
+npm --prefix shirita-ui run test --
 ```
 Expected: PASS — all existing tests green. Existing English assertions (`'Character'`, `'World'`, `'Prompt'`, `'zion'`, etc.) are unchanged because jsdom has no `ui.locale` localStorage and no zh `navigator.language`, so `resolveInitialLocale()` → `en`.
 
@@ -602,7 +602,7 @@ describe('i18n locale switching', () => {
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/i18n.switch.test.ts
+npm --prefix shirita-ui run test -- src/i18n.switch.test.ts
 ```
 Expected: PASS.
 
@@ -663,7 +663,7 @@ Add to the `actions` object (after `setBackground`):
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vue-tsc --noEmit && npm --prefix shirita-ui exec vitest run
+npm --prefix shirita-ui run build && npm --prefix shirita-ui run test --
 ```
 Expected: both green.
 
@@ -733,7 +733,7 @@ describe('SettingsView language switcher', () => {
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/views/SettingsView.i18n.test.ts
+npm --prefix shirita-ui run test -- src/views/SettingsView.i18n.test.ts
 ```
 Expected: FAIL — no `[data-test="locale-switcher"]` element.
 
@@ -802,7 +802,7 @@ with:
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run src/views/SettingsView.i18n.test.ts
+npm --prefix shirita-ui run test -- src/views/SettingsView.i18n.test.ts
 ```
 Expected: PASS.
 
@@ -825,7 +825,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vue-tsc --noEmit
+npm --prefix shirita-ui run build
 ```
 Expected: exit 0.
 
@@ -833,7 +833,7 @@ Expected: exit 0.
 
 Run:
 ```bash
-npm --prefix shirita-ui exec vitest run
+npm --prefix shirita-ui run test --
 ```
 Expected: all suites green.
 
