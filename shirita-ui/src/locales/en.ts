@@ -14,6 +14,7 @@ const en = {
     import: 'Import',
     export: 'Export',
     loading: 'Loading…',
+    saved: 'Saved',
     // Plural: en distinguishes 1 vs many; zh/ja use a single form. `{tokens}`
     // is the pre-formatted display value; pass the raw number as the plural
     // choice: t('common.tokensEstimate', { tokens: formatTokens(n) }, n).
@@ -51,6 +52,33 @@ const en = {
   chat: {
     back: 'Back',
     title: 'Chat',
+  },
+  book: {
+    localHeading: 'This conversation',
+    localChangedLabel: 'Changed here',
+    syncToGlobal: 'Sync to global',
+    revertToGlobal: 'Revert to global',
+    followsTemplate: 'This conversation follows its template.',
+    customizeLocally: 'Customize locally',
+    variablesThisChat: 'Variables (this chat)',
+    variables: 'Variables',
+    selectTemplate: 'Select a template…',
+    newTemplate: '+ New template',
+    onConflict: 'On conflict',
+    conflictSkip: 'Skip',
+    conflictOverwrite: 'Overwrite',
+    conflictDuplicate: 'Duplicate',
+    importTitle: 'Import card / world / template (.png, .json)',
+    exportTemplateTitle: 'Export template (enabled part)',
+    importSummary:
+      'Imported: {created} created, {skipped} skipped, {overwritten} overwritten.',
+    templateNamePlaceholder: 'Template name',
+    draftHint: 'Save this template to start building its node tree.',
+    exportDefinition: 'Export this definition',
+    promoteConfirm: 'Sync this definition to the global library?',
+    deleteType: 'Delete type "{id}"?',
+    deleteTypeInUse:
+      'Delete type "{id}"? Definitions using it will keep the type id but it won\'t be selectable.',
   },
   settings: {
     title: 'Settings',
