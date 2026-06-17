@@ -31,14 +31,14 @@ function onKeydown(e: KeyboardEvent) {
 <template>
   <div class="border-t border-line bg-card px-4 py-3">
     <div class="max-w-[600px] mx-auto flex items-end gap-2.5">
-      <button type="button" class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5" title="Attach">
+      <button type="button" class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5" :title="$t('composer.attach')">
         <Plus :size="20" />
       </button>
       <textarea
         v-model="text"
         :disabled="disabled"
         rows="1"
-        placeholder="Type a message…"
+        :placeholder="$t('composer.placeholder')"
         class="flex-1 resize-none rounded-xl border border-line px-3.5 py-2.5 text-[15px] leading-relaxed
                focus:outline-none focus:border-primary/50 placeholder:text-muted/60
                disabled:bg-surface disabled:text-muted/50"
@@ -57,7 +57,7 @@ function onKeydown(e: KeyboardEvent) {
       </button>
     </div>
     <div v-if="hasText" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pt-1">
-      <span class="text-[11px] text-muted tabular-nums">~{{ formatTokens(draftTokens) }} tokens</span>
+      <span class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
     </div>
   </div>
 </template>

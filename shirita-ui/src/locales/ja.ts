@@ -48,6 +48,10 @@ const ja: MessageSchema = {
     back: '戻る',
     title: 'チャット',
   },
+  composer: {
+    attach: '添付',
+    placeholder: 'メッセージを入力…',
+  },
   book: {
     localHeading: 'このチャット',
     localChangedLabel: 'このチャットで変更',

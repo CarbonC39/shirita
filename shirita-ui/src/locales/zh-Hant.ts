@@ -48,6 +48,10 @@ const zhHant: MessageSchema = {
     back: '返回',
     title: '對話',
   },
+  composer: {
+    attach: '附件',
+    placeholder: '輸入訊息…',
+  },
   book: {
     localHeading: '本對話',
     localChangedLabel: '本對話已改',
