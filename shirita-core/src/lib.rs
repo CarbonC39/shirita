@@ -29,9 +29,9 @@ pub use error::{Error, Result};
 pub use model::{
     AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
 };
-pub use adapters::charcard::{charcard_to_defs, def_to_charcard};
+pub use adapters::charcard::{charcard_to_loreset, LoreSet};
 pub use adapters::preset::tree_to_preset;
-pub use adapters::worldinfo::{defs_to_worldinfo, worldinfo_to_defs};
+pub use adapters::worldinfo::worldinfo_to_defs;
 pub use models::asset::Asset;
 pub use models::def_type::{is_prompt, is_reserved, DefType};
 pub use models::definition::Definition;

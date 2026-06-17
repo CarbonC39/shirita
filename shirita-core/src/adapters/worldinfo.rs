@@ -1,6 +1,5 @@
 //! SillyTavern World Info / lorebook ↔ 我们的 world 类型定义（带 meta.trigger）。
 
-use crate::assembly::{parse_trigger, TriggerMode};
 use crate::models::definition::Definition;
 
 /// 把 ST 世界书 JSON（map 形 或 array 形 entries）转成 world 定义列表。
@@ -37,35 +36,6 @@ fn entry_to_def(e: &serde_json::Value) -> Definition {
     def
 }
 
-/// world 定义列表 → ST 标准世界书 JSON（map 形 entries，键为序号）。
-pub fn defs_to_worldinfo(defs: &[Definition]) -> serde_json::Value {
-    let mut entries = serde_json::Map::new();
-    for (i, d) in defs.iter().enumerate() {
-        let t = parse_trigger(&d.meta);
-        let constant = matches!(t.mode, TriggerMode::Constant);
-        let use_prob = matches!(t.mode, TriggerMode::Random);
-        let order = d.meta.get("trigger").and_then(|x| x.get("order")).and_then(|v| v.as_u64()).unwrap_or(100);
-        entries.insert(
-            i.to_string(),
-            serde_json::json!({
-                "uid": i,
-                "key": t.keys,
-                "keysecondary": [],
-                "comment": d.name,
-                "content": d.content,
-                "constant": constant,
-                "selective": matches!(t.mode, TriggerMode::Keyword),
-                "order": order,
-                "position": 0,
-                "disable": false,
-                "probability": t.probability,
-                "useProbability": use_prob,
-            }),
-        );
-    }
-    serde_json::json!({ "entries": entries })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,29 +63,5 @@ mod tests {
         });
         let defs = worldinfo_to_defs(&wi);
         assert_eq!(defs[0].meta["trigger"]["mode"], "constant");
-    }
-
-    #[test]
-    fn exports_defs_to_standalone_map() {
-        let mut d = Definition::new("world", "Zion", "Last city");
-        d.meta = serde_json::json!({ "trigger": { "mode": "keyword", "keys": ["zion"], "probability": 100, "order": 7 } });
-        let wi = defs_to_worldinfo(&[d]);
-        let e = &wi["entries"]["0"];
-        assert_eq!(e["comment"], "Zion");
-        assert_eq!(e["content"], "Last city");
-        assert_eq!(e["key"][0], "zion");
-        assert_eq!(e["constant"], false);
-        assert_eq!(e["order"], 7);
-        assert_eq!(e["disable"], false);
-    }
-
-    #[test]
-    fn worldinfo_roundtrips() {
-        let mut d = Definition::new("world", "Trinity", "She");
-        d.meta = serde_json::json!({ "trigger": { "mode": "keyword", "keys": ["trinity", "she"], "probability": 100, "order": 100 } });
-        let back = worldinfo_to_defs(&defs_to_worldinfo(std::slice::from_ref(&d)));
-        assert_eq!(back[0].name, "Trinity");
-        assert_eq!(back[0].meta["trigger"]["keys"], serde_json::json!(["trinity", "she"]));
-        assert_eq!(back[0].meta["trigger"]["mode"], "keyword");
     }
 }
