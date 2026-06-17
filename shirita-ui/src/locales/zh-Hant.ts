@@ -27,6 +27,11 @@ const zhHant: MessageSchema = {
     reorderDelete: '重新排序與刪除',
     deleteConfirm: '刪除此對話及其所有訊息？',
   },
+  newChat: {
+    namePlaceholder: '名稱',
+    next: '下一步',
+    skip: '跳過',
+  },
   settings: {
     title: '設定',
     language: '語言',

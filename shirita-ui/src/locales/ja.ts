@@ -27,6 +27,11 @@ const ja: MessageSchema = {
     reorderDelete: '並べ替え・削除',
     deleteConfirm: 'この会話とすべてのメッセージを削除しますか？',
   },
+  newChat: {
+    namePlaceholder: '名前',
+    next: '次へ',
+    skip: 'スキップ',
+  },
   settings: {
     title: '設定',
     language: '言語',

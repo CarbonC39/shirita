@@ -31,6 +31,11 @@ const en = {
     reorderDelete: 'Reorder & delete',
     deleteConfirm: 'Delete this conversation and all its messages?',
   },
+  newChat: {
+    namePlaceholder: 'Name',
+    next: 'Next',
+    skip: 'Skip',
+  },
   settings: {
     title: 'Settings',
     language: 'Language',
