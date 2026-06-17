@@ -19,7 +19,9 @@
 - 密教模拟器:`description`(大 JSON)、`first_mes`(`<start>`)、`alternate_greetings`×2、`character_book`×65、`extensions.regex_scripts`×2
 - 怪谈社:`first_mes`(整页 HTML)、`alternate_greetings`×2、`character_book`×22、`extensions.regex_scripts`×5
 
-`personality / scenario / mes_example / system_prompt / post_history_instructions / extensions.depth_prompt.prompt` 在两张卡里**全为空**。结论:**只为四样东西造机制**——`description`、`first_mes(+alt)`、`character_book`、`regex_scripts`。其余空字段:有内容则拼进 char 正文,否则忽略;`extensions` 整体留一份在 char 定义的 `meta.st_raw` 里(调试用,不解释)。
+`personality / scenario / mes_example / system_prompt / post_history_instructions / extensions.depth_prompt.prompt` 在两张卡里**全为空**——所以真实导入产出的定义不多。但**机制要通用且无损**:
+
+> **无损降维原则(不拼接):** 既然万物皆定义,每个**非空**字段就**各自生成一个独立定义 + 一个 Ref 节点**,挂到这套设定的 Template 下对应位置;空字段不产定义。**绝不把字段拼进 char 正文。** 这样每段都独立、可编辑、可重排,且把 ST 的多维结构无损映射到 Shirita 的「定义 + 2 层树 + before/after-history 落点」上(详见 §5.1)。`extensions` 里无法解释的部分(depth_prompt、tavern_helper 等)整份留在 char 定义的 `meta.st_raw`(不丢、不解释)。
 
 ## 3. 概念模型(不加新概念)
 
@@ -28,7 +30,7 @@
 | **Definition** | 唯一内容单元。type:char / persona / world / **first_message(新 RESERVED 类型)** / regex_rule / … | 加一个保留类型 |
 | **Template** | 一棵 2 层 prompt 节点树。**它本身就是「设定集/分组」** | 导入卡时建一个 |
 | **PromptNode** | Folder(tag) / Ref(→definition) / History。2 层不变 | 新增「非渲染 ref」语义 |
-| **Session** | 一次会话 = 选一个 template + 消息树 | 创建时按 first_message 定义 seed 开场白 |
+| **Session** | 一次会话 = 选一个 template + 消息树 | 创建时 seed:**隐形 anchor user + assistant 开场白(备选=swipes)** |
 
 **设定集 = 一个 Template + 它节点树引用的那批 Definition。** 没有「库内文件夹」「Character 实体」这类新东西。
 
@@ -76,16 +78,28 @@ ST `regex_scripts[i]` → `regex_rule` 定义映射:
 | `minDepth`/`maxDepth` | `meta.min_depth`/`max_depth` | 只存 |
 | `trimStrings`/`substituteRegex`/`runOnEdit` | `meta.st_raw` 透传 | 只存 |
 
-### 4.5 会话创建 seed 首消息
+### 4.5 新字段 `Message.is_anchor`(隐形锚定 user)
+
+**问题**:若首条消息是 assistant(开场白),下一次生成发给 API 的历史会以 assistant 起头 → **Anthropic/OpenAI 直接 400**(要求 user 起头)。
+
+**约束**:现有 `is_hidden` 语义是「**从 prompt 剔除** + UI 中暗显」(`conversation.rs:203/292` 有 `.filter(|m| !m.is_hidden)`)——与我们要的相反。我们要的是「**留在 prompt** + UI 中不显」。两者正交,故新增字段:
+
+- `Message` 加 `pub is_anchor: bool`(默认 false;migration 加列 `is_anchor INTEGER NOT NULL DEFAULT 0`)。
+- 语义:**合成的锚定 user 轮**。`is_hidden=false`(故照常进 prompt,满足 user 起头),但 **UI 跳过渲染**(`MessageList`/`MessageItem` 见到 `is_anchor` 不渲染)。
+- 与 `is_hidden` 区别明确:`is_hidden` = 出 UI(暗显)、不进 prompt;`is_anchor` = 不进 UI、进 prompt。
+
+### 4.6 会话创建 seed 首消息
 
 `routes/sessions.rs::create_session`:设置 `template_id` 并 seed `current_state` 后,新增:
 
 1. 取该 session 生效的 template 节点(引用模板节点,或会话自身已物化节点)。
 2. 找指向 `first_message` 定义的 ref;取其 `content`(主)+ `meta.alternate_greetings`(备选),按 `render_vars` 渲染变量。
-3. **seed 成「根级 assistant 消息 + swipes」**:为主开场白 + 每条备选各建一条 `role=assistant`、`parent_id=None` 的消息,互为兄弟(= swipes);`active_leaf_id` 指向主开场白那条。`display_content` 经本设定集 display 侧 regex 求得(与生成消息一致),`raw_content` = 渲染后的开场白原文。
-4. 无 `first_message` ref → 不 seed,保持现状(空会话)。
+3. **seed 成「隐形 anchor user → assistant 开场白(+swipes)」**:
+   - 先建一条 `role=User`、`raw_content="<start>"`、`is_anchor=true`、`parent_id=None` 的锚定消息(常量 `<start>`,ST 惯例;以后可设)。
+   - 再为主开场白 + 每条备选各建一条 `role=Assistant`、`parent_id=anchor.id` 的消息,互为兄弟(= swipes);`active_leaf_id` 指向主开场白那条。`raw_content` = 渲染后的开场白原文,`display_content` 经本设定集 display 侧 regex 求得(与生成消息一致)。
+4. 无 `first_message` ref → 不 seed,保持现状(空会话,无需 anchor)。
 
-> 设计点:消息树需支持「根级 assistant 消息(其前无 user)」。`active_path`/分支逻辑须对此成立——纳入测试(见 §7)。
+> 效果:`active_path` 始终从锚定 user 起头(user→assistant→…),下一次生成天然 user-first,不触发 400。锚定 user 在 UI 中不可见。
 
 ## 5. 导入翻译:卡 → 设定集
 
@@ -96,25 +110,32 @@ ST `regex_scripts[i]` → `regex_rule` 定义映射:
 ```rust
 pub struct LoreSet {
     pub template: Template,
-    pub definitions: Vec<Definition>,   // char + world×N + first_message + regex×M
-    pub nodes: Vec<PromptNode>,         // 2 层:folder + ref + history
+    pub definitions: Vec<Definition>,   // 每个非空字段一个:char(desc)+char(personality)
+                                        // + world(scenario)+world×N(book) + prompt×(sys/example/post)
+                                        // + first_message + regex_rule×M
+    pub nodes: Vec<PromptNode>,         // 2 层:folder + ref + history(落点由 sort_order 定)
 }
 pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet;
 ```
 
-翻译规则:
+`data`(v2/v3)优先,缺失回退顶层(v1)。**每个非空字段各产一个定义 + ref 节点(不拼接);空字段跳过。** 字段 → 定义 → 落点:
 
-- `data`(v2/v3)优先,缺失回退顶层(v1)。
-- **char 定义**:`name` = 卡名;`content` = `description`;若 `description` 空而 `personality`/`scenario` 非空,则把它们以简单标注拼进 content(「凑合」);仍全空则 content 留空。`meta.st_raw` = 原始 `extensions`(透传)。
-- **world 定义 ×N**:`character_book` 走现有 `worldinfo_to_defs`(已实现,不动)。
-- **first_message 定义**:`content` = `first_mes`;`meta.alternate_greetings` = `alternate_greetings`。`first_mes` 与 alt 全空 → 不产此定义。
-- **regex_rule 定义 ×M**:`extensions.regex_scripts[*]` 按 §4.4 映射;空数组 → 无。
-- **Template**:`name` = 卡名;2 层节点树(均合法 2 层:folder 挂根、ref 挂根或挂同 owner 根 folder):
-  - `folder "char"` → ref char(渲染)
-  - `folder "world"` → refs world×N(渲染,仅当非空)
-  - **根级** refs regex×M(非渲染,挂根避免空折叠;仅当非空)
-  - **根级** ref first_message(非渲染开场白;仅当存在)
-  - `history` 节点(开场白之后即正常历史)
+| ST 字段 | 定义 type | 节点落点 | 渲染? |
+|---|---|---|---|
+| `description` | `char` | char folder 下 ref | 是 |
+| `personality`(非空) | `char` 副定义(name 如 `卡名·personality`) | char folder 下 ref(与 description 平级) | 是 |
+| `scenario`(非空) | `world`(meta.trigger.mode=`constant`,always-on) | world folder 下 ref | 是 |
+| `mes_example`(非空) | `prompt`(裸文本) | 根级 ref,**history 之前** | 是(裸) |
+| `system_prompt`(非空) | `prompt` | 根级 ref,**history 之前、sort 最靠前** | 是(裸) |
+| `post_history_instructions`(非空) | `prompt` | 根级 ref,**history 之后** | 是(裸) |
+| `first_mes` + `alternate_greetings` | `first_message` | 根级 ref(非渲染) | 否→seed 开场白 |
+| `character_book` ×N | `world` ×N(现有 `worldinfo_to_defs`) | world folder 下 refs | 是 |
+| `extensions.regex_scripts` ×M | `regex_rule` ×M(§4.4) | 根级 refs(非渲染) | 否 |
+| `extensions`(depth_prompt/tavern_helper/其余) | 透传 `char.meta.st_raw` | — | — |
+
+> **无损降维落点**:`prompt` 类型是根级裸文本(`is_prompt`,不 `<tag>` 封包)。before/after-history 由各根级 ref 的 `sort_order` 相对 `history` 节点的位置决定——`history` 之前的 `prompt` ref 进 before-history 段(system_prompt 排最前),之后的进 after-history 段(post_history)。**全部用现有装配机制,零新机制。**
+
+**Template**:`name` = 卡名;2 层节点树(均合法 2 层:folder 挂根、ref 挂根或挂同 owner 根 folder),`sort_order` 自上而下:`system_prompt`(prompt) → `char` folder(description + personality) → `world` folder(scenario + book) → `mes_example`(prompt) → regex/first_message 非渲染根 ref(落点无关) → `history` 节点 → `post_history`(prompt)。
 
 ### 5.2 web 路由(`routes/import_export.rs`)
 
@@ -131,25 +152,29 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet;
 - `shirita-core/src/adapters/worldinfo.rs`:不动(`worldinfo_to_defs` 复用)。`defs_to_worldinfo` 同属回出口,一并删。
 - `shirita-core/src/assembly.rs`:`assemble_from_nodes` 跳过 `regex_rule`/`first_message` ref 并收集 regex 规则集;`apply_regex_rules` honor `disabled`/`scope`。
 - `shirita-core/src/conversation.rs`:`assemble_request` 不再全局 filter regex,改用 assembly 收集到的设定集 regex 集。
-- `shirita-web/src/routes/sessions.rs`:`create_session` 增 first_message seeding。
+- `shirita-core/src/models/message.rs`:`Message` 加 `is_anchor: bool`(默认 false);`new` 初始化。
+- `shirita-core/src/storage/sqlite.rs`(+ migration):messages 加列 `is_anchor INTEGER NOT NULL DEFAULT 0`;读写映射该列。
+- `shirita-web/src/routes/sessions.rs`:`create_session` 增 first_message seeding(anchor user + assistant swipes)。
 - `shirita-web/src/routes/import_export.rs`:charcard 导入改造为落「定义 + template + nodes」。
-- `shirita-core/src/storage/*`:若 seeding 需批量建消息,复用现有 `create_message`;预计无 schema 变更。
+- `shirita-ui/src/components/MessageList.vue` / `MessageItem.vue`:`is_anchor` 的消息**不渲染**(api/types 加该字段)。
 
 ## 7. 测试策略
 
-- **core 适配**(`adapters/charcard.rs`):`examples/` 两卡(或精简夹具)→ `charcard_to_loreset` 产出:char/world×N/first_message/regex×M 数目正确;template 2 层结构正确;ref `definition_id` 自洽。
-- **非渲染 ref**(`assembly.rs`):含 regex_rule + first_message ref 的树,装配产出的 prompt 段**不含**这俩;regex 规则集只含树里引用的。
+- **core 适配**(`adapters/charcard.rs`):构造一张带 personality/scenario/system_prompt/post_history/mes_example 全非空的合成卡 → 验证每个非空字段各产一个定义(类型正确)+ 对应 ref;空字段不产;template 2 层合法。
+- **无损降维落点**(`assembly.rs`):system_prompt 的 prompt 段落 before-history,post_history 落 after-history(由 sort_order 相对 history 决定)。
+- **非渲染 ref**(`assembly.rs`):含 regex_rule + first_message ref 的树,装配 prompt 段**不含**这俩;regex 规则集只含树里引用的。
 - **regex 作用域**(`conversation.rs`):两个设定集各带不同 regex,会话 A 只应用 A 的;`disabled` 规则被跳过。
-- **首消息 seed**(`routes/sessions.rs` 集成测):建带 first_message 的设定集 → 新建会话 → 消息树有 1 主 + N 备选的根级 assistant 兄弟;`active_leaf` 指主;`active_path` 对「根级 assistant」成立。
+- **anchor + 首消息 seed**(`routes/sessions.rs` 集成测):建带 first_message 的设定集 → 新建会话 → 消息树为「`is_anchor` user(`<start>`)→ 1 主 + N 备选 assistant 兄弟(swipes)」;`active_leaf` 指主;**下一次生成的 API 历史以 user 起头**(不 assistant-first → 不 400);anchor 消息有 `is_anchor=true`。
 - **导入端到端**(web 集成测):POST 怪谈社 JSON → 200;库里出现 char + 22 world + 5 regex + 1 first_message + 1 template;据此新建会话首消息 = 其 HTML 开场白原文。
 - **去重/冲突**:重复导入同卡,`on_conflict=skip` 不产重复定义。
-- 既有测试回归:`worldinfo` 不变;`template_assembly_test` 等仍绿(注意 regex 全局→引用的行为变更需同步调整相关单测)。
+- 既有测试回归:`worldinfo` 不变;`template_assembly_test` 等仍绿(注意 regex 全局→引用的行为变更、Message 加列需同步调整相关单测)。
 
 ## 8. 取舍与不做(本 slice)
 
 - **不做** HTML 渲染本身(前端 sandbox)——下一个 slice;本 spec 只保证 `display_content` 能装 HTML 文本。
 - **不做** ST 预设导入——独立 slice(卡多数不带预设,且 ST 中是独立文件)。
-- **不做** prompt 侧 regex 应用、`depth_prompt` 深度注入、`mes_example`/`system_prompt`/`post_history` 的装配机制(真实数据里皆空)——meta 存着,留后。
+- **做** `system_prompt`/`post_history_instructions`/`mes_example`/`personality`/`scenario` 的**无损降维**(各成定义 + before/after-history 落点,§5.1)——零新机制,用现有装配。
+- **不做** prompt 侧 regex 应用、`depth_prompt` 深度注入(depth N 注入现有机制不支持,且真实数据里 `prompt` 为空)——`depth_prompt` 原样存 `meta.st_raw`,留后。
 - **不做** MVU/变量框架桥接、`tavern_helper`——明确不支持,原样存 `meta.st_raw`。
 - **不做** 回出口(Shirita→ST):删 `def_to_charcard`/`defs_to_worldinfo`。导入是单向有损翻译。
 
