@@ -6,9 +6,10 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use shirita_core::models::message::Message;
-use shirita_core::models::prompt_node::OwnerKind;
+use shirita_core::models::message::{Message, Role};
+use shirita_core::models::prompt_node::{NodeKind, OwnerKind};
 use shirita_core::models::session::Session;
+use shirita_core::render_vars;
 use shirita_core::state::{resolve_schema, schema_initials};
 
 use crate::AppState;
@@ -51,7 +52,67 @@ pub async fn create_session(
     let schema = resolve_schema(template_meta.as_ref(), &session.override_config);
     session.current_state = Value::Object(schema_initials(&schema));
     state.storage.create_session(&session).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Seed the opening greeting from a first_message definition referenced by
+    // the template: a hidden anchor user turn (<start>) followed by the main
+    // greeting and its alternates as sibling assistant messages (swipes). The
+    // anchor stays in the prompt (so generation is user-first) but is hidden in
+    // the UI.
+    seed_first_message(&state, &session).await?;
     Ok(Json(session))
+}
+
+/// Find a first_message ref in the session's template and seed the opening
+/// assistant turn(s) plus a leading anchor user message.
+async fn seed_first_message(state: &AppState, session: &Session) -> Result<(), StatusCode> {
+    let Some(tid) = session.template_id.as_deref() else { return Ok(()) };
+    let nodes = state
+        .storage
+        .list_nodes(&OwnerKind::Template, tid)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut greeting: Option<(String, Vec<String>)> = None;
+    for n in nodes.iter().filter(|n| n.kind == NodeKind::Ref) {
+        if let Some(did) = &n.definition_id {
+            if let Ok(Some(def)) = state.storage.get_definition(did).await {
+                if def.def_type == "first_message" {
+                    let alts = def
+                        .meta
+                        .get("alternate_greetings")
+                        .and_then(|v| v.as_array())
+                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                        .unwrap_or_default();
+                    greeting = Some((def.content.clone(), alts));
+                    break;
+                }
+            }
+        }
+    }
+    let Some((first, alts)) = greeting else { return Ok(()) };
+
+    let mut anchor = Message::new(&session.id, None, Role::User, "<start>");
+    anchor.is_anchor = true;
+    state.storage.create_message(&anchor).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mut greetings = vec![first];
+    greetings.extend(alts);
+    let mut first_id: Option<String> = None;
+    for g in greetings {
+        let rendered = render_vars(&g, &session.current_state);
+        let m = Message::new(&session.id, Some(anchor.id.clone()), Role::Assistant, rendered);
+        if first_id.is_none() {
+            first_id = Some(m.id.clone());
+        }
+        state.storage.create_message(&m).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    if let Some(fid) = first_id {
+        state
+            .storage
+            .set_session_active_leaf(&session.id, Some(&fid))
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    Ok(())
 }
 
 pub async fn get_session(

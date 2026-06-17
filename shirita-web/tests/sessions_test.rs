@@ -38,6 +38,52 @@ fn auth(req: Request<Body>) -> Request<Body> {
     Request::from_parts(parts, body)
 }
 
+async fn send(state: &AppState, method: &str, uri: &str, body: Option<&str>) -> (StatusCode, String) {
+    let mut b = Request::builder().method(method).uri(uri).header(header::AUTHORIZATION, "Bearer secret-token");
+    let body = match body {
+        Some(j) => {
+            b = b.header(header::CONTENT_TYPE, "application/json");
+            Body::from(j.to_string())
+        }
+        None => Body::empty(),
+    };
+    let res = app(state.clone()).oneshot(b.body(body).unwrap()).await.unwrap();
+    let st = res.status();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes();
+    (st, String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+#[tokio::test]
+async fn create_session_seeds_first_message_with_anchor() {
+    let state = test_state().await;
+    // a first_message definition + a template that references it
+    let fm = r#"{"type":"first_message","name":"g","content":"wake up","meta":{"alternate_greetings":["again"]}}"#;
+    let (_, d) = send(&state, "POST", "/api/definitions", Some(fm)).await;
+    let did = serde_json::from_str::<serde_json::Value>(&d).unwrap()["id"].as_str().unwrap().to_string();
+    let (_, t) = send(&state, "POST", "/api/templates", Some(r#"{"name":"T"}"#)).await;
+    let tid = serde_json::from_str::<serde_json::Value>(&t).unwrap()["id"].as_str().unwrap().to_string();
+    let body = format!(r#"{{"kind":"ref","definition_id":"{did}"}}"#);
+    send(&state, "POST", &format!("/api/templates/{tid}/nodes?owner_kind=template"), Some(&body)).await;
+
+    let (st, s) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"s","template_id":"{tid}"}}"#))).await;
+    assert_eq!(st, StatusCode::OK);
+    let sid = serde_json::from_str::<serde_json::Value>(&s).unwrap()["id"].as_str().unwrap().to_string();
+
+    let (_, msgs) = send(&state, "GET", &format!("/api/sessions/{sid}/messages"), None).await;
+    let msgs: serde_json::Value = serde_json::from_str(&msgs).unwrap();
+    let arr = msgs.as_array().unwrap();
+    // anchor user + 2 assistants (main + alternate)
+    let anchor = arr.iter().find(|m| m["role"] == "user" && m["is_anchor"] == true).unwrap();
+    let assistants: Vec<_> = arr.iter().filter(|m| m["role"] == "assistant").collect();
+    assert_eq!(assistants.len(), 2);
+    // both assistants hang off the anchor (they are swipes)
+    for a in &assistants {
+        assert_eq!(a["parent_id"], anchor["id"]);
+    }
+    assert!(assistants.iter().any(|a| a["raw_content"] == "wake up"));
+    assert!(assistants.iter().any(|a| a["raw_content"] == "again"));
+}
+
 #[tokio::test]
 async fn create_then_list_session() {
     let state = test_state().await;
