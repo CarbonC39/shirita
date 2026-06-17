@@ -53,6 +53,11 @@ async fn import_bytes(state: &AppState, query: &str, filename: &str, data: &[u8]
     (status, v)
 }
 
+/// Count `created` summary items of kind "definition" (cards now also create a template).
+fn created_defs(v: &Value) -> usize {
+    v["created"].as_array().unwrap().iter().filter(|c| c["kind"] == "definition").count()
+}
+
 fn png_card(json: &str) -> Vec<u8> {
     let sig = [0x89u8, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
     let b64 = base64::engine::general_purpose::STANDARD.encode(json.as_bytes());
@@ -77,7 +82,8 @@ async fn imports_st_card_json() {
     let card = r#"{"spec":"chara_card_v2","data":{"name":"Neo","description":"The One"}}"#;
     let (st, v) = import_bytes(&state, "", "neo.json", card.as_bytes()).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(v["created"].as_array().unwrap().len(), 1);
+    // a card now imports as a loreset: char definition + template
+    assert_eq!(created_defs(&v), 1);
     let defs = state.storage.list_definitions().await.unwrap();
     assert!(defs.iter().any(|d| d.def_type == "char" && d.name == "Neo"));
 }
@@ -111,7 +117,7 @@ async fn conflict_skip_then_overwrite_then_duplicate() {
     let card = r#"{"data":{"name":"Dup","description":"v1"}}"#;
     // 首次：created
     let (_, v1) = import_bytes(&state, "", "d.json", card.as_bytes()).await;
-    assert_eq!(v1["created"].as_array().unwrap().len(), 1);
+    assert_eq!(created_defs(&v1), 1);
     // skip：同名跳过
     let (_, v2) = import_bytes(&state, "?on_conflict=skip", "d.json", card.as_bytes()).await;
     assert_eq!(v2["skipped"].as_array().unwrap().len(), 1);
@@ -127,7 +133,7 @@ async fn conflict_skip_then_overwrite_then_duplicate() {
     assert_eq!(dup.content, "v2");
     // duplicate：同名再建新 id
     let (_, v4) = import_bytes(&state, "?on_conflict=duplicate", "d.json", card.as_bytes()).await;
-    assert_eq!(v4["created"].as_array().unwrap().len(), 1);
+    assert_eq!(created_defs(&v4), 1);
     let dups: Vec<_> = state.storage.list_definitions().await.unwrap().into_iter().filter(|d| d.name == "Dup").collect();
     assert_eq!(dups.len(), 2, "duplicate 应产生同名共存");
 }

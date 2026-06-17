@@ -66,5 +66,9 @@ async fn import_charcard_creates_char_and_book() {
     let card = r#"{"spec":"chara_card_v2","data":{"name":"Neo","description":"The One","character_book":{"entries":[{"keys":["zion"],"comment":"Zion","content":"x"}]}}}"#;
     let (st, out) = send(&state, "POST", "/api/import/charcard", Some(card)).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(json(&out)["created"].as_array().unwrap().len(), 2); // char + 1 world
+    let parsed = json(&out);
+    let created = parsed["created"].as_array().unwrap();
+    // char(description) + world(book entry) + template
+    assert_eq!(created.len(), 3);
+    assert!(created.iter().any(|c| c["kind"] == "template"));
 }

@@ -6,7 +6,7 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use shirita_core::{Definition, NodeKind, OwnerKind, PromptNode, Template};
+use shirita_core::{charcard_to_loreset, Definition, LoreSet, NodeKind, OwnerKind, PromptNode, Template};
 
 use crate::AppState;
 
@@ -99,15 +99,66 @@ async fn first_field_bytes(mut mp: Multipart) -> Result<Vec<u8>, StatusCode> {
 
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
-/// 把一张 ST 角色卡 JSON（可带头像文件名）转成定义列表（char + 内嵌世界书）。
-fn card_to_defs(card: &Value, avatar: Option<&str>) -> Vec<Definition> {
-    let (mut ch, book) = shirita_core::charcard_to_defs(card);
-    if let (Some(av), Some(obj)) = (avatar, ch.meta.as_object_mut()) {
-        obj.insert("avatar".into(), json!(av));
+/// Inject the saved avatar filename into the loreset's main char definition.
+fn with_avatar(mut ls: LoreSet, avatar: Option<&str>) -> LoreSet {
+    if let Some(av) = avatar {
+        if let Some(ch) = ls.definitions.iter_mut().find(|d| d.def_type == "char") {
+            match ch.meta.as_object_mut() {
+                Some(obj) => {
+                    obj.insert("avatar".into(), json!(av));
+                }
+                None => ch.meta = json!({ "avatar": av }),
+            }
+        }
     }
-    let mut all = vec![ch];
-    all.extend(book);
-    all
+    ls
+}
+
+/// Persist a loreset: dedup definitions by name+def_type per `on_conflict`,
+/// remap ref `definition_id`s to the actually-stored ids, then persist the
+/// template and its nodes.
+async fn persist_loreset(
+    state: &AppState,
+    ls: LoreSet,
+    oc: OnConflict,
+    summary: &mut ImportSummary,
+) -> Result<(), StatusCode> {
+    let existing = state.storage.list_definitions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut idmap: HashMap<String, String> = HashMap::new();
+    for mut d in ls.definitions {
+        let orig_id = d.id.clone();
+        let dup = existing.iter().find(|e| e.name == d.name && e.def_type == d.def_type).cloned();
+        match (dup, oc) {
+            (Some(ex), OnConflict::Skip) => {
+                idmap.insert(orig_id, ex.id.clone());
+                summary.skipped.push(item("definition", &ex.id, &ex.name));
+            }
+            (Some(ex), OnConflict::Overwrite) => {
+                d.id = ex.id.clone();
+                state.storage.update_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                idmap.insert(orig_id, d.id.clone());
+                summary.overwritten.push(item("definition", &d.id, &d.name));
+            }
+            (_, OnConflict::Duplicate) | (None, _) => {
+                state.storage.create_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                idmap.insert(orig_id, d.id.clone());
+                summary.created.push(item("definition", &d.id, &d.name));
+            }
+        }
+    }
+    state.storage.create_template(&ls.template).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Persist container nodes (folder/history) before refs so a child ref's
+    // parent_id always already exists (self-referential FK).
+    let (containers, refs): (Vec<PromptNode>, Vec<PromptNode>) =
+        ls.nodes.into_iter().partition(|n| n.kind != NodeKind::Ref);
+    for mut n in containers.into_iter().chain(refs) {
+        if let Some(did) = n.definition_id.as_ref().and_then(|id| idmap.get(id)).cloned() {
+            n.definition_id = Some(did);
+        }
+        state.storage.create_node(&n).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    summary.created.push(item("template", &ls.template.id, &ls.template.name));
+    Ok(())
 }
 
 /// POST /api/import — multipart 单 `file`。按内容 sniff 来源并落库。
@@ -125,7 +176,7 @@ pub async fn import(
         let card = shirita_core::read_card_json(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
         let name = card.get("data").and_then(|d| d.get("name")).and_then(|v| v.as_str()).unwrap_or("character");
         let avatar = save_png_asset(&state, &bytes, name).await?;
-        persist_defs(&state, card_to_defs(&card, Some(&avatar)), oc, &mut summary).await?;
+        persist_loreset(&state, with_avatar(charcard_to_loreset(&card), Some(&avatar)), oc, &mut summary).await?;
         return Ok(Json(summary));
     }
 
@@ -144,7 +195,7 @@ pub async fn import(
                 || v.get("data").and_then(|d| d.get("name")).is_some()
                 || (v.get("name").is_some() && v.get("description").is_some());
             if is_card {
-                persist_defs(&state, card_to_defs(&v, None), oc, &mut summary).await?;
+                persist_loreset(&state, charcard_to_loreset(&v), oc, &mut summary).await?;
             } else if v.get("entries").is_some() {
                 persist_defs(&state, shirita_core::worldinfo_to_defs(&v), oc, &mut summary).await?;
             } else {
@@ -161,7 +212,7 @@ pub async fn import_charcard(
     Json(body): Json<Value>,
 ) -> Result<Json<ImportSummary>, StatusCode> {
     let mut summary = ImportSummary::default();
-    persist_defs(&state, card_to_defs(&body, None), OnConflict::Skip, &mut summary).await?;
+    persist_loreset(&state, charcard_to_loreset(&body), OnConflict::Skip, &mut summary).await?;
     Ok(Json(summary))
 }
 
