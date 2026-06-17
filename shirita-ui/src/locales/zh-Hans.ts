@@ -27,6 +27,11 @@ const zhHans: MessageSchema = {
     reorderDelete: '重排与删除',
     deleteConfirm: '删除此对话及其所有消息？',
   },
+  newChat: {
+    namePlaceholder: '名称',
+    next: '下一步',
+    skip: '跳过',
+  },
   settings: {
     title: '设置',
     language: '语言',

@@ -21,9 +21,9 @@ function proceed() {
     <div class="flex flex-col items-center gap-5">
       <AvatarPicker @select="avatar = $event" />
       <div class="w-full">
-        <input v-model="name" type="text" placeholder="Name" class="w-full text-center text-xl font-semibold bg-transparent border-b-2 border-line focus:border-primary outline-none pb-2 placeholder:text-muted/50" @keydown.enter="proceed()" />
+        <input v-model="name" type="text" :placeholder="$t('newChat.namePlaceholder')" class="w-full text-center text-xl font-semibold bg-transparent border-b-2 border-line focus:border-primary outline-none pb-2 placeholder:text-muted/50" @keydown.enter="proceed()" />
       </div>
-      <button :class="['px-8 py-2.5 rounded-full font-medium text-[15px] transition-colors', canProceed ? 'bg-primary text-white hover:bg-primary-strong' : 'bg-line text-muted']" @click="proceed()">{{ canProceed ? 'Next' : 'Skip' }}</button>
+      <button :class="['px-8 py-2.5 rounded-full font-medium text-[15px] transition-colors', canProceed ? 'bg-primary text-white hover:bg-primary-strong' : 'bg-line text-muted']" @click="proceed()">{{ canProceed ? $t('newChat.next') : $t('newChat.skip') }}</button>
     </div>
   </div>
 </template>
