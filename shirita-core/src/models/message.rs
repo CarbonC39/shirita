@@ -38,6 +38,12 @@ pub struct Message {
     pub raw_content: String,
     pub display_content: Option<String>,
     pub is_hidden: bool,
+    /// Synthetic anchoring user turn: kept in the prompt, omitted from the UI
+    /// (opposite of `is_hidden`, which drops the message from the prompt but
+    /// still shows it dimmed in the UI). Used to seed a leading user turn before
+    /// an assistant first message so generation isn't assistant-first (API 400).
+    #[serde(default)]
+    pub is_anchor: bool,
     #[serde(default)]
     pub snapshot_state: serde_json::Value,
     pub created_at: String,
@@ -58,6 +64,7 @@ impl Message {
             raw_content: raw_content.into(),
             display_content: None,
             is_hidden: false,
+            is_anchor: false,
             snapshot_state: serde_json::json!({}),
             created_at: chrono::Utc::now().to_rfc3339(),
         }
