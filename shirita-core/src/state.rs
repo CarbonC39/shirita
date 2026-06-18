@@ -41,6 +41,12 @@ pub fn system_variables() -> Vec<VarDecl> {
             initial: Value::String(String::new()),
             scope: Some("system".into()),
         },
+        VarDecl {
+            name: "$assistant_name".into(),
+            var_type: VarType::String,
+            initial: Value::String(String::new()),
+            scope: Some("system".into()),
+        },
     ]
 }
 
@@ -326,6 +332,7 @@ mod tests {
         let s = resolve_schema(Some(&tmeta), &cfg);
         let names: Vec<&str> = s.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"$avatar")); // system always present
+        assert!(names.contains(&"$assistant_name"));
         assert!(names.contains(&"hp")); // template
         assert!(names.contains(&"reputation")); // local
         assert_eq!(s.iter().find(|d| d.name == "hp").unwrap().scope.as_deref(), Some("template"));
