@@ -42,6 +42,13 @@ function updateScan(patch: { depth?: number; recursive?: boolean }) {
   emit('update:meta', { ...props.definition.meta, scan: { ...scan.value, ...patch } })
 }
 
+// World-info trigger + scan settings only make sense for container (lore) types,
+// not for prompt/regex_rule/tool refs.
+const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool'].includes(props.definition.type))
+// wrap_in_tag affects rendering, so it applies to anything that renders into the
+// prompt (i.e. everything except regex_rule, which never renders).
+const showWrapInTag = computed(() => props.definition.type !== 'regex_rule')
+
 // Registered container types + the reserved `prompt`, tinted per the palette.
 // Builtin types can't be deleted; custom ones can.
 const typeChips = computed(() => [
@@ -174,7 +181,7 @@ function startNew() {
     </div>
 
     <!-- world-book trigger + scan settings (container types only) -->
-    <div v-if="!['prompt','regex_rule','tool'].includes(definition.type)" class="mb-3 space-y-2.5">
+    <div v-if="isContainerType" class="mb-3 space-y-2.5">
       <TriggerEditor
         :model-value="triggerFromMeta(definition.meta)"
         @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
@@ -194,6 +201,14 @@ function startNew() {
           {{ $t('definition.recursive') }}
           <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
         </label>
+        <label v-if="showWrapInTag" class="flex items-center gap-2 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
+          {{ $t('definition.wrapInTag') }}
+          <ToggleSwitch
+            data-test="wrap-in-tag"
+            :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
+            @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
+          />
+        </label>
       </div>
     </div>
 
@@ -209,14 +224,13 @@ function startNew() {
       <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
     </div>
 
-    <label class="flex items-center gap-2 mt-3 text-[13px] text-ink">
-      <input
-        type="checkbox"
-        data-test="wrap-in-tag"
-        :checked="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
-        @change="emit('update:meta', { ...definition.meta, wrap_in_tag: ($event.target as HTMLInputElement).checked })"
-      />
+    <label v-if="!isContainerType && showWrapInTag" class="flex items-center gap-2 mt-3 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
       {{ $t('definition.wrapInTag') }}
+      <ToggleSwitch
+        data-test="wrap-in-tag"
+        :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
+        @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
+      />
     </label>
 
     <div class="flex items-center justify-between mt-3">

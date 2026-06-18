@@ -76,10 +76,36 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
     })
 }
 
+/// Strip markdown/reasoning markup down to plain text, for contexts (like the
+/// home-list snippet) that show a short excerpt rather than rendering it.
+fn to_plain_text(text: &str) -> String {
+    let think_re = regex::Regex::new(r"(?is)<think>.*?</think>").unwrap();
+    let tag_re = regex::Regex::new(r"(?s)<[^>]+>").unwrap();
+    let fence_re = regex::Regex::new(r"(?s)```[^\n]*\n?(.*?)```").unwrap();
+    let inline_code_re = regex::Regex::new(r"`([^`]*)`").unwrap();
+    let image_re = regex::Regex::new(r"!\[[^\]]*\]\([^)]*\)").unwrap();
+    let link_re = regex::Regex::new(r"\[([^\]]*)\]\([^)]*\)").unwrap();
+    let heading_re = regex::Regex::new(r"(?m)^\s{0,3}#{1,6}\s+").unwrap();
+    let quote_re = regex::Regex::new(r"(?m)^\s{0,3}>\s?").unwrap();
+    let list_re = regex::Regex::new(r"(?m)^\s*(?:[-*+]|\d+\.)\s+").unwrap();
+    let emphasis_re = regex::Regex::new(r"(\*{1,3}|_{1,3})").unwrap();
+
+    let s = think_re.replace_all(text, "");
+    let s = tag_re.replace_all(&s, "");
+    let s = fence_re.replace_all(&s, "$1");
+    let s = inline_code_re.replace_all(&s, "$1");
+    let s = image_re.replace_all(&s, "");
+    let s = link_re.replace_all(&s, "$1");
+    let s = heading_re.replace_all(&s, "");
+    let s = quote_re.replace_all(&s, "");
+    let s = list_re.replace_all(&s, "");
+    emphasis_re.replace_all(&s, "").into_owned()
+}
+
 /// One-line snippet of a message for the home list: newlines collapsed, trimmed,
 /// capped so the payload stays small.
 fn message_preview(text: &str) -> String {
-    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let flat = to_plain_text(text).split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() > 140 {
         format!("{}…", flat.chars().take(140).collect::<String>())
     } else {
@@ -737,6 +763,26 @@ mod tests {
         let m2 = Msg::new(&s.id, None, Role::User, "hi");
         store.create_message(&m2).await.unwrap();
         assert!(!store.get_message(&m2.id).await.unwrap().unwrap().is_anchor);
+    }
+
+    #[test]
+    fn message_preview_strips_markdown_and_thinking() {
+        let raw = "<think>pondering...</think>**Hello** _world_, see [docs](https://x) and `code` and ```\nblock\n```\n# Heading\n> quoted\n- item one";
+        let got = message_preview(raw);
+        assert!(!got.contains("<think>"));
+        assert!(!got.contains("pondering"));
+        assert!(!got.contains('*'));
+        assert!(!got.contains('_'));
+        assert!(!got.contains('`'));
+        assert!(!got.contains('#'));
+        assert!(!got.contains('>'));
+        assert!(got.contains("Hello world"));
+        assert!(got.contains("docs"));
+        assert!(got.contains("code"));
+        assert!(got.contains("block"));
+        assert!(got.contains("Heading"));
+        assert!(got.contains("quoted"));
+        assert!(got.contains("item one"));
     }
 
     #[tokio::test]

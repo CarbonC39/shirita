@@ -159,7 +159,7 @@ async function onImportFile(e: Event) {
             <router-link
                 to="/new"
                 :aria-label="$t('home.newChatAria')"
-                class="block ml-1"
+                class="block ml-1 transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 active:scale-95"
             >
                 <svg
                     width="54"
