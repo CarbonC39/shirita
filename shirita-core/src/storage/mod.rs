@@ -20,6 +20,9 @@ pub trait Storage: Send + Sync {
     async fn create_definition(&self, def: &Definition) -> Result<()>;
     async fn get_definition(&self, id: &str) -> Result<Option<Definition>>;
     async fn list_definitions(&self) -> Result<Vec<Definition>>;
+    /// Distinct `definition_id`s referenced by any prompt node (all owners).
+    /// Lets callers tell orphan ("global") defs from tree-mounted ones.
+    async fn referenced_definition_ids(&self) -> Result<Vec<String>>;
     async fn update_definition(&self, def: &Definition) -> Result<()>;
     async fn delete_definition(&self, id: &str) -> Result<()>;
 
