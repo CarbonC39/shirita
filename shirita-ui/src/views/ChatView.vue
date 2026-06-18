@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
-import { estimateTokens, formatTokens } from '../utils/tokens'
+import { estimateTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
 import { getSessionState, getSessionIdentity } from '../api/client'
 import type { SessionState, Identity } from '../api/types'
@@ -122,7 +122,6 @@ async function handleFork(id: string) {
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
-      <span v-if="chat.messages.length" class="ml-auto text-[11.5px] text-muted tabular-nums shrink-0">{{ t('common.tokensEstimate', { tokens: formatTokens(convoTokens) }, convoTokens) }}</span>
     </div>
 
     <p v-if="chat.error" class="text-coral text-sm px-5 py-4">{{ chat.error }}</p>
@@ -137,6 +136,7 @@ async function handleFork(id: string) {
       :streaming-text="chat.streamingText"
       :streaming-error="chat.streamingError"
       :identity="effectiveIdentity"
+      :tokens="convoTokens"
       @copy="handleCopy"
       @regenerate="handleRegenerate"
       @fork="handleFork"
