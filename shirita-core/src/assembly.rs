@@ -178,6 +178,16 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
         if scope == "prompt" {
             continue;
         }
+        // This is the AI-output (display) path: honor `targets`. A rule that
+        // explicitly lists targets but not "ai_output" doesn't apply here.
+        // Missing/empty targets stay broad (apply), preserving older rules.
+        if let Some(targets) = rule.meta.get("targets").and_then(|v| v.as_array()) {
+            if !targets.is_empty()
+                && !targets.iter().any(|t| t.as_str() == Some("ai_output"))
+            {
+                continue;
+            }
+        }
         let pattern = rule.meta.get("pattern").and_then(|v| v.as_str());
         let replacement = rule
             .meta
@@ -735,6 +745,19 @@ mod tests {
         prompt_only.meta = serde_json::json!({ "pattern": "b", "replacement": "Q", "scope": "prompt" });
         // disabled is skipped; scope=prompt doesn't touch display: only `on` applies a->b
         let out = apply_regex_rules("aaa", &[on, off, prompt_only]).unwrap();
+        assert_eq!(out, "bbb");
+    }
+
+    #[test]
+    fn apply_regex_honors_targets_for_ai_output() {
+        // The display path operates on AI output. A rule scoped to user_input
+        // only must not touch it; ai_output (and missing/empty targets) apply.
+        let mut ai = Definition::new("regex_rule", "ai", "");
+        ai.meta = serde_json::json!({ "pattern": "a", "replacement": "b", "targets": ["ai_output"] });
+        let mut user = Definition::new("regex_rule", "user", "");
+        user.meta = serde_json::json!({ "pattern": "b", "replacement": "Z", "targets": ["user_input"] });
+        // `ai` applies a->b; the user_input-only rule is skipped on this path.
+        let out = apply_regex_rules("aaa", &[ai, user]).unwrap();
         assert_eq!(out, "bbb");
     }
 
