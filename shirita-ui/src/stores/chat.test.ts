@@ -51,6 +51,37 @@ describe('chat store', () => {
     expect(store.streamingError).toBeNull()
   })
 
+  it('shows the user message immediately, before the assistant reply streams in', () => {
+    let resolveStream!: () => void
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      await new Promise<void>((r) => { resolveStream = r })
+      yield { type: 'done', message_id: 'a1' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+
+    const store = useChatStore()
+    const promise = store.send('s1', 'hello')
+
+    expect(store.displayed.some((m) => m.role === 'user' && m.raw_content === 'hello')).toBe(true)
+
+    resolveStream()
+    return promise
+  })
+
+  it('rolls back the optimistic user message if the stream errors before persisting', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'error', message: 'boom' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+
+    const store = useChatStore()
+    await store.send('s1', 'hello')
+
+    expect(store.displayed.some((m) => m.raw_content === 'hello')).toBe(false)
+    expect(store.activeLeafId).toBeNull()
+  })
+
   it('sendMessage sets streamingError on error event and stops streaming', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     async function* stream(): AsyncGenerator<client.SseEvent> {

@@ -12,6 +12,8 @@ const props = defineProps<{
   streamingText?: string
   streamingError?: string | null
   identity?: Identity
+  /** Running token estimate for the conversation; shown next to the last message's actions. */
+  tokens?: number
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +27,7 @@ const emit = defineEmits<{
 
 // Anchor messages are synthetic prompt-only turns; never render them.
 const visibleMessages = computed(() => props.messages.filter((m) => !m.is_anchor))
+const lastVisibleId = computed(() => visibleMessages.value.at(-1)?.id)
 
 function sibInfo(msg: Message) {
   const sibs = siblings(props.allMessages ?? props.messages, msg)
@@ -63,6 +66,7 @@ const streamingMsg = computed<Message | null>(() => {
       :identity="identity"
       :sibling-index="sibInfo(msg).index"
       :sibling-count="sibInfo(msg).count"
+      :tokens="msg.id === lastVisibleId ? tokens : undefined"
       @copy="emit('copy', $event)"
       @regenerate="emit('regenerate', msg.id)"
       @fork="emit('fork', msg.id)"

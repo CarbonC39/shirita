@@ -146,6 +146,18 @@ describe('MessageItem', () => {
     expect(w.emitted('swipe')![0]).toEqual([-1])
   })
 
+  it('shows the token estimate only when the tokens prop is set', () => {
+    const withTokens = mount(MessageItem, {
+      props: { message: makeMsg({ role: 'assistant' }), style: 'bubble', tokens: 1234 },
+    })
+    expect(withTokens.find('[data-test="convo-tokens"]').text()).toContain('1,234')
+
+    const withoutTokens = mount(MessageItem, {
+      props: { message: makeMsg({ role: 'assistant' }), style: 'bubble' },
+    })
+    expect(withoutTokens.find('[data-test="convo-tokens"]').exists()).toBe(false)
+  })
+
   it('edits in place and emits edit-save', async () => {
     const msg = makeMsg({ id: 'u', parent_id: null, role: 'user', raw_content: 'hello', created_at: '1' })
     const w = mount(MessageItem, { props: { message: msg, style: 'flat' } })

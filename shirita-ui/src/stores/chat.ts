@@ -59,8 +59,38 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  // Show the user's turn the instant it's sent rather than waiting for the
+  // assistant's reply + a reload: append a local placeholder under the
+  // current leaf and point the leaf at it, then let the eventual `done`
+  // reload (or the rollback below on error) reconcile with the server.
+  function makeOptimisticUserMessage(sessionId: string, parentId: string | null, text: string, attachments: string[]): Message {
+    return {
+      id: `__pending-${Date.now()}__`,
+      session_id: sessionId,
+      parent_id: parentId,
+      role: 'user',
+      raw_content: text,
+      display_content: null,
+      is_hidden: false,
+      is_anchor: false,
+      attachments,
+      snapshot_state: {},
+      created_at: new Date().toISOString(),
+    }
+  }
+
   async function send(sessionId: string, text: string, attachments: string[] = []) {
+    const prevLeaf = activeLeafId.value
+    const optimistic = makeOptimisticUserMessage(sessionId, prevLeaf, text, attachments)
+    messages.value = [...messages.value, optimistic]
+    activeLeafId.value = optimistic.id
     await consume(sendMessage(sessionId, text, attachments), sessionId)
+    // A successful turn replaces `messages` wholesale via the `done` reload;
+    // if we still see the placeholder, the stream errored before that happened.
+    if (streamingError.value && messages.value.some((m) => m.id === optimistic.id)) {
+      messages.value = messages.value.filter((m) => m.id !== optimistic.id)
+      activeLeafId.value = prevLeaf
+    }
   }
   async function regenerate(sessionId: string, msgId: string) {
     await consume(regenerateMessage(sessionId, msgId), sessionId)

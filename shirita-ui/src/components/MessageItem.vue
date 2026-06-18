@@ -5,6 +5,7 @@ import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRigh
 import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
 import { useMediaStore } from '../stores/media'
+import { formatTokens } from '../utils/tokens'
 
 const props = withDefaults(defineProps<{
   message: Message
@@ -13,6 +14,8 @@ const props = withDefaults(defineProps<{
   siblingIndex?: number   // 0-based position among siblings
   siblingCount?: number
   identity?: Identity
+  /** Running token estimate for the whole conversation; shown only on the last message. */
+  tokens?: number
 }>(), { siblingCount: 1, siblingIndex: 0 })
 
 const emit = defineEmits<{
@@ -119,6 +122,7 @@ function cancelEdit() { editing.value = false }
         <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
           <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
         </button>
+        <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
       </div>
     </div>
   </div>
@@ -177,6 +181,7 @@ function cancelEdit() { editing.value = false }
       <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
         <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
       </button>
+      <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
     </div>
   </div>
 </template>

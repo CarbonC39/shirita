@@ -80,6 +80,14 @@ describe('MessageList', () => {
     expect(wrapper.emitted('regenerate')).toBeTruthy()
   })
 
+  it('shows the token count only on the last visible message', () => {
+    const msgs = [makeMsg({ id: 'm1', role: 'user', raw_content: 'hi' }), makeMsg({ id: 'm2', role: 'assistant', raw_content: 'hello' })]
+    const wrapper = mount(MessageList, { props: { messages: msgs, style: 'bubble', tokens: 42 } })
+    const rows = wrapper.findAll('[data-test="msg-row"]')
+    expect(rows[0].find('[data-test="convo-tokens"]').exists()).toBe(false)
+    expect(rows[1].find('[data-test="convo-tokens"]').text()).toContain('42')
+  })
+
   it('forwards identity to MessageItem, including the streaming ghost', () => {
     const identity = { assistant: { name: 'Neo', avatar: 'a.png' }, user: { name: 'Me', avatar: 'u.png' } }
     const wrapper = mount(MessageList, {
