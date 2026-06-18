@@ -140,4 +140,17 @@ input[type='number'] {
   .btn-ghost:hover:not(:disabled) {
     @apply border-primary/50 text-ink;
   }
+
+  /* --- Markdown message rendering (see components/MarkdownText.vue) ------ */
+  .md-link {
+    @apply text-primary underline underline-offset-2 break-words;
+  }
+  .md-code {
+    @apply rounded-[5px] px-1 py-0.5 text-[0.9em] font-mono;
+    background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+  }
+  .md-pre {
+    @apply rounded-[10px] px-3 py-2 my-1.5 overflow-x-auto text-[13px] font-mono whitespace-pre;
+    background: color-mix(in oklab, var(--color-ink) 9%, transparent);
+  }
 }
