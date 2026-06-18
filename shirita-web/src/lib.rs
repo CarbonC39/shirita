@@ -36,7 +36,9 @@ pub fn app(state: AppState) -> Router {
         .route("/sessions/reorder", put(routes::sessions::reorder_sessions))
         .route(
             "/sessions/{id}",
-            get(routes::sessions::get_session).delete(routes::sessions::delete_session),
+            get(routes::sessions::get_session)
+                .patch(routes::sessions::patch_session)
+                .delete(routes::sessions::delete_session),
         )
         .route("/sessions/{id}/duplicate", post(routes::sessions::duplicate_session))
         .route("/sessions/{id}/export", get(routes::sessions::export_session))

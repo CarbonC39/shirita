@@ -250,6 +250,18 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn update_session_profile(&self, session_id: &str, name: &str, avatar: Option<&str>) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query("UPDATE chat_sessions SET name = ?, avatar = ?, updated_at = ? WHERE id = ?")
+            .bind(name)
+            .bind(avatar)
+            .bind(now)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     async fn reorder_sessions(&self, ordered_ids: &[String]) -> Result<()> {
         // Assign descending sort keys around "now" so the manual order persists
         // (top item largest) while later activity still floats a chat above it.
