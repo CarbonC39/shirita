@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import DefinitionEditor from './DefinitionEditor.vue'
+import AssetPicker from './AssetPicker.vue'
+
+// AssetPicker uses the media Pinia store, so component mounts need an active Pinia.
+const plugins = { plugins: [createPinia()] }
 
 const def = { id: 'd', type: 'world', name: 'Zion', content: '', meta: { trigger: { mode: 'keyword', keys: ['zion'], probability: 100 } } }
 
@@ -47,6 +52,26 @@ describe('DefinitionEditor header actions', () => {
     expect(w.find('[data-test="import-btn"]').exists()).toBe(false)
     expect(w.find('[data-test="export-btn"]').exists()).toBe(false)
     expect(w.find('[data-test="delete-btn"]').exists()).toBe(false)
+  })
+})
+
+describe('DefinitionEditor persona avatar', () => {
+  it('shows an avatar picker for persona and emits update:meta on pick', async () => {
+    const d = { id: 'p1', type: 'persona', name: 'Me', content: '', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true }, global: plugins })
+    const wrap = w.find('[data-test="persona-avatar"]')
+    expect(wrap.exists()).toBe(true)
+    wrap.findComponent(AssetPicker).vm.$emit('update:modelValue', 'u.png')
+    await w.vm.$nextTick()
+    const ev = w.emitted('update:meta')
+    expect(ev).toBeTruthy()
+    expect((ev![ev!.length - 1][0] as Record<string, unknown>).avatar).toBe('u.png')
+  })
+
+  it('does not show the avatar picker for a char definition', () => {
+    const d = { id: 'c1', type: 'char', name: 'Neo', content: '', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    expect(w.find('[data-test="persona-avatar"]').exists()).toBe(false)
   })
 })
 

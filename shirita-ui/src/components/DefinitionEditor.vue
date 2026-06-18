@@ -7,6 +7,7 @@ import { estimateTokens, formatTokens } from '../utils/tokens'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
+import AssetPicker from './AssetPicker.vue'
 
 const props = withDefaults(
   defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean }>(),
@@ -160,6 +161,16 @@ function startNew() {
         <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">{{ $t('common.add') }}</button>
         <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
       </span>
+    </div>
+
+    <!-- persona avatar (user identity) -->
+    <div v-if="definition.type === 'persona'" data-test="persona-avatar" class="mb-3">
+      <label class="text-[12px] text-muted block mb-1.5">{{ $t('definition.avatar') }}</label>
+      <AssetPicker
+        shape="circle"
+        :model-value="(definition.meta as any).avatar || ''"
+        @update:model-value="emit('update:meta', { ...definition.meta, avatar: $event })"
+      />
     </div>
 
     <!-- world-book trigger + scan settings (container types only) -->
