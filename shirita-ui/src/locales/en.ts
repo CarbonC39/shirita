@@ -97,6 +97,7 @@ const en = {
     noMessages: 'No messages yet',
     dragReorder: 'Drag to reorder',
     options: 'Options',
+    thinking: 'Thoughts',
   },
   composer: {
     attach: 'Attach',

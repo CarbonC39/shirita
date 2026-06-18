@@ -153,4 +153,11 @@ input[type='number'] {
     @apply rounded-[10px] px-3 py-2 my-1.5 overflow-x-auto text-[13px] font-mono whitespace-pre;
     background: color-mix(in oklab, var(--color-ink) 9%, transparent);
   }
+  /* Collapsible reasoning (<think>) block. */
+  .md-think {
+    @apply block my-1.5 border-l-2 border-line pl-3 text-[13px] text-muted;
+  }
+  .md-think-summary {
+    @apply cursor-pointer select-none text-[12px] uppercase tracking-wide text-muted/80 mb-1;
+  }
 }
