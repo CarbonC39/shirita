@@ -16,6 +16,8 @@ use crate::{resolve_provider, AppState};
 #[derive(Deserialize)]
 pub struct SendBody {
     pub text: String,
+    #[serde(default)]
+    pub attachments: Vec<String>,
 }
 
 /// 进程级"正在总结的 session"集合，防 fire-and-forget 并发重复（语义等价 spec §2 的 per-session 互斥）。
@@ -65,6 +67,8 @@ pub async fn send(
         model,
         session_id,
         body.text,
+        state.config.assets_dir.clone(),
+        body.attachments,
     );
     // A newer generation for the same session aborts this one (no racing writes).
     let (events, handle) = futures::stream::abortable(events);
@@ -101,6 +105,7 @@ pub async fn regenerate_message(
         model,
         session_id,
         msg_id,
+        state.config.assets_dir.clone(),
     );
     let (events, handle) = futures::stream::abortable(events);
     state.generations.replace(&reg_id, handle);
