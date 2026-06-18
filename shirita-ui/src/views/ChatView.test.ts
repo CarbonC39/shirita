@@ -107,4 +107,37 @@ describe('ChatView', () => {
     await flushPromises()
     expect(wrapper.find('[data-test="variables-panel"]').exists()).toBe(true)
   })
+
+  it('shows the character name in the header from identity', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({
+      assistant: { name: 'Neo', avatar: 'a.png' },
+      user: { name: null, avatar: null },
+    })
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Neo')
+  })
+
+  it('prefers $assistant_name and $avatar overrides over the resolved identity', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({
+      assistant: { name: 'Neo', avatar: 'a.png' },
+      user: { name: null, avatar: null },
+    })
+    vi.spyOn(client, 'getSessionState').mockResolvedValue({
+      schema: [],
+      values: { $assistant_name: 'Trinity', $avatar: 'b.png' },
+    } as never)
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Trinity')
+    expect(wrapper.text()).not.toContain('Neo')
+  })
 })

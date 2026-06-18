@@ -6,8 +6,8 @@ import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
-import { getSessionState } from '../api/client'
-import type { SessionState } from '../api/types'
+import { getSessionState, getSessionIdentity } from '../api/client'
+import type { SessionState, Identity } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
@@ -35,9 +35,29 @@ async function loadState() {
     sessionState.value = { schema: [], values: {} }
   }
 }
+const identity = ref<Identity>({ assistant: { name: null, avatar: null }, user: { name: null, avatar: null } })
+async function loadIdentity() {
+  try {
+    identity.value = await getSessionIdentity(sessionId)
+  } catch {
+    /* keep fallback */
+  }
+}
+const effectiveIdentity = computed<Identity>(() => {
+  const v = sessionState.value.values
+  const dyn = (k: string) => (typeof v[k] === 'string' && v[k] ? (v[k] as string) : null)
+  return {
+    assistant: {
+      name: dyn('$assistant_name') ?? identity.value.assistant.name,
+      avatar: dyn('$avatar') ?? identity.value.assistant.avatar,
+    },
+    user: identity.value.user,
+  }
+})
+const headerName = computed(() => effectiveIdentity.value.assistant.name || t('chat.title'))
 const avatar = computed(() => {
-  const v = sessionState.value.values['$avatar']
-  return typeof v === 'string' && v ? `/assets/${v}` : ''
+  const a = effectiveIdentity.value.assistant.avatar
+  return a ? `/assets/${a}` : ''
 })
 const bg = computed(() => {
   const v = sessionState.value.values['$background']
@@ -48,6 +68,7 @@ const bgStyle = computed(() => (bg.value ? { backgroundImage: `url(${bg.value})`
 onMounted(() => {
   chat.loadMessages(sessionId)
   loadState()
+  loadIdentity()
 })
 
 watch(
@@ -100,7 +121,7 @@ async function handleFork(id: string) {
     <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
-      <span class="font-semibold text-ink truncate">{{ $t('chat.title') }}</span>
+      <span class="font-semibold text-ink truncate">{{ headerName }}</span>
       <span v-if="chat.messages.length" class="ml-auto text-[11.5px] text-muted tabular-nums shrink-0">{{ t('common.tokensEstimate', { tokens: formatTokens(convoTokens) }, convoTokens) }}</span>
     </div>
 
@@ -115,6 +136,7 @@ async function handleFork(id: string) {
       :is-streaming="chat.isStreaming"
       :streaming-text="chat.streamingText"
       :streaming-error="chat.streamingError"
+      :identity="effectiveIdentity"
       @copy="handleCopy"
       @regenerate="handleRegenerate"
       @fork="handleFork"
