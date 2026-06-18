@@ -29,7 +29,7 @@ describe('ChatView', () => {
   it('loads messages on mount', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([{
       id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false,
+      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
       snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     }])
     const router = makeRouter()
@@ -43,7 +43,7 @@ describe('ChatView', () => {
   it('renders loaded messages', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([{
       id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false,
+      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
       snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     }])
     const router = makeRouter()
@@ -77,7 +77,7 @@ describe('ChatView', () => {
   it('calls send on composer submit', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([{
       id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false,
+      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
       snapshot_state: {}, created_at: '',
     }])
     async function* stream(): AsyncGenerator<client.SseEvent> {
@@ -95,7 +95,7 @@ describe('ChatView', () => {
     await textarea.setValue('hello')
     await wrapper.find('[data-test="send-btn"]').trigger('click')
     await flushPromises()
-    expect(sendSpy).toHaveBeenCalledWith('s1', 'hello')
+    expect(sendSpy).toHaveBeenCalledWith('s1', 'hello', [])
   })
 
   it('shows the variables panel from session state', async () => {

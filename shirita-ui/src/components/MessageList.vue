@@ -42,6 +42,7 @@ const streamingMsg = computed<Message | null>(() => {
     display_content: null,
     is_hidden: false,
     is_anchor: false,
+    attachments: [],
     snapshot_state: {},
     created_at: '',
   }

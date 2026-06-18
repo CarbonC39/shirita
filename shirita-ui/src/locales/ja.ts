@@ -95,6 +95,7 @@ const ja: MessageSchema = {
   },
   composer: {
     attach: '添付',
+    removeAttachment: '添付を削除',
     placeholder: 'メッセージを入力…',
   },
   book: {

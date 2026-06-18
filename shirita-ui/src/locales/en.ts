@@ -102,6 +102,7 @@ const en = {
   },
   composer: {
     attach: 'Attach',
+    removeAttachment: 'Remove attachment',
     placeholder: 'Type a message…',
   },
   book: {

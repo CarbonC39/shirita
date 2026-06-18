@@ -26,6 +26,8 @@ export interface Message {
   is_hidden: boolean
   /** Synthetic anchor turn: kept in the prompt, hidden from the UI. */
   is_anchor: boolean
+  /** Asset ids attached to this message (currently images). */
+  attachments: string[]
   snapshot_state: Record<string, unknown>
   created_at: string
 }

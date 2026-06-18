@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Composer from './Composer.vue'
+import * as client from '../api/client'
 
 describe('Composer', () => {
   it('renders a text input and a send button', () => {
@@ -15,7 +16,7 @@ describe('Composer', () => {
     await textarea.setValue('  hello world  ')
     await wrapper.find('[data-test="send-btn"]').trigger('click')
     expect(wrapper.emitted('send')).toBeTruthy()
-    expect(wrapper.emitted('send')![0]).toEqual(['hello world'])
+    expect(wrapper.emitted('send')![0]).toEqual(['hello world', []])
     expect((textarea.element as HTMLTextAreaElement).value).toBe('')
   })
 
@@ -54,5 +55,29 @@ describe('Composer', () => {
     const btn = wrapper.find('[data-test="send-btn"]')
     expect(btn.classes()).toContain('text-muted')
     expect(btn.classes()).not.toContain('text-primary')
+  })
+
+  it('uploads a picked file and emits its asset id with the send', async () => {
+    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png' })
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    const fileInput = wrapper.find('input[type="file"]')
+    const file = new File(['bytes'], 'pic.png', { type: 'image/png' })
+    Object.defineProperty(fileInput.element, 'files', { value: [file] })
+    await fileInput.trigger('change')
+    await wrapper.vm.$nextTick()
+    await wrapper.find('[data-test="send-btn"]').trigger('click')
+    expect(wrapper.emitted('send')![0]).toEqual(['', ['a1']])
+  })
+
+  it('enables send with only an attachment and no text', async () => {
+    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png' })
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    expect((wrapper.find('[data-test="send-btn"]').element as HTMLButtonElement).disabled).toBe(true)
+    const fileInput = wrapper.find('input[type="file"]')
+    const file = new File(['bytes'], 'pic.png', { type: 'image/png' })
+    Object.defineProperty(fileInput.element, 'files', { value: [file] })
+    await fileInput.trigger('change')
+    await wrapper.vm.$nextTick()
+    expect((wrapper.find('[data-test="send-btn"]').element as HTMLButtonElement).disabled).toBe(false)
   })
 })

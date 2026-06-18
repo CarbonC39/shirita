@@ -59,8 +59,8 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function send(sessionId: string, text: string) {
-    await consume(sendMessage(sessionId, text), sessionId)
+  async function send(sessionId: string, text: string, attachments: string[] = []) {
+    await consume(sendMessage(sessionId, text, attachments), sessionId)
   }
   async function regenerate(sessionId: string, msgId: string) {
     await consume(regenerateMessage(sessionId, msgId), sessionId)

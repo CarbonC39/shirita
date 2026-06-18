@@ -1,13 +1,18 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
+import { setActivePinia, createPinia } from 'pinia'
 import MessageItem from './MessageItem.vue'
 import type { Message } from '../api/types'
+
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
 
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: 'm1', session_id: 's1', parent_id: null, role: 'user',
     raw_content: 'Hello world', display_content: null, is_hidden: false, is_anchor: false,
-    snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    attachments: [], snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
 }

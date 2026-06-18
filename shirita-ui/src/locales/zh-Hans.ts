@@ -95,6 +95,7 @@ const zhHans: MessageSchema = {
   },
   composer: {
     attach: '附件',
+    removeAttachment: '移除附件',
     placeholder: '输入消息…',
   },
   book: {

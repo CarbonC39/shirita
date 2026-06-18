@@ -80,8 +80,8 @@ watch(
   },
 )
 
-async function handleSend(text: string) {
-  await chat.send(sessionId, text)
+async function handleSend(text: string, attachments: string[]) {
+  await chat.send(sessionId, text, attachments)
   await loadState()
 }
 
