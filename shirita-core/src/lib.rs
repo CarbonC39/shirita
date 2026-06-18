@@ -6,6 +6,7 @@ pub mod budget;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod identity;
 pub mod keyword;
 pub mod model;
 pub mod models;
