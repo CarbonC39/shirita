@@ -137,6 +137,13 @@ const zhHant: MessageSchema = {
     contentPlaceholder: '定義內容…',
     wrapInTag: '標籤包裹',
     wrapInTagHint: '用以此定義命名的標籤包裹內容',
+    messageTypeHint: '深度留空 = 對話開始時的開場白（其他備選作為滑動卡片）。設定深度 = 每輪在距歷史末尾該距離處插入一條備註。',
+    depth: '深度',
+    depthPlaceholder: '開場白',
+    role: '角色',
+    roleSystem: '系統',
+    roleUser: '使用者',
+    roleAssistant: '助手',
   },
   variables: {
     heading: '變數',
