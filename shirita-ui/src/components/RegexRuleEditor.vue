@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { ChevronDown, Trash2 } from 'lucide-vue-next'
 import type { RegexRule } from '../api/types'
 import ToggleSwitch from './ToggleSwitch.vue'
 
-defineProps<{ rule: RegexRule }>()
+const props = defineProps<{ rule: RegexRule }>()
 const emit = defineEmits<{
   'update:enabled': [enabled: boolean]; 'update:name': [name: string]
   'update:pattern': [pattern: string]; 'update:replacement': [replacement: string]
@@ -13,20 +13,52 @@ const emit = defineEmits<{
 
 const expanded = ref(false)
 function toggleExpand() { expanded.value = !expanded.value }
+
+// Renaming happens in place on the header label (double-click to start),
+// rather than via a permanently-visible name field in the expanded panel.
+const renaming = ref(false)
+const nameDraft = ref('')
+const nameInput = ref<HTMLInputElement>()
+async function startRename() {
+  nameDraft.value = props.rule.name
+  renaming.value = true
+  await nextTick()
+  nameInput.value?.focus()
+  nameInput.value?.select()
+}
+function commitRename() {
+  renaming.value = false
+  emit('update:name', nameDraft.value)
+}
 </script>
 
 <template>
   <div class="border border-line rounded-lg bg-card mb-2">
     <div class="flex items-center gap-2.5 px-3 py-2.5">
       <ToggleSwitch :model-value="rule.enabled" @update:model-value="emit('update:enabled', $event)" />
-      <span class="flex-1 text-[14px] truncate">{{ rule.name || $t('settings.regexUnnamed') }}</span>
+      <input
+        v-if="renaming"
+        ref="nameInput"
+        v-model="nameDraft"
+        data-test="regex-name-input"
+        type="text"
+        class="flex-1 min-w-0 border border-line rounded-md px-1.5 py-0.5 text-[14px] outline-none focus:border-primary/50"
+        @keyup.enter="commitRename"
+        @keyup.escape="renaming = false"
+        @blur="commitRename"
+      />
+      <span
+        v-else
+        data-test="regex-name-label"
+        class="flex-1 text-[14px] truncate cursor-text"
+        :title="$t('settings.regexRenameHint')"
+        @dblclick="startRename"
+      >{{ rule.name || $t('settings.regexUnnamed') }}</span>
       <button class="text-muted hover:text-ink shrink-0" @click="toggleExpand">
         <ChevronDown :size="16" :class="expanded ? '' : '-rotate-90'" class="transition-transform" />
       </button>
     </div>
     <div v-if="expanded" class="px-3 pb-3 border-t border-line pt-3 space-y-3">
-      <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('settings.regexName') }}</label>
-        <input :value="rule.name" type="text" class="w-full border border-line rounded-md px-2.5 py-1.5 text-[13px] outline-none focus:border-primary/50" :placeholder="$t('settings.regexNamePlaceholder')" @input="emit('update:name', ($event.target as HTMLInputElement).value)" /></div>
       <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('settings.regexFind') }}</label>
         <input :value="rule.pattern" type="text" class="w-full border border-line rounded-md px-2.5 py-1.5 text-[13px] font-mono outline-none focus:border-primary/50" :placeholder="$t('settings.regexPatternPlaceholder')" @input="emit('update:pattern', ($event.target as HTMLInputElement).value)" /></div>
       <div><label class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('settings.regexReplace') }}</label>
