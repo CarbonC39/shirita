@@ -9,8 +9,8 @@ import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const props = withDefaults(
-  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean }>(),
-  { types: () => [], active: false },
+  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean }>(),
+  { types: () => [], active: false, headerActions: true },
 )
 const emit = defineEmits<{
   'select-definition': [id: string]
@@ -112,9 +112,9 @@ function startNew() {
         </div>
         </transition>
       </div>
-      <div class="flex items-center">
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
+      <div v-if="headerActions" class="flex items-center">
+        <button data-test="import-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
+        <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
         <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
       </div>

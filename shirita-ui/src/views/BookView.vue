@@ -795,6 +795,7 @@ async function duplicateDef() {
                     :all-definitions="library.definitions"
                     :types="library.containerTypes"
                     :active="localDefActive"
+                    :header-actions="false"
                     @select-definition="editLocal"
                     @update:name="localEditDef.name = $event"
                     @update:type="localEditDef.type = $event as Definition['type']"
@@ -959,6 +960,8 @@ async function duplicateDef() {
                 @save="saveDefinition"
                 @delete="deleteDef"
                 @duplicate="duplicateDef"
+                @import="importInput?.click()"
+                @export="exportDefinition(editDef)"
                 @create-type="createTypeFromEditor"
                 @delete-type="deleteTypeFromEditor"
             />
