@@ -90,6 +90,7 @@ const zhHans: MessageSchema = {
     noMessages: '还没有消息',
     dragReorder: '拖动以重排',
     options: '选项',
+    thinking: '思考过程',
   },
   composer: {
     attach: '附件',

@@ -90,6 +90,7 @@ const zhHant: MessageSchema = {
     noMessages: '尚無訊息',
     dragReorder: '拖曳以重新排序',
     options: '選項',
+    thinking: '思考過程',
   },
   composer: {
     attach: '附件',

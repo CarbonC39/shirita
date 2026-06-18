@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
 import type { Message } from '../api/types'
-import MarkdownText from './MarkdownText.vue'
+import MessageContent from './MessageContent.vue'
 
 const props = withDefaults(defineProps<{
   message: Message
@@ -66,7 +66,7 @@ function cancelEdit() { editing.value = false }
             <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
           </div>
         </template>
-        <template v-else><MarkdownText :text="displayText" /><span
+        <template v-else><MessageContent :text="displayText" /><span
           v-if="isStreaming"
           data-test="streaming-cursor"
           class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
@@ -122,7 +122,7 @@ function cancelEdit() { editing.value = false }
           <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
         </div>
       </template>
-      <template v-else><MarkdownText :text="displayText" /><span
+      <template v-else><MessageContent :text="displayText" /><span
         v-if="isStreaming"
         data-test="streaming-cursor"
         class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"

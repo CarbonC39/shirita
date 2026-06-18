@@ -90,6 +90,7 @@ const ja: MessageSchema = {
     noMessages: 'まだメッセージがありません',
     dragReorder: 'ドラッグして並べ替え',
     options: 'オプション',
+    thinking: '思考プロセス',
   },
   composer: {
     attach: '添付',
