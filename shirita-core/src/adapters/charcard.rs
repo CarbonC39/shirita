@@ -6,6 +6,7 @@ use crate::adapters::worldinfo::worldinfo_to_defs;
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::template::Template;
+use crate::state::{VarDecl, VarType};
 
 /// The full result of translating one ST card: a template, the definitions it
 /// references, and the 2-level node tree wiring them together.
@@ -57,6 +58,34 @@ fn regex_rule_def(s: &serde_json::Value) -> Definition {
     d
 }
 
+/// ST's TavernHelper extension stores a card's default chat variables as a
+/// flat `{name: value}` object (`extensions.tavern_helper.variables`). Map
+/// each entry to a `VarDecl`, inferring type from the JSON value; nested
+/// objects have no equivalent in our schema (number/bool/string/list) and
+/// are dropped (consistent with this being a one-way lossy translation).
+fn tavern_helper_vardecls(data: &serde_json::Value) -> Vec<VarDecl> {
+    let Some(vars) = data
+        .get("extensions")
+        .and_then(|e| e.get("tavern_helper"))
+        .and_then(|t| t.get("variables"))
+        .and_then(|v| v.as_object())
+    else {
+        return Vec::new();
+    };
+    vars.iter()
+        .filter_map(|(name, value)| {
+            let var_type = match value {
+                serde_json::Value::Number(_) => VarType::Number,
+                serde_json::Value::Bool(_) => VarType::Bool,
+                serde_json::Value::String(_) => VarType::String,
+                serde_json::Value::Array(_) => VarType::List,
+                serde_json::Value::Null | serde_json::Value::Object(_) => return None,
+            };
+            Some(VarDecl { name: name.clone(), var_type, initial: value.clone(), scope: None })
+        })
+        .collect()
+}
+
 /// Translate an ST character card (v1 top-level / v2/v3 under `data`) into a loreset.
 pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     let data = card.get("data").unwrap_or(card);
@@ -66,7 +95,7 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
         .unwrap_or("Imported character")
         .to_string();
 
-    let tmpl = Template::new(name.clone());
+    let mut tmpl = Template::new(name.clone());
     // OwnerKind is not Copy and the node constructors take it by value, so we
     // pass OwnerKind::Template directly at each call (a zero-cost unit variant).
     let mut defs: Vec<Definition> = Vec::new();
@@ -199,6 +228,12 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
         }
     }
 
+    // --- register the card's default chat variables, if any ---
+    let vardecls = tavern_helper_vardecls(data);
+    if !vardecls.is_empty() {
+        tmpl.meta = serde_json::json!({ "variables": vardecls });
+    }
+
     LoreSet { template: tmpl, definitions: defs, nodes }
 }
 
@@ -277,6 +312,23 @@ mod tests {
             .unwrap();
         assert!(sys_ref.sort_order < hist.sort_order);
         assert!(post_ref.sort_order > hist.sort_order);
+    }
+
+    #[test]
+    fn imports_tavern_helper_variables_into_template_meta() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc",
+                "extensions": { "tavern_helper": { "variables": { "hp": 100, "is_alive": true, "name": "Neo", "items": ["a", "b"] } } }
+            }
+        });
+        let s = charcard_to_loreset(&card);
+        let vars = s.template.meta["variables"].as_array().unwrap();
+        let find = |n: &str| vars.iter().find(|v| v["name"] == n).unwrap();
+        assert_eq!(find("hp")["type"], "number");
+        assert_eq!(find("is_alive")["type"], "bool");
+        assert_eq!(find("name")["type"], "string");
+        assert_eq!(find("items")["type"], "list");
     }
 
     #[test]
