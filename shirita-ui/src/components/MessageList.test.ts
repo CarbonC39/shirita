@@ -6,7 +6,7 @@ import type { Message } from '../api/types'
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-    raw_content: 'Hello', display_content: null, is_hidden: false,
+    raw_content: 'Hello', display_content: null, is_hidden: false, is_anchor: false,
     snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
@@ -22,6 +22,17 @@ describe('MessageList', () => {
   it('shows empty state when no messages', () => {
     const wrapper = mount(MessageList, { props: { messages: [], style: 'bubble' } })
     expect(wrapper.text()).toContain('No messages yet.')
+  })
+
+  it('does not render anchor messages', () => {
+    const msgs = [
+      makeMsg({ id: 'a', role: 'user', raw_content: '<start>', is_anchor: true }),
+      makeMsg({ id: 'b', role: 'assistant', raw_content: 'wake up', is_anchor: false }),
+    ]
+    const wrapper = mount(MessageList, { props: { messages: msgs, style: 'bubble' } })
+    expect(wrapper.findAll('[data-test="msg-row"]')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('<start>')
+    expect(wrapper.text()).toContain('wake up')
   })
 
   it('renders streaming ghost when streaming', () => {

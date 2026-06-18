@@ -22,6 +22,9 @@ const emit = defineEmits<{
   swipe: [id: string, delta: -1 | 1]
 }>()
 
+// Anchor messages are synthetic prompt-only turns; never render them.
+const visibleMessages = computed(() => props.messages.filter((m) => !m.is_anchor))
+
 function sibInfo(msg: Message) {
   const sibs = siblings(props.allMessages ?? props.messages, msg)
   return { index: sibs.findIndex((s) => s.id === msg.id), count: sibs.length }
@@ -37,6 +40,7 @@ const streamingMsg = computed<Message | null>(() => {
     raw_content: props.streamingText || '',
     display_content: null,
     is_hidden: false,
+    is_anchor: false,
     snapshot_state: {},
     created_at: '',
   }
@@ -45,12 +49,12 @@ const streamingMsg = computed<Message | null>(() => {
 
 <template>
   <div class="flex-1 overflow-y-auto px-5 py-4">
-    <p v-if="messages.length === 0 && !streamingMsg && !streamingError" class="text-muted text-sm text-center pt-12">
+    <p v-if="visibleMessages.length === 0 && !streamingMsg && !streamingError" class="text-muted text-sm text-center pt-12">
       {{ $t('chat.empty') }}
     </p>
 
     <MessageItem
-      v-for="msg in messages"
+      v-for="msg in visibleMessages"
       :key="msg.id"
       :message="msg"
       :style="style"

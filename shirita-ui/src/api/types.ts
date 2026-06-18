@@ -24,6 +24,8 @@ export interface Message {
   raw_content: string
   display_content: string | null
   is_hidden: boolean
+  /** Synthetic anchor turn: kept in the prompt, hidden from the UI. */
+  is_anchor: boolean
   snapshot_state: Record<string, unknown>
   created_at: string
 }
