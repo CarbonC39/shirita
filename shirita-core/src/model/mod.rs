@@ -19,6 +19,16 @@ pub use openai::OpenAiProvider;
 pub struct ChatMessage {
     pub role: Role,
     pub content: String,
+    /// Attached images as data URLs (`data:image/png;base64,...`), resolved
+    /// from stored asset ids ahead of request assembly (see
+    /// `attachments::resolve_images`). Empty for plain-text turns.
+    pub images: Vec<String>,
+}
+
+impl Default for ChatMessage {
+    fn default() -> Self {
+        Self { role: Role::User, content: String::new(), images: Vec::new() }
+    }
 }
 
 /// 一次聊天补全请求。

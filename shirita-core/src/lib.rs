@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod assembly;
+pub mod attachments;
 pub mod budget;
 pub mod config;
 pub mod conversation;

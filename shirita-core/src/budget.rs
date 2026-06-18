@@ -57,7 +57,7 @@ mod tests {
     }
 
     fn msg(role: Role, content: &str) -> ChatMessage {
-        ChatMessage { role, content: content.into() }
+        ChatMessage { role, content: content.into(), ..Default::default() }
     }
 
     #[test]

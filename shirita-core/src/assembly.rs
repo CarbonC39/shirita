@@ -436,7 +436,7 @@ pub fn build_chat_messages(
 ) -> Vec<ChatMessage> {
     let mut out: Vec<ChatMessage> = Vec::new();
     let push_sys = |out: &mut Vec<ChatMessage>, c: &str| {
-        out.push(ChatMessage { role: Role::System, content: c.to_string() });
+        out.push(ChatMessage { role: Role::System, content: c.to_string(), ..Default::default() });
     };
 
     for s in plan.segments.iter().filter(|s| s.placement == Placement::BeforeHistory) {
@@ -772,7 +772,7 @@ mod tests {
             history_enabled: true,
             regex_rules: vec![],
         };
-        let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+        let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
         let msgs = build_chat_messages(&plan, &history, true);
         // [system "A\nB", user "hi", system "JB"]
         assert_eq!(msgs.len(), 3);
@@ -790,7 +790,7 @@ mod tests {
             history_enabled: false,
             regex_rules: vec![],
         };
-        let history = vec![ChatMessage { role: Role::User, content: "hi".into() }];
+        let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
         let msgs = build_chat_messages(&plan, &history, false);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, Role::System);
