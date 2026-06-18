@@ -9,6 +9,7 @@ import {
     deleteDefinition,
 } from "../api/client";
 import type { Definition } from "../api/types";
+import { metaToRule, scopeFlagsToMeta } from "../utils/regexRule";
 import { fallbackModels } from "../api/modelCatalog";
 import SliderControl from "../components/SliderControl.vue";
 import RegexRuleEditor from "../components/RegexRuleEditor.vue";
@@ -628,29 +629,16 @@ async function handleTestConnection() {
                 <RegexRuleEditor
                     v-for="rule in regexRules"
                     :key="rule.id"
-                    :rule="{
-                        id: rule.id,
-                        name: rule.name,
-                        pattern: ((rule.meta as any).pattern as string) || '',
-                        replacement:
-                            ((rule.meta as any).replacement as string) || '',
-                        enabled: !!(rule.meta as any).enabled,
-                        scope: ((rule.meta as any).scope as any) || {
-                            ai_output: true,
-                            user_input: false,
-                            display_only: true,
-                        },
-                    }"
+                    :rule="metaToRule(rule)"
                     @update:enabled="
                         (enabled: boolean) => {
-                            (rule.meta as any).enabled = enabled;
+                            (rule.meta as any).disabled = !enabled;
                             persistRule(rule);
                         }
                     "
                     @update:name="
                         (n: string) => {
                             rule.name = n;
-                            (rule.meta as any).name = n;
                             persistRule(rule);
                         }
                     "
@@ -668,7 +656,9 @@ async function handleTestConnection() {
                     "
                     @update:scope="
                         (s: any) => {
-                            (rule.meta as any).scope = s;
+                            const m = scopeFlagsToMeta(s);
+                            (rule.meta as any).scope = m.scope;
+                            (rule.meta as any).targets = m.targets;
                             persistRule(rule);
                         }
                     "
@@ -692,13 +682,9 @@ async function handleTestConnection() {
                                 meta: {
                                     pattern: '',
                                     replacement: '',
-                                    enabled: true,
-                                    name: 'New rule',
-                                    scope: {
-                                        ai_output: true,
-                                        user_input: false,
-                                        display_only: true,
-                                    },
+                                    disabled: false,
+                                    scope: 'display',
+                                    targets: ['ai_output'],
                                 },
                             });
                             regexRules = [...regexRules, created];
