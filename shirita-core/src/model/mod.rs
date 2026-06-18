@@ -48,6 +48,48 @@ pub fn parse_delta(json_after_data: &str) -> Result<Option<String>> {
         .map(|s| s.to_string()))
 }
 
+/// 一个解析出的 OpenAI 兼容 delta：可见内容，或推理模型（如 DeepSeek）原生的
+/// `reasoning_content` 思考增量。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delta {
+    Content(String),
+    Reasoning(String),
+    None,
+}
+
+/// 解析 OpenAI 兼容 SSE 的 `delta`：优先识别 `reasoning_content`（DeepSeek 等原生推理字段），
+/// 否则取 `content`；都没有（如仅 role 的首帧）则 `Delta::None`。
+pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
+    let v: serde_json::Value = serde_json::from_str(json_after_data)?;
+    let delta = &v["choices"][0]["delta"];
+    if let Some(r) = delta["reasoning_content"].as_str() {
+        return Ok(Delta::Reasoning(r.to_string()));
+    }
+    if let Some(c) = delta["content"].as_str() {
+        return Ok(Delta::Content(c.to_string()));
+    }
+    Ok(Delta::None)
+}
+
+/// 把一个 `Delta` 渲染成要 yield 的文本增量，沿用既有的 `<think>…</think>` 前端折叠约定
+/// （见 `shirita-ui/src/utils/thinking.ts`），在推理段与正文段切换时补上开/闭标签。
+/// `in_reasoning` 在调用间持有状态（每个流一个），纯函数便于单测。
+pub fn render_delta(in_reasoning: &mut bool, delta: Delta) -> Option<String> {
+    match delta {
+        Delta::Reasoning(t) => {
+            let prefix = if *in_reasoning { "" } else { "<think>" };
+            *in_reasoning = true;
+            Some(format!("{prefix}{t}"))
+        }
+        Delta::Content(t) => {
+            let prefix = if *in_reasoning { "</think>" } else { "" };
+            *in_reasoning = false;
+            Some(format!("{prefix}{t}"))
+        }
+        Delta::None => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,5 +109,47 @@ mod tests {
     #[test]
     fn parse_delta_invalid_json_errors() {
         assert!(parse_delta("not json").is_err());
+    }
+
+    #[test]
+    fn parse_delta_kind_prefers_reasoning_content() {
+        let line = r#"{"choices":[{"delta":{"reasoning_content":"hm"}}]}"#;
+        assert_eq!(parse_delta_kind(line).unwrap(), Delta::Reasoning("hm".to_string()));
+    }
+
+    #[test]
+    fn parse_delta_kind_falls_back_to_content() {
+        let line = r#"{"choices":[{"delta":{"content":"He"}}]}"#;
+        assert_eq!(parse_delta_kind(line).unwrap(), Delta::Content("He".to_string()));
+    }
+
+    #[test]
+    fn parse_delta_kind_role_only_is_none() {
+        let line = r#"{"choices":[{"delta":{"role":"assistant"}}]}"#;
+        assert_eq!(parse_delta_kind(line).unwrap(), Delta::None);
+    }
+
+    #[test]
+    fn render_delta_wraps_reasoning_run_in_think_tags() {
+        let mut in_reasoning = false;
+        assert_eq!(render_delta(&mut in_reasoning, Delta::Reasoning("a".into())), Some("<think>a".to_string()));
+        assert!(in_reasoning);
+        assert_eq!(render_delta(&mut in_reasoning, Delta::Reasoning("b".into())), Some("b".to_string()));
+        assert_eq!(render_delta(&mut in_reasoning, Delta::Content("c".into())), Some("</think>c".to_string()));
+        assert!(!in_reasoning);
+        assert_eq!(render_delta(&mut in_reasoning, Delta::Content("d".into())), Some("d".to_string()));
+    }
+
+    #[test]
+    fn render_delta_plain_content_has_no_tags() {
+        let mut in_reasoning = false;
+        assert_eq!(render_delta(&mut in_reasoning, Delta::Content("hi".into())), Some("hi".to_string()));
+        assert!(!in_reasoning);
+    }
+
+    #[test]
+    fn render_delta_none_yields_nothing() {
+        let mut in_reasoning = false;
+        assert_eq!(render_delta(&mut in_reasoning, Delta::None), None);
     }
 }
