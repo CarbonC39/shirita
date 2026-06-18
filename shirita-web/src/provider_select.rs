@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use serde_json::Value;
 use shirita_core::{AnthropicProvider, Config, EchoProvider, ModelProvider, OpenAiProvider};
 
 use crate::AppState;
@@ -93,6 +94,72 @@ pub fn provider_from_env(config: &Config, client: reqwest::Client) -> Arc<dyn Mo
     }
 }
 
+/// `GET /models` request shape for a given source: url + extra headers. Each
+/// vendor authenticates and addresses its model-listing endpoint differently
+/// (Anthropic wants `x-api-key`, Google wants the key as a query param), so
+/// this is kept as a pure, unit-testable decision separate from the network call.
+pub(crate) struct ModelsRequest {
+    pub url: String,
+    pub headers: Vec<(&'static str, String)>,
+}
+
+pub(crate) fn models_request(source: &str, base_url: &str, api_key: &str) -> ModelsRequest {
+    let base = base_url.trim_end_matches('/');
+    match source {
+        "anthropic" => ModelsRequest {
+            url: format!("{base}/v1/models"),
+            headers: vec![
+                ("x-api-key", api_key.to_string()),
+                ("anthropic-version", "2023-06-01".to_string()),
+            ],
+        },
+        "google" => ModelsRequest {
+            url: format!("{base}/models?key={api_key}"),
+            headers: vec![],
+        },
+        _ => ModelsRequest {
+            url: format!("{base}/models"),
+            headers: vec![("Authorization", format!("Bearer {api_key}"))],
+        },
+    }
+}
+
+/// Normalize a vendor's raw `/models` response into the OpenAI-style
+/// `{ "data": [{ "id": ... }] }` envelope the frontend always expects.
+/// OpenAI-compatible sources and Anthropic already return this shape;
+/// Google and Cohere nest models under a different key/field and need mapping.
+pub(crate) fn normalize_models_response(source: &str, raw: &Value) -> Value {
+    match source {
+        "google" => {
+            let ids: Vec<Value> = raw
+                .get("models")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
+                        .map(|n| serde_json::json!({ "id": n.rsplit('/').next().unwrap_or(n) }))
+                        .collect()
+                })
+                .unwrap_or_default();
+            serde_json::json!({ "data": ids })
+        }
+        "cohere" => {
+            let ids: Vec<Value> = raw
+                .get("models")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|m| m.get("name").and_then(|n| n.as_str()))
+                        .map(|n| serde_json::json!({ "id": n }))
+                        .collect()
+                })
+                .unwrap_or_default();
+            serde_json::json!({ "data": ids })
+        }
+        _ => raw.clone(),
+    }
+}
+
 async fn setting_str(state: &AppState, key: &str) -> Option<String> {
     state
         .storage
@@ -147,5 +214,60 @@ mod tests {
         assert_eq!(default_base_url("anthropic"), "https://api.anthropic.com");
         assert_eq!(default_base_url("openai"), "https://api.openai.com/v1");
         assert_eq!(default_base_url("nonsense"), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn models_request_anthropic_uses_x_api_key_header() {
+        let req = models_request("anthropic", "https://api.anthropic.com", "sk-ant-1");
+        assert_eq!(req.url, "https://api.anthropic.com/v1/models");
+        assert!(req.headers.contains(&("x-api-key", "sk-ant-1".to_string())));
+        assert!(req.headers.contains(&("anthropic-version", "2023-06-01".to_string())));
+    }
+
+    #[test]
+    fn models_request_google_uses_key_query_param_not_header() {
+        let req = models_request("google", "https://generativelanguage.googleapis.com/v1beta", "AIza-key");
+        assert_eq!(req.url, "https://generativelanguage.googleapis.com/v1beta/models?key=AIza-key");
+        assert!(req.headers.is_empty());
+    }
+
+    #[test]
+    fn models_request_openai_compatible_uses_bearer_header() {
+        let req = models_request("openai", "https://api.openai.com/v1", "sk-1");
+        assert_eq!(req.url, "https://api.openai.com/v1/models");
+        assert_eq!(req.headers, vec![("Authorization", "Bearer sk-1".to_string())]);
+    }
+
+    #[test]
+    fn normalize_models_response_passes_through_openai_shape() {
+        let raw = serde_json::json!({ "data": [{ "id": "gpt-4o" }] });
+        assert_eq!(normalize_models_response("openai", &raw), raw);
+    }
+
+    #[test]
+    fn normalize_models_response_passes_through_anthropic_shape() {
+        // Anthropic's /v1/models already returns { data: [{ id, ... }] }.
+        let raw = serde_json::json!({ "data": [{ "id": "claude-opus-4-8" }] });
+        assert_eq!(normalize_models_response("anthropic", &raw), raw);
+    }
+
+    #[test]
+    fn normalize_models_response_extracts_google_model_ids() {
+        let raw = serde_json::json!({ "models": [
+            { "name": "models/gemini-2.5-pro" },
+            { "name": "models/gemini-2.5-flash" },
+        ] });
+        let got = normalize_models_response("google", &raw);
+        assert_eq!(
+            got,
+            serde_json::json!({ "data": [{ "id": "gemini-2.5-pro" }, { "id": "gemini-2.5-flash" }] })
+        );
+    }
+
+    #[test]
+    fn normalize_models_response_extracts_cohere_model_ids() {
+        let raw = serde_json::json!({ "models": [{ "name": "command-r-plus" }] });
+        let got = normalize_models_response("cohere", &raw);
+        assert_eq!(got, serde_json::json!({ "data": [{ "id": "command-r-plus" }] }));
     }
 }
