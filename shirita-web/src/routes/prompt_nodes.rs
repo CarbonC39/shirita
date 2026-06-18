@@ -1,7 +1,7 @@
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 use shirita_core::{NodeKind, OwnerKind, PromptNode};
 
@@ -10,8 +10,27 @@ use crate::AppState;
 #[derive(Deserialize)]
 pub struct CreateNodeBody { pub parent_id: Option<String>, pub kind: String, pub tag: Option<String>, pub definition_id: Option<String> }
 
+/// 区分「字段未传」(None) vs「字段传了 null」(Some(None)) vs「传了值」(Some(Some(v)))，
+/// 否则 update_node 无法把 parent_id/tag/definition_id 显式清空（例如把 ref 移出 folder）。
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Deserialize::deserialize(de).map(Some)
+}
+
 #[derive(Deserialize)]
-pub struct UpdateNodeBody { pub parent_id: Option<String>, pub sort_order: Option<i64>, pub tag: Option<String>, pub definition_id: Option<String>, pub enabled: Option<bool> }
+pub struct UpdateNodeBody {
+    #[serde(default, deserialize_with = "double_option")]
+    pub parent_id: Option<Option<String>>,
+    pub sort_order: Option<i64>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub tag: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub definition_id: Option<Option<String>>,
+    pub enabled: Option<bool>,
+}
 
 #[derive(Deserialize)]
 pub struct ReorderBody { pub ordered_ids: Vec<String> }
@@ -64,7 +83,14 @@ pub async fn create_node(State(state): State<AppState>, Path(owner_id): Path<Str
 pub async fn update_node(State(state): State<AppState>, Path(node_id): Path<String>, Json(body): Json<UpdateNodeBody>) -> Result<Json<PromptNode>, StatusCode> {
     let existing = state.storage.get_node(&node_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
     let owner_nodes = state.storage.list_nodes(&existing.owner_kind, &existing.owner_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let updated = PromptNode { parent_id: body.parent_id.or(existing.parent_id), sort_order: body.sort_order.unwrap_or(existing.sort_order), tag: body.tag.or(existing.tag), definition_id: body.definition_id.or(existing.definition_id), enabled: body.enabled.unwrap_or(existing.enabled), ..existing };
+    let updated = PromptNode {
+        parent_id: body.parent_id.unwrap_or(existing.parent_id),
+        sort_order: body.sort_order.unwrap_or(existing.sort_order),
+        tag: body.tag.unwrap_or(existing.tag),
+        definition_id: body.definition_id.unwrap_or(existing.definition_id),
+        enabled: body.enabled.unwrap_or(existing.enabled),
+        ..existing
+    };
     enforce_two_level(&updated.kind, &updated.parent_id, &owner_nodes)?;
     state.storage.update_node(&updated).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(updated))
