@@ -123,6 +123,7 @@ const ja: MessageSchema = {
   },
   definition: {
     heading: '定義',
+    avatar: 'アバター',
     searchPlaceholder: '定義を検索、または新しい名前を入力…',
     newDefinition: '+ 新規定義',
     typeLabel: 'タイプ',

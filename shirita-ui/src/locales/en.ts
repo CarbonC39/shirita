@@ -132,6 +132,7 @@ const en = {
   },
   definition: {
     heading: 'Definition',
+    avatar: 'Avatar',
     searchPlaceholder: 'Search a definition, or type a new name…',
     newDefinition: '+ New definition',
     typeLabel: 'Type',
