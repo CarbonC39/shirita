@@ -142,6 +142,15 @@ impl Storage for SqliteStorage {
         rows.iter().map(row_to_definition).collect()
     }
 
+    async fn referenced_definition_ids(&self) -> Result<Vec<String>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT definition_id FROM prompt_nodes WHERE definition_id IS NOT NULL",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| r.get::<String, _>("definition_id")).collect())
+    }
+
     async fn update_definition(&self, def: &Definition) -> Result<()> {
         let meta = serde_json::to_string(&def.meta)?;
         sqlx::query(

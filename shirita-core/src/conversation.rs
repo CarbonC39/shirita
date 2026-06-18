@@ -131,9 +131,20 @@ async fn assemble_request(
     let include_history = plan.history_enabled || !has_history_node;
     let chat_messages = crate::assembly::build_chat_messages(&plan, context, include_history);
 
-    // Regex rules scoped to this loreset: collected from the session template
-    // tree during assembly (AssembledPlan.regex_rules), not global.
-    let regex_rules = plan.regex_rules.clone();
+    // Hybrid regex model: global rules (orphan regex_rule defs, managed in
+    // Settings and referenced by no node) apply to every session; loreset rules
+    // (referenced by this session's tree, e.g. ST imports) apply only here. The
+    // two sets are disjoint by construction — a tree-referenced def is never an
+    // orphan — so a concat needs no dedup. Global first, then scoped.
+    let referenced: std::collections::HashSet<String> =
+        storage.referenced_definition_ids().await?.into_iter().collect();
+    let mut regex_rules: Vec<Definition> = storage
+        .list_definitions()
+        .await?
+        .into_iter()
+        .filter(|d| d.def_type == "regex_rule" && !referenced.contains(&d.id))
+        .collect();
+    regex_rules.extend(plan.regex_rules.clone());
 
     let max_tokens = provider_max_tokens(storage).await;
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
@@ -586,6 +597,65 @@ mod tests {
         let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
         assert_eq!(assistant.raw_content, "helloSTOP");
         assert_eq!(assistant.display_content.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn global_regex_rule_applies_without_a_tree() {
+        // A rule created in Settings is an orphan def (referenced by no node).
+        // Hybrid model: global rules apply to every session's display output,
+        // even one with no template/tree.
+        let storage = Arc::new(temp_storage().await);
+        let mut rule = crate::models::definition::Definition::new("regex_rule", "G", "");
+        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
+        storage.create_definition(&rule).await.unwrap();
+        let session = Session::new("t"); // no template, no nodes
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "helloSTOP".into(),
+        });
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(assistant.display_content.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn scoped_regex_rule_does_not_leak_to_other_sessions() {
+        // A rule mounted in loreset A's tree is NOT an orphan, so it must not
+        // apply to an unrelated tree-less session.
+        let storage = Arc::new(temp_storage().await);
+        let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
+        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
+        storage.create_definition(&rule).await.unwrap();
+        let tmpl = crate::models::template::Template::new("rx");
+        storage.create_template(&tmpl).await.unwrap();
+        let rxref = crate::models::prompt_node::PromptNode::new_ref(
+            crate::models::prompt_node::OwnerKind::Template, &tmpl.id, None, 0, &rule.id,
+        );
+        storage.create_node(&rxref).await.unwrap();
+        // A different session that does NOT use that template.
+        let session = Session::new("other");
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "helloSTOP".into(),
+        });
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        // Rule belongs to loreset A's tree, so the reply is untouched here.
+        assert_eq!(assistant.display_content.as_deref(), None);
     }
 
     #[tokio::test]
