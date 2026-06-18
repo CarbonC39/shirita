@@ -35,6 +35,8 @@ async fn clone_messages(state: &AppState, messages: &[Message], new_session_id: 
 pub struct CreateSession {
     pub name: String,
     pub template_id: Option<String>,
+    #[serde(default)]
+    pub avatar: Option<String>,
 }
 
 pub async fn create_session(
@@ -44,6 +46,7 @@ pub async fn create_session(
     let mut session = Session::new(body.name);
     // 会话引用模板，不再深拷贝节点；组装时按 effective_nodes 解析（自有优先，否则引用模板）。
     session.template_id = body.template_id.clone();
+    session.avatar = body.avatar.clone();
     // 用声明变量的初值播种 current_state（seed 层；后续快照在其上演化）。
     let template_meta = match &session.template_id {
         Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),

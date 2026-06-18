@@ -13,6 +13,7 @@ const router = useRouter()
 const library = useLibraryStore()
 
 const sessionName = (route.query.name as string) || t('prompt.untitled')
+const sessionAvatar = (route.query.avatar as string) || null
 const selectedTemplateId = ref<string | null>(null)
 const nodes = ref<PromptNode[]>([])
 const creating = ref(false)
@@ -110,7 +111,7 @@ async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
 async function createChat() {
   creating.value = true; error.value = null
   try {
-    const session = await createSession(sessionName, selectedTemplateId.value)
+    const session = await createSession(sessionName, selectedTemplateId.value, sessionAvatar)
     router.push(`/chat/${session.id}`)
   } catch (e) { error.value = (e as Error).message }
   finally { creating.value = false }
