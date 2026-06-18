@@ -43,7 +43,7 @@ describe('api client', () => {
       {
         id: 'm1', session_id: 's1', parent_id: null, role: 'user',
         raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false,
-        snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+        attachments: [], snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
       },
     ]
     const fm = mockFetch(200, msgs)
@@ -124,7 +124,7 @@ describe('sendMessage SSE', () => {
         Authorization: 'Bearer test-token',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ text: 'hi' }),
+      body: JSON.stringify({ text: 'hi', attachments: [] }),
     })
   })
 

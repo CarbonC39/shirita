@@ -8,7 +8,7 @@ function msg(overrides: Partial<Message> = {}): Message {
   return {
     id: 'm1', session_id: 's1', parent_id: null, role: 'user',
     raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false,
-    snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    attachments: [], snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
 }
@@ -44,7 +44,7 @@ describe('chat store', () => {
     const store = useChatStore()
     await store.send('s1', 'hi')
 
-    expect(client.sendMessage).toHaveBeenCalledWith('s1', 'hi')
+    expect(client.sendMessage).toHaveBeenCalledWith('s1', 'hi', [])
     expect(store.messages).toEqual([msg()])
     expect(store.isStreaming).toBe(false)
     expect(store.streamingText).toBe('')

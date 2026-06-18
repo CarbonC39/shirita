@@ -1,23 +1,50 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ArrowUp, Plus } from 'lucide-vue-next'
+import { ArrowUp, Plus, X } from 'lucide-vue-next'
 import { estimateTokens, formatTokens } from '../utils/tokens'
+import { uploadAsset, type Asset } from '../api/client'
 
 const props = defineProps<{ disabled: boolean }>()
 
 const emit = defineEmits<{
-  send: [text: string]
+  send: [text: string, attachments: string[]]
 }>()
 
 const text = ref('')
+const pending = ref<Asset[]>([])
+const uploading = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 const hasText = computed(() => text.value.trim().length > 0)
+const canSend = computed(() => hasText.value || pending.value.length > 0)
 const draftTokens = computed(() => estimateTokens(text.value))
+
+function pickFile() {
+  fileInput.value?.click()
+}
+
+async function onFile(e: Event) {
+  const file = (e.target as HTMLInputElement).files?.[0]
+  if (!file) return
+  uploading.value = true
+  try {
+    const asset = await uploadAsset(file)
+    pending.value.push(asset)
+  } finally {
+    uploading.value = false
+    if (fileInput.value) fileInput.value.value = ''
+  }
+}
+
+function removePending(id: string) {
+  pending.value = pending.value.filter((a) => a.id !== id)
+}
 
 function submit() {
   const trimmed = text.value.trim()
-  if (!trimmed || props.disabled) return
-  emit('send', trimmed)
+  if (!canSend.value || props.disabled) return
+  emit('send', trimmed, pending.value.map((a) => a.id))
   text.value = ''
+  pending.value = []
 }
 
 function onKeydown(e: KeyboardEvent) {
@@ -30,10 +57,30 @@ function onKeydown(e: KeyboardEvent) {
 
 <template>
   <div class="border-t border-line bg-card px-4 py-3">
+    <div v-if="pending.length" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pb-2 flex flex-wrap gap-2">
+      <div v-for="a in pending" :key="a.id" class="relative w-14 h-14 rounded-lg overflow-hidden border border-line">
+        <img :src="a.url" class="w-full h-full object-cover" alt="" />
+        <button
+          type="button"
+          class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center"
+          :title="$t('composer.removeAttachment')"
+          @click="removePending(a.id)"
+        >
+          <X :size="10" />
+        </button>
+      </div>
+    </div>
     <div class="max-w-[600px] mx-auto flex items-end gap-2.5">
-      <button type="button" class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5" :title="$t('composer.attach')">
+      <button
+        type="button"
+        class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5 disabled:opacity-50"
+        :disabled="uploading"
+        :title="$t('composer.attach')"
+        @click="pickFile"
+      >
         <Plus :size="20" />
       </button>
+      <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onFile" />
       <textarea
         v-model="text"
         :disabled="disabled"
@@ -46,10 +93,10 @@ function onKeydown(e: KeyboardEvent) {
       />
       <button
         data-test="send-btn"
-        :disabled="disabled || !hasText"
+        :disabled="disabled || !canSend"
         :class="[
           'w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors',
-          hasText && !disabled ? 'bg-primary text-white' : 'bg-line text-muted',
+          canSend && !disabled ? 'bg-primary text-white' : 'bg-line text-muted',
         ]"
         @click="submit"
       >

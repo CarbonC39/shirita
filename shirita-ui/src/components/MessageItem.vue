@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
 import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
+import { useMediaStore } from '../stores/media'
 
 const props = withDefaults(defineProps<{
   message: Message
@@ -32,6 +33,14 @@ const avatarUrl = computed(() => (side.value?.avatar ? `/assets/${side.value.ava
 const label = displayName
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
+
+const media = useMediaStore()
+onMounted(() => media.load())
+const attachmentUrls = computed(() =>
+  props.message.attachments
+    .map((id) => media.assets.find((a) => a.id === id)?.url)
+    .filter((u): u is string => !!u),
+)
 
 const editing = ref(false)
 const draft = ref('')
@@ -72,11 +81,16 @@ function cancelEdit() { editing.value = false }
             <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
           </div>
         </template>
-        <template v-else><MessageContent :text="displayText" /><span
-          v-if="isStreaming"
-          data-test="streaming-cursor"
-          class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
-        /></template>
+        <template v-else>
+          <div v-if="attachmentUrls.length" data-test="message-attachments" class="flex flex-wrap gap-1.5 mb-1.5">
+            <img v-for="url in attachmentUrls" :key="url" :src="url" class="w-20 h-20 rounded-lg object-cover border border-line/50" alt="" />
+          </div>
+          <MessageContent :text="displayText" /><span
+            v-if="isStreaming"
+            data-test="streaming-cursor"
+            class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
+          />
+        </template>
       </div>
 
       <div
@@ -130,11 +144,16 @@ function cancelEdit() { editing.value = false }
           <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
         </div>
       </template>
-      <template v-else><MessageContent :text="displayText" /><span
-        v-if="isStreaming"
-        data-test="streaming-cursor"
-        class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
-      /></template>
+      <template v-else>
+        <div v-if="attachmentUrls.length" data-test="message-attachments" class="flex flex-wrap gap-1.5 mb-1.5">
+          <img v-for="url in attachmentUrls" :key="url" :src="url" class="w-20 h-20 rounded-lg object-cover border border-line/50" alt="" />
+        </div>
+        <MessageContent :text="displayText" /><span
+          v-if="isStreaming"
+          data-test="streaming-cursor"
+          class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
+        />
+      </template>
     </div>
     <div v-if="!editing" data-test="message-actions" class="flex items-center gap-1.5 mt-2 pl-[34px] text-muted">
       <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">

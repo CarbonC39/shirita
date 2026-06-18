@@ -103,11 +103,12 @@ async function* readSse(res: Response): AsyncGenerator<SseEvent> {
 export async function* sendMessage(
   sessionId: string,
   text: string,
+  attachments: string[] = [],
 ): AsyncGenerator<SseEvent> {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, attachments }),
   })
   if (!res.ok) {
     throw new Error(`POST /sessions/${sessionId}/messages failed: ${res.status}`)

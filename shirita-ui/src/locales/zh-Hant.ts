@@ -95,6 +95,7 @@ const zhHant: MessageSchema = {
   },
   composer: {
     attach: '附件',
+    removeAttachment: '移除附件',
     placeholder: '輸入訊息…',
   },
   book: {
