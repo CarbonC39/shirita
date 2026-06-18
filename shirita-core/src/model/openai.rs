@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::{Error, Result};
 
-use super::{parse_delta, ChatRequest, ModelProvider};
+use super::{parse_delta_kind, render_delta, ChatRequest, ModelProvider};
 
 pub struct OpenAiProvider {
     client: reqwest::Client,
@@ -88,6 +88,9 @@ impl ModelProvider for OpenAiProvider {
         let mut bytes = resp.bytes_stream();
         let stream = async_stream::stream! {
             let mut buf = String::new();
+            // DeepSeek 等推理模型在 content 之前先流式吐出 reasoning_content；
+            // 这段状态把它折进既有的 <think>…</think> 前端约定（见 model/mod.rs::render_delta）。
+            let mut in_reasoning = false;
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -107,9 +110,8 @@ impl ModelProvider for OpenAiProvider {
                     if data == "[DONE]" {
                         return;
                     }
-                    match parse_delta(data) {
-                        Ok(Some(content)) => yield Ok(content),
-                        Ok(None) => {}
+                    match parse_delta_kind(data) {
+                        Ok(delta) => if let Some(text) = render_delta(&mut in_reasoning, delta) { yield Ok(text); },
                         Err(e) => { yield Err(e); return; }
                     }
                 }

@@ -62,13 +62,35 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     })
 }
 
-/// 解析 Anthropic SSE `data:` 之后的 JSON：仅 `content_block_delta` 取 `delta.text`，其余返回 None。
-pub fn parse_anthropic_delta(json_after_data: &str) -> Result<Option<String>> {
+/// 解析出的 Anthropic SSE 事件：思考块的起始/正文，或文本块正文；其余事件忽略。
+/// extended thinking 用独立的 `thinking` 类型内容块（`content_block_start` →
+/// 多个 `thinking_delta` → 由下一个块的开始隐式结束），文本块用 `text_delta`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnthropicEvent {
+    ThinkingStart,
+    Thinking(String),
+    Text(String),
+    Other,
+}
+
+/// 解析 Anthropic SSE `data:` 之后的 JSON 为一个 [`AnthropicEvent`]。
+pub fn parse_anthropic_event(json_after_data: &str) -> Result<AnthropicEvent> {
     let v: serde_json::Value = serde_json::from_str(json_after_data)?;
-    if v["type"] == "content_block_delta" {
-        Ok(v["delta"]["text"].as_str().map(|s| s.to_string()))
-    } else {
-        Ok(None)
+    match v["type"].as_str().unwrap_or("") {
+        "content_block_start" => match v["content_block"]["type"].as_str().unwrap_or("") {
+            "thinking" => Ok(AnthropicEvent::ThinkingStart),
+            _ => Ok(AnthropicEvent::Other),
+        },
+        "content_block_delta" => match v["delta"]["type"].as_str().unwrap_or("") {
+            "thinking_delta" => Ok(AnthropicEvent::Thinking(
+                v["delta"]["thinking"].as_str().unwrap_or("").to_string(),
+            )),
+            "text_delta" => Ok(AnthropicEvent::Text(
+                v["delta"]["text"].as_str().unwrap_or("").to_string(),
+            )),
+            _ => Ok(AnthropicEvent::Other),
+        },
+        _ => Ok(AnthropicEvent::Other),
     }
 }
 
@@ -97,6 +119,9 @@ impl ModelProvider for AnthropicProvider {
         let mut bytes = resp.bytes_stream();
         let stream = async_stream::stream! {
             let mut buf = String::new();
+            // extended thinking 块用独立的 content_block_start/_delta 事件流式吐出；
+            // 折进既有的 <think>…</think> 前端约定（见 thinking.ts），下一个文本块开始时补闭合标签。
+            let mut in_thinking = false;
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -110,9 +135,21 @@ impl ModelProvider for AnthropicProvider {
                         Some(d) => d.trim(),
                         None => continue, // 忽略 event: 行与空行
                     };
-                    match parse_anthropic_delta(data) {
-                        Ok(Some(text)) => yield Ok(text),
-                        Ok(None) => {}
+                    match parse_anthropic_event(data) {
+                        Ok(AnthropicEvent::ThinkingStart) => {
+                            in_thinking = true;
+                            yield Ok("<think>".to_string());
+                        }
+                        Ok(AnthropicEvent::Thinking(t)) => yield Ok(t),
+                        Ok(AnthropicEvent::Text(t)) => {
+                            if in_thinking {
+                                in_thinking = false;
+                                yield Ok(format!("</think>{t}"));
+                            } else {
+                                yield Ok(t);
+                            }
+                        }
+                        Ok(AnthropicEvent::Other) => {}
                         Err(e) => { yield Err(e); return; }
                     }
                 }
@@ -171,18 +208,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_delta_extracts_text_block() {
+    fn parse_event_extracts_text_block() {
         let line = r#"{"type":"content_block_delta","delta":{"type":"text_delta","text":"He"}}"#;
-        assert_eq!(parse_anthropic_delta(line).unwrap(), Some("He".to_string()));
+        assert_eq!(parse_anthropic_event(line).unwrap(), AnthropicEvent::Text("He".to_string()));
     }
 
     #[test]
-    fn parse_delta_ignores_non_text_events() {
-        assert_eq!(parse_anthropic_delta(r#"{"type":"message_start"}"#).unwrap(), None);
+    fn parse_event_ignores_non_text_events() {
+        assert_eq!(parse_anthropic_event(r#"{"type":"message_start"}"#).unwrap(), AnthropicEvent::Other);
     }
 
     #[test]
-    fn parse_delta_invalid_json_errors() {
-        assert!(parse_anthropic_delta("not json").is_err());
+    fn parse_event_invalid_json_errors() {
+        assert!(parse_anthropic_event("not json").is_err());
+    }
+
+    #[test]
+    fn parse_event_thinking_block_start() {
+        let line = r#"{"type":"content_block_start","content_block":{"type":"thinking"}}"#;
+        assert_eq!(parse_anthropic_event(line).unwrap(), AnthropicEvent::ThinkingStart);
+    }
+
+    #[test]
+    fn parse_event_text_block_start_is_other() {
+        let line = r#"{"type":"content_block_start","content_block":{"type":"text"}}"#;
+        assert_eq!(parse_anthropic_event(line).unwrap(), AnthropicEvent::Other);
+    }
+
+    #[test]
+    fn parse_event_extracts_thinking_delta() {
+        let line = r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hm..."}}"#;
+        assert_eq!(parse_anthropic_event(line).unwrap(), AnthropicEvent::Thinking("hm...".to_string()));
     }
 }
