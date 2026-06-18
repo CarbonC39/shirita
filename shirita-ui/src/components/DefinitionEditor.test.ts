@@ -94,7 +94,7 @@ describe('DefinitionEditor type chips', () => {
     const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
     const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types, active: true } })
     const chips = w.findAll('[data-test="type-chip"]').map((b) => b.text())
-    expect(chips).toEqual(['Character', 'World', 'Prompt'])
+    expect(chips).toEqual(['Character', 'World', 'Prompt', 'Message Type'])
   })
 
   it('only offers delete on custom (non-builtin) types', () => {
@@ -115,5 +115,35 @@ describe('DefinitionEditor type chips', () => {
     await w.find('[data-test="type-new-input"]').setValue('Faction')
     await w.find('[data-test="type-new-input"]').trigger('keyup.enter')
     expect(w.emitted('create-type')![0]).toEqual(['Faction'])
+  })
+})
+
+describe('DefinitionEditor message type', () => {
+  it('shows depth/role fields for first_message and hides world-info fields', () => {
+    const d = { id: 'm1', type: 'first_message', name: 'Greeting', content: 'Hi', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    expect(w.find('[data-test="message-type-fields"]').exists()).toBe(true)
+    expect(w.find('[data-test="trigger-editor"]').exists()).toBe(false)
+    expect(w.find('[data-test="scan-depth"]').exists()).toBe(false)
+    expect(w.find('[data-test="wrap-in-tag"]').exists()).toBe(false)
+  })
+
+  it('clearing the depth input removes meta.depth (greeting mode)', async () => {
+    const d = { id: 'm1', type: 'first_message', name: 'Note', content: 'x', meta: { depth: 3, role: 'system' } }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    await w.get('[data-test="message-depth"]').setValue('')
+    const last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
+    expect('depth' in last).toBe(false)
+  })
+
+  it('setting depth and role emits both in meta', async () => {
+    const d = { id: 'm1', type: 'first_message', name: 'Note', content: 'x', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    await w.get('[data-test="message-depth"]').setValue('4')
+    let last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
+    expect(last.depth).toBe(4)
+    await w.get('[data-test="message-role"]').setValue('user')
+    last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
+    expect(last.role).toBe('user')
   })
 })

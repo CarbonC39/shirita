@@ -137,6 +137,13 @@ const ja: MessageSchema = {
     contentPlaceholder: '定義の内容…',
     wrapInTag: 'タグで囲む',
     wrapInTagHint: 'この定義名のタグで内容を囲む',
+    messageTypeHint: '深度を空にすると会話開始時の挨拶になります（代替案はスワイプに）。深度を設定すると、毎ターン履歴の末尾からその距離にノートとして挿入されます。',
+    depth: '深度',
+    depthPlaceholder: '挨拶',
+    role: 'ロール',
+    roleSystem: 'システム',
+    roleUser: 'ユーザー',
+    roleAssistant: 'アシスタント',
   },
   variables: {
     heading: '変数',

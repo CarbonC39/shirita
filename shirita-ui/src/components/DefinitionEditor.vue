@@ -43,18 +43,34 @@ function updateScan(patch: { depth?: number; recursive?: boolean }) {
 }
 
 // World-info trigger + scan settings only make sense for container (lore) types,
-// not for prompt/regex_rule/tool refs.
-const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool'].includes(props.definition.type))
+// not for prompt/regex_rule/tool/first_message refs.
+const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message'].includes(props.definition.type))
 // wrap_in_tag affects rendering, so it applies to anything that renders into the
-// prompt (i.e. everything except regex_rule, which never renders).
-const showWrapInTag = computed(() => props.definition.type !== 'regex_rule')
+// prompt (i.e. everything except regex_rule and first_message, neither of
+// which render as a plain prompt fragment).
+const showWrapInTag = computed(() => !['regex_rule', 'first_message'].includes(props.definition.type))
 
-// Registered container types + the reserved `prompt`, tinted per the palette.
-// Builtin types can't be deleted; custom ones can.
+// Registered container types + the reserved `prompt`/`first_message`, tinted
+// per the palette. Builtin types can't be deleted; custom ones can.
 const typeChips = computed(() => [
   ...props.types.map((t) => ({ id: t.id, label: t.label, builtin: t.builtin })),
   { id: 'prompt', label: 'Prompt', builtin: true },
+  { id: 'first_message', label: 'Message Type', builtin: true },
 ])
+
+// `meta.depth` unset = a session-start greeting (seeded once when the chat is
+// created, with alternates as swipes). Set = a depth_prompt-style insert,
+// spliced into chat history every turn at that distance from the end.
+function updateDepth(raw: string) {
+  const meta = { ...(props.definition.meta as Record<string, unknown>) }
+  if (raw === '') {
+    delete meta.depth
+  } else {
+    const n = parseInt(raw, 10)
+    if (!Number.isNaN(n)) meta.depth = Math.max(0, n)
+  }
+  emit('update:meta', meta)
+}
 
 const addingType = ref(false)
 const newTypeName = ref('')
@@ -68,6 +84,7 @@ function confirmNewType() {
 const chipTint: Record<string, string> = {
   char: 'bg-sky/30 border-sky/40', persona: 'bg-coral/30 border-coral/40',
   world: 'bg-mauve/25 border-mauve/40', prompt: 'bg-line/60 border-line',
+  first_message: 'bg-line/60 border-line',
 }
 
 const matches = computed(() => {
@@ -178,6 +195,37 @@ function startNew() {
         :model-value="(definition.meta as any).avatar || ''"
         @update:model-value="emit('update:meta', { ...definition.meta, avatar: $event })"
       />
+    </div>
+
+    <!-- message type: greeting (no depth) vs. depth-inserted note -->
+    <div v-if="definition.type === 'first_message'" data-test="message-type-fields" class="mb-3 space-y-2">
+      <p class="text-[12px] text-muted">{{ $t('definition.messageTypeHint') }}</p>
+      <div class="flex items-center gap-4 flex-wrap">
+        <label class="flex items-center gap-2 text-[13px] text-ink">
+          {{ $t('definition.depth') }}
+          <input
+            data-test="message-depth"
+            :value="(definition.meta as Record<string, unknown>).depth ?? ''"
+            type="number" min="0"
+            class="field !py-1 w-[64px] text-right tabular-nums"
+            :placeholder="$t('definition.depthPlaceholder')"
+            @input="updateDepth(($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="flex items-center gap-2 text-[13px] text-ink">
+          {{ $t('definition.role') }}
+          <select
+            data-test="message-role"
+            :value="(definition.meta as Record<string, unknown>).role || 'system'"
+            class="field !py-1 text-[12px]"
+            @change="emit('update:meta', { ...definition.meta, role: ($event.target as HTMLSelectElement).value })"
+          >
+            <option value="system">{{ $t('definition.roleSystem') }}</option>
+            <option value="user">{{ $t('definition.roleUser') }}</option>
+            <option value="assistant">{{ $t('definition.roleAssistant') }}</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     <!-- world-book trigger + scan settings (container types only) -->

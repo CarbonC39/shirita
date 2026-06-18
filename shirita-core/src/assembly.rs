@@ -228,6 +228,18 @@ pub struct AssembledPlan {
     /// regex_rule definitions referenced by enabled refs in this tree — the
     /// regex rules in effect for this loreset (scoped, not global).
     pub regex_rules: Vec<Definition>,
+    /// `first_message` refs with `meta.depth` set: a message injected at a
+    /// fixed distance from the end of chat history (ST's "Author's Note"
+    /// depth_prompt), rather than seeded once at session creation.
+    pub depth_inserts: Vec<DepthInsert>,
+}
+
+/// A message to splice into chat history at `depth` messages from the end.
+#[derive(Debug, Clone)]
+pub struct DepthInsert {
+    pub depth: usize,
+    pub role: Role,
+    pub content: String,
 }
 
 /// regex_rule / first_message refs do not render as prompt segments — they are
@@ -420,7 +432,28 @@ pub fn assemble_from_nodes(
         .filter(|d| d.def_type == "regex_rule")
         .cloned()
         .collect();
-    AssembledPlan { segments, history_enabled, regex_rules }
+
+    // `first_message` refs that set `meta.depth` are depth inserts, not
+    // session-start greetings — collected unconditionally (like the greeting
+    // itself, they don't go through world-info trigger activation).
+    let depth_inserts: Vec<DepthInsert> = nodes
+        .iter()
+        .filter(|n| n.enabled && n.kind == NodeKind::Ref)
+        .filter_map(|n| n.definition_id.as_ref().and_then(|id| definitions.get(id)))
+        .filter(|d| d.def_type == "first_message")
+        .filter_map(|d| {
+            let depth = d.meta.get("depth").and_then(|v| v.as_u64())? as usize;
+            let role = match d.meta.get("role").and_then(|v| v.as_str()) {
+                Some("user") => Role::User,
+                Some("assistant") => Role::Assistant,
+                _ => Role::System,
+            };
+            let content = render_vars(&effective_def_content(d, overrides), state);
+            Some(DepthInsert { depth, role, content })
+        })
+        .collect();
+
+    AssembledPlan { segments, history_enabled, regex_rules, depth_inserts }
 }
 
 /// 段 + 真实历史 → provider 消息数组；末了合并相邻同角色。
@@ -447,6 +480,22 @@ pub fn build_chat_messages(
     }
     for s in plan.segments.iter().filter(|s| s.placement == Placement::AfterHistory) {
         push_sys(&mut out, &s.content);
+    }
+
+    // Splice in depth inserts: each lands `depth` messages from the end of
+    // `out` as currently built. Computed against the pre-insertion length and
+    // sorted by position so multiple inserts don't shift each other's targets.
+    let mut inserts: Vec<(usize, ChatMessage)> = plan
+        .depth_inserts
+        .iter()
+        .map(|d| {
+            let idx = out.len().saturating_sub(d.depth);
+            (idx, ChatMessage { role: d.role, content: d.content.clone(), ..Default::default() })
+        })
+        .collect();
+    inserts.sort_by_key(|(idx, _)| *idx);
+    for (offset, (idx, msg)) in inserts.into_iter().enumerate() {
+        out.insert(idx + offset, msg);
     }
 
     // 合并相邻同角色（多个 system 合一；Claude 要求 system/user 不连发）。
@@ -771,6 +820,7 @@ mod tests {
             ],
             history_enabled: true,
             regex_rules: vec![],
+            depth_inserts: vec![],
         };
         let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
         let msgs = build_chat_messages(&plan, &history, true);
@@ -789,11 +839,48 @@ mod tests {
             segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "B")],
             history_enabled: false,
             regex_rules: vec![],
+            depth_inserts: vec![],
         };
         let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
         let msgs = build_chat_messages(&plan, &history, false);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].role, Role::System);
         assert_eq!(msgs[0].content, "A\nB");
+    }
+
+    #[test]
+    fn build_messages_splices_depth_insert_into_history() {
+        let plan = AssembledPlan {
+            segments: vec![],
+            history_enabled: true,
+            regex_rules: vec![],
+            depth_inserts: vec![DepthInsert { depth: 1, role: Role::System, content: "note".into() }],
+        };
+        let history = vec![
+            ChatMessage { role: Role::User, content: "a".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "b".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "c".into(), ..Default::default() },
+        ];
+        let msgs = build_chat_messages(&plan, &history, true);
+        // depth 1 lands before the last message ("c").
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[2].role, Role::System);
+        assert_eq!(msgs[2].content, "note");
+        assert_eq!(msgs[3].content, "c");
+    }
+
+    #[test]
+    fn assemble_collects_depth_insert_from_first_message_ref() {
+        let mut d = Definition::new("first_message", "note", "Remember: {{x}}");
+        d.meta = json!({ "depth": 2, "role": "system" });
+        let mut defs = HashMap::new();
+        defs.insert(d.id.clone(), d.clone());
+        let node = root_ref("template", 0, &d.id);
+        let state = json!({ "x": "stay calm" });
+        let plan = assemble_from_nodes(&[node], &defs, &json!({}), &state, &[], &mut || 0.0);
+        assert_eq!(plan.depth_inserts.len(), 1);
+        assert_eq!(plan.depth_inserts[0].depth, 2);
+        assert_eq!(plan.depth_inserts[0].role, Role::System);
+        assert_eq!(plan.depth_inserts[0].content, "Remember: stay calm");
     }
 }
