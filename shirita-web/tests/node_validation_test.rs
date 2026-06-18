@@ -171,3 +171,45 @@ async fn update_cannot_move_folder_under_a_parent() {
     .await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn update_can_explicitly_clear_parent_id_back_to_root() {
+    let state = test_state().await;
+    let tid = new_template(&state).await;
+    let did = new_def(&state).await;
+    let nodes = format!("/api/templates/{tid}/nodes?owner_kind=template");
+
+    let (_, body) = send(&state, "POST", &nodes, Some(r#"{"kind":"folder","tag":"char"}"#)).await;
+    let folder = json(&body)["id"].as_str().unwrap().to_string();
+    let (_, body) = send(
+        &state,
+        "POST",
+        &nodes,
+        Some(&format!(r#"{{"kind":"ref","parent_id":"{folder}","definition_id":"{did}"}}"#)),
+    )
+    .await;
+    let ref_id = json(&body)["id"].as_str().unwrap().to_string();
+    assert_eq!(json(&body)["parent_id"], serde_json::json!(folder));
+
+    // 显式传 parent_id: null → 清空到根，而不是被 omitted-field 的回退逻辑保留旧值。
+    let (st, body) = send(
+        &state,
+        "PUT",
+        &format!("/api/nodes/{ref_id}"),
+        Some(r#"{"parent_id":null}"#),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{body}");
+    assert_eq!(json(&body)["parent_id"], Value::Null);
+
+    // 不传 parent_id 字段（只改 enabled）→ 保留现有值不变。
+    let (_, body) = send(
+        &state,
+        "PUT",
+        &format!("/api/nodes/{ref_id}"),
+        Some(r#"{"enabled":false}"#),
+    )
+    .await;
+    assert_eq!(json(&body)["parent_id"], Value::Null);
+    assert_eq!(json(&body)["enabled"], serde_json::json!(false));
+}
