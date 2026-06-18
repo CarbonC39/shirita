@@ -3,7 +3,7 @@ import { activePath, siblings } from './tree'
 import type { Message } from '../api/types'
 
 function m(id: string, parent: string | null, created: string, role: Message['role'] = 'assistant'): Message {
-  return { id, session_id: 's', parent_id: parent, role, raw_content: id, display_content: null, is_hidden: false, snapshot_state: {}, created_at: created }
+  return { id, session_id: 's', parent_id: parent, role, raw_content: id, display_content: null, is_hidden: false, is_anchor: false, snapshot_state: {}, created_at: created }
 }
 
 describe('activePath', () => {

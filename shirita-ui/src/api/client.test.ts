@@ -42,7 +42,7 @@ describe('api client', () => {
     const msgs: Message[] = [
       {
         id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-        raw_content: 'hi', display_content: null, is_hidden: false,
+        raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false,
         snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
       },
     ]
