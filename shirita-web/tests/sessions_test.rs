@@ -85,6 +85,19 @@ async fn create_session_seeds_first_message_with_anchor() {
 }
 
 #[tokio::test]
+async fn create_session_persists_avatar() {
+    let state = test_state().await;
+    let (st, s) = send(&state, "POST", "/api/sessions", Some(r#"{"name":"s","avatar":"face.png"}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    let created: serde_json::Value = serde_json::from_str(&s).unwrap();
+    assert_eq!(created["avatar"], "face.png");
+    // and it survives a round-trip through the session read
+    let sid = created["id"].as_str().unwrap();
+    let (_, got) = send(&state, "GET", &format!("/api/sessions/{sid}"), None).await;
+    assert_eq!(serde_json::from_str::<serde_json::Value>(&got).unwrap()["avatar"], "face.png");
+}
+
+#[tokio::test]
 async fn create_then_list_session() {
     let state = test_state().await;
 

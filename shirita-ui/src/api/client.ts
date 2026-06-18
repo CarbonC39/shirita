@@ -169,11 +169,11 @@ export async function* regenerateMessage(
 }
 
 // --- Sessions ---
-export async function createSession(name: string, templateId?: string | null): Promise<Session> {
+export async function createSession(name: string, templateId?: string | null, avatar?: string | null): Promise<Session> {
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, template_id: templateId || undefined }),
+    body: JSON.stringify({ name, template_id: templateId || undefined, avatar: avatar || undefined }),
   })
   if (!res.ok) throw new Error(`Create session failed: ${res.status}`)
   return res.json()
