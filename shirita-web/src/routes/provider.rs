@@ -6,7 +6,7 @@ use futures::StreamExt;
 
 use shirita_core::{ChatMessage, ChatRequest, Role};
 
-use crate::provider_select::{build_provider, default_base_url};
+use crate::provider_select::{build_provider, default_base_url, models_request, normalize_models_response};
 use crate::AppState;
 
 pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
@@ -34,11 +34,18 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, S
     let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
     let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
     let client = state.http_client.clone();
-    let url = format!("{}/models", base_url.trim_end_matches('/'));
-    match client.get(&url).header("Authorization", format!("Bearer {}", api_key)).send().await {
+    // Each vendor has its own auth scheme and response shape for listing
+    // models; build the right request and normalize the result so the
+    // frontend always sees an OpenAI-style { data: [{ id }] } list.
+    let req = models_request(&source, &base_url, &api_key);
+    let mut rb = client.get(&req.url);
+    for (k, v) in &req.headers {
+        rb = rb.header(*k, v);
+    }
+    match rb.send().await {
         Ok(resp) => {
             let json: Value = resp.json().await.unwrap_or_default();
-            Ok(Json(json))
+            Ok(Json(normalize_models_response(&source, &json)))
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }
