@@ -151,3 +151,23 @@ describe('MessageItem', () => {
     expect(w.emitted('edit-save')![0]).toEqual(['hello edited'])
   })
 })
+
+describe('MessageItem identity', () => {
+  const identity = { assistant: { name: 'Neo', avatar: 'a.png' }, user: { name: 'Me', avatar: 'u.png' } }
+
+  it('renders the assistant identity avatar and name in bubble mode', () => {
+    const w = mount(MessageItem, {
+      props: { message: makeMsg({ role: 'assistant' }), style: 'bubble', identity },
+    })
+    const img = w.find('[data-test="assistant-avatar"] img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('src')).toContain('a.png')
+  })
+
+  it('uses the identity names in flat mode', () => {
+    const a = mount(MessageItem, { props: { message: makeMsg({ role: 'assistant' }), style: 'flat', identity } })
+    expect(a.text()).toContain('Neo')
+    const u = mount(MessageItem, { props: { message: makeMsg({ role: 'user' }), style: 'flat', identity } })
+    expect(u.text()).toContain('Me')
+  })
+})
