@@ -6,7 +6,7 @@ import type { Message } from '../api/types'
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: 'm1', session_id: 's1', parent_id: null, role: 'user',
-    raw_content: 'Hello world', display_content: null, is_hidden: false,
+    raw_content: 'Hello world', display_content: null, is_hidden: false, is_anchor: false,
     snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
