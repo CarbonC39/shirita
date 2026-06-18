@@ -59,26 +59,41 @@ const templateTokens = computed(() => {
 });
 
 // ── M7 import / export ──────────────────────────────────────
-const importConflict = ref<OnConflict>("skip");
+// Imports default silently to "skip" (never destructive). The
+// overwrite/duplicate choice only surfaces afterwards, and only if the
+// import actually hit a name+type conflict — most imports never do, so
+// there's no dropdown to puzzle over up front.
 const importSummary = ref<ImportSummary | null>(null);
 const importBusy = ref(false);
 const importInput = ref<HTMLInputElement | null>(null);
+const pendingImportFile = ref<File | null>(null);
+
+async function runImport(file: File, onConflict: OnConflict) {
+    importBusy.value = true;
+    try {
+        importSummary.value = await importFile(file, onConflict);
+        pendingImportFile.value = importSummary.value.skipped.length > 0 ? file : null;
+        await library.loadAll();
+    } catch (err) {
+        importSummary.value = null;
+        pendingImportFile.value = null;
+        error.value = (err as Error).message;
+    } finally {
+        importBusy.value = false;
+    }
+}
 
 async function onImportPicked(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
-    importBusy.value = true;
-    try {
-        importSummary.value = await importFile(file, importConflict.value);
-        await library.loadAll();
-    } catch (err) {
-        importSummary.value = null;
-        error.value = (err as Error).message;
-    } finally {
-        importBusy.value = false;
-        input.value = ""; // allow re-picking the same file
-    }
+    await runImport(file, "skip");
+    input.value = ""; // allow re-picking the same file
+}
+
+async function resolveImportConflicts(onConflict: OnConflict) {
+    if (!pendingImportFile.value) return;
+    await runImport(pendingImportFile.value, onConflict);
 }
 
 async function exportDefinition(d: Definition) {
@@ -829,15 +844,6 @@ async function duplicateDef() {
                     </option>
                 </select>
                 <div class="flex items-center">
-                    <select
-                        v-model="importConflict"
-                        class="field !py-1 !px-1.5 text-[12px] mr-1"
-                        :title="$t('book.onConflict')"
-                    >
-                        <option value="skip">{{ $t("book.conflictSkip") }}</option>
-                        <option value="overwrite">{{ $t("book.conflictOverwrite") }}</option>
-                        <option value="duplicate">{{ $t("book.conflictDuplicate") }}</option>
-                    </select>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('book.importTitle')"
@@ -889,6 +895,14 @@ async function duplicateDef() {
                     })
                 }}
             </p>
+
+            <!-- only shown when the import actually hit a name+type conflict -->
+            <div v-if="pendingImportFile" data-test="import-conflict-resolve" class="flex items-center gap-2 mt-1.5 text-[12px] text-muted">
+                <span>{{ $t("book.importConflictFound", { skipped: importSummary?.skipped.length ?? 0 }) }}</span>
+                <button class="text-primary hover:underline" :disabled="importBusy" @click="resolveImportConflicts('overwrite')">{{ $t("book.conflictOverwrite") }}</button>
+                <button class="text-primary hover:underline" :disabled="importBusy" @click="resolveImportConflicts('duplicate')">{{ $t("book.conflictDuplicate") }}</button>
+                <button class="text-muted hover:text-ink" :disabled="importBusy" @click="pendingImportFile = null">{{ $t("common.dismiss") }}</button>
+            </div>
 
             <!-- name + save/saved state -->
             <div
