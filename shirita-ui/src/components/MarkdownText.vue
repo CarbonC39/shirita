@@ -1,6 +1,7 @@
 <script lang="ts">
 import { defineComponent, h, type VNode } from 'vue'
-import { parseMarkdown, type Inline } from '../utils/markdown'
+import { parseMarkdown, isHtmlDocument, type Inline } from '../utils/markdown'
+import HtmlCardFrame from './HtmlCardFrame.vue'
 
 // Render the Markdown AST to VNodes. Text becomes plain strings (Vue escapes
 // them) and only a fixed whitelist of elements is produced — no v-html, no
@@ -30,16 +31,20 @@ export default defineComponent({
   name: 'MarkdownText',
   props: { text: { type: String, default: '' } },
   setup(props) {
-    return () =>
-      h(
+    return () => {
+      if (isHtmlDocument(props.text)) return h(HtmlCardFrame, { html: props.text })
+      return h(
         'span',
         { class: 'md' },
         parseMarkdown(props.text).map((n) =>
           n.type === 'codeblock'
-            ? h('pre', { class: 'md-pre' }, h('code', n.value))
+            ? isHtmlDocument(n.value)
+              ? h(HtmlCardFrame, { html: n.value })
+              : h('pre', { class: 'md-pre' }, h('code', n.value))
             : renderInline([n])[0],
         ),
       )
+    }
   },
 })
 </script>
