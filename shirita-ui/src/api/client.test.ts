@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile } from './client'
+import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -184,5 +184,11 @@ describe('runtime config injection', () => {
     expect(fm).toHaveBeenCalledWith('http://127.0.0.1:9999/api/sessions', {
       headers: { Authorization: 'Bearer inj-tok' },
     })
+  })
+
+  it('getSessionIdentity GETs /api/sessions/:id/identity', async () => {
+    const body = { assistant: { name: 'Neo', avatar: 'a.png' }, user: { name: 'Me', avatar: null } }
+    vi.stubGlobal('fetch', mockFetch(200, body))
+    await expect(getSessionIdentity('s1')).resolves.toEqual(body)
   })
 })

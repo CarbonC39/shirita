@@ -1,6 +1,7 @@
 import type {
   Definition,
   DefType,
+  Identity,
   ImportSummary,
   Message,
   OnConflict,
@@ -37,6 +38,20 @@ export function getSession(id: string): Promise<Session> {
 
 export function getSessionState(id: string): Promise<SessionState> {
   return apiGet<SessionState>(`/sessions/${id}/state`)
+}
+
+export function getSessionIdentity(id: string): Promise<Identity> {
+  return apiGet<Identity>(`/sessions/${id}/identity`)
+}
+
+export async function patchSession(id: string, body: { name?: string; avatar?: string | null }): Promise<Session> {
+  const res = await fetch(`${BASE}/api/sessions/${id}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Patch session failed: ${res.status}`)
+  return res.json()
 }
 
 export async function setLocalVariables(sessionId: string, variables: VarDecl[]): Promise<void> {

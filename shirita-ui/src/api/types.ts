@@ -107,6 +107,16 @@ export interface RegexRule {
   scope: { ai_output: boolean; user_input: boolean; display_only: boolean }
 }
 
+export interface SideIdentity {
+  name: string | null
+  avatar: string | null
+}
+
+export interface Identity {
+  assistant: SideIdentity
+  user: SideIdentity
+}
+
 export interface ImportItem {
   kind: 'definition' | 'template'
   id: string
