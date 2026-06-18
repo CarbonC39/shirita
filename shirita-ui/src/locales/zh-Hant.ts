@@ -122,6 +122,8 @@ const zhHant: MessageSchema = {
     promoteConfirm: '將此定義同步到全域庫？',
     deleteType: '刪除類型「{id}」？',
     deleteTypeInUse: '刪除類型「{id}」？使用它的定義會保留該類型 id，但將無法再選擇。',
+    deleteTemplateConfirm: '刪除此範本？',
+    deleteTemplateOrphans: '此範本是唯一引用這 {count} 個定義的地方。是否一併刪除？',
   },
   definition: {
     heading: '定義',

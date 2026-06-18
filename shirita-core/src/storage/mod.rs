@@ -54,7 +54,12 @@ pub trait Storage: Send + Sync {
     async fn get_template(&self, id: &str) -> Result<Option<Template>>;
     async fn list_templates(&self) -> Result<Vec<Template>>;
     async fn update_template(&self, template: &Template) -> Result<()>;
-    async fn delete_template(&self, id: &str) -> Result<()>;
+    /// Definitions referenced by this template's nodes that no other template or
+    /// session references — i.e. would become unreachable if the template is deleted.
+    async fn orphaned_definitions_for_template(&self, template_id: &str) -> Result<Vec<Definition>>;
+    /// Delete a template and its node tree. If `delete_orphans` is true, also delete
+    /// the definitions reported by `orphaned_definitions_for_template`.
+    async fn delete_template(&self, id: &str, delete_orphans: bool) -> Result<()>;
 
     // --- prompt nodes ---
     async fn list_nodes(&self, owner_kind: &OwnerKind, owner_id: &str) -> Result<Vec<PromptNode>>;

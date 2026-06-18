@@ -131,6 +131,9 @@ const en = {
     deleteType: 'Delete type "{id}"?',
     deleteTypeInUse:
       'Delete type "{id}"? Definitions using it will keep the type id but it won\'t be selectable.',
+    deleteTemplateConfirm: 'Delete this template?',
+    deleteTemplateOrphans:
+      'This template is the only thing using {count} definition. Delete it too? | This template is the only thing using {count} definitions. Delete them too?',
   },
   definition: {
     heading: 'Definition',

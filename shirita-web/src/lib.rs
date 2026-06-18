@@ -91,6 +91,7 @@ pub fn app(state: AppState) -> Router {
         .route("/templates", get(routes::templates::list).post(routes::templates::create))
         .route("/templates/{id}", get(routes::templates::get).put(routes::templates::update).delete(routes::templates::delete))
         .route("/templates/{id}/duplicate", post(routes::templates::duplicate))
+        .route("/templates/{id}/orphan-definitions", get(routes::templates::orphan_definitions))
         .route("/templates/{id}/nodes", get(routes::prompt_nodes::list_nodes).post(routes::prompt_nodes::create_node))
         .route("/nodes/{id}", put(routes::prompt_nodes::update_node).delete(routes::prompt_nodes::delete_node))
         .route("/templates/{id}/nodes/reorder", put(routes::prompt_nodes::reorder_nodes))
