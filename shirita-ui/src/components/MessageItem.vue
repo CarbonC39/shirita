@@ -121,7 +121,7 @@ function cancelEdit() { editing.value = false }
           <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
         </div>
       </template>
-      <template v-else>{{ message.raw_content }}<span
+      <template v-else>{{ displayText }}<span
         v-if="isStreaming"
         data-test="streaming-cursor"
         class="inline-block w-[7px] h-[15px] bg-primary align-[-3px] ml-0.5 rounded-[1px] animate-pulse"
