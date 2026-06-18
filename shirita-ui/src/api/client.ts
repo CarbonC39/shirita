@@ -283,9 +283,16 @@ export async function updateTemplate(id: string, name: string, meta?: Record<str
   return res.json()
 }
 
-export async function deleteTemplate(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/templates/${id}`, { method: 'DELETE', headers: authHeaders() })
+export async function deleteTemplate(id: string, deleteOrphans = false): Promise<void> {
+  const qs = deleteOrphans ? '?delete_orphans=true' : ''
+  const res = await fetch(`${BASE}/api/templates/${id}${qs}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`Delete template failed: ${res.status}`)
+}
+
+export async function getOrphanDefinitions(templateId: string): Promise<Definition[]> {
+  const res = await fetch(`${BASE}/api/templates/${templateId}/orphan-definitions`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Get orphan definitions failed: ${res.status}`)
+  return res.json()
 }
 
 export async function duplicateTemplate(id: string): Promise<Template> {

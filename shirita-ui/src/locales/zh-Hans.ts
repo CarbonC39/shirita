@@ -122,6 +122,8 @@ const zhHans: MessageSchema = {
     promoteConfirm: '将此定义同步到全局库？',
     deleteType: '删除类型“{id}”？',
     deleteTypeInUse: '删除类型“{id}”？使用它的定义会保留该类型 id，但将无法再选择。',
+    deleteTemplateConfirm: '删除此模板？',
+    deleteTemplateOrphans: '此模板是唯一引用这 {count} 个定义的地方。是否一并删除？',
   },
   definition: {
     heading: '定义',

@@ -122,6 +122,8 @@ const ja: MessageSchema = {
     promoteConfirm: 'この定義をグローバルライブラリに同期しますか？',
     deleteType: 'タイプ「{id}」を削除しますか？',
     deleteTypeInUse: 'タイプ「{id}」を削除しますか？使用中の定義はタイプ id を保持しますが、選択できなくなります。',
+    deleteTemplateConfirm: 'このテンプレートを削除しますか？',
+    deleteTemplateOrphans: 'このテンプレートだけが {count} 件の定義を使用しています。一緒に削除しますか？',
   },
   definition: {
     heading: '定義',

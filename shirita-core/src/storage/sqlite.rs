@@ -419,7 +419,36 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn delete_template(&self, id: &str) -> Result<()> {
+    async fn orphaned_definitions_for_template(&self, template_id: &str) -> Result<Vec<Definition>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT definition_id FROM prompt_nodes \
+             WHERE owner_kind = 'template' AND owner_id = ? AND definition_id IS NOT NULL \
+             AND definition_id NOT IN ( \
+                 SELECT definition_id FROM prompt_nodes \
+                 WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'template' AND owner_id = ?) \
+             )",
+        )
+        .bind(template_id)
+        .bind(template_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut defs = Vec::new();
+        for row in &rows {
+            let def_id: String = row.get("definition_id");
+            if let Some(d) = self.get_definition(&def_id).await? {
+                defs.push(d);
+            }
+        }
+        Ok(defs)
+    }
+
+    async fn delete_template(&self, id: &str, delete_orphans: bool) -> Result<()> {
+        if delete_orphans {
+            let orphans = self.orphaned_definitions_for_template(id).await?;
+            for def in orphans {
+                self.delete_definition(&def.id).await?;
+            }
+        }
         sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'template' AND owner_id = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM templates WHERE id = ?").bind(id).execute(&self.pool).await?;
         Ok(())
@@ -732,6 +761,31 @@ mod tests {
         let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         storage.run_migrations().await.unwrap();
         storage
+    }
+
+    #[tokio::test]
+    async fn template_delete_reports_and_optionally_deletes_orphans() {
+        let s = temp_storage().await;
+        let t1 = Template::new("T1");
+        let t2 = Template::new("T2");
+        s.create_template(&t1).await.unwrap();
+        s.create_template(&t2).await.unwrap();
+        let solo = Definition::new("world", "Solo", "only in T1");
+        let shared = Definition::new("world", "Shared", "in both templates");
+        s.create_definition(&solo).await.unwrap();
+        s.create_definition(&shared).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Template, &t1.id, None, 0, &solo.id)).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Template, &t1.id, None, 1, &shared.id)).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Template, &t2.id, None, 0, &shared.id)).await.unwrap();
+
+        let orphans = s.orphaned_definitions_for_template(&t1.id).await.unwrap();
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].id, solo.id);
+
+        s.delete_template(&t1.id, true).await.unwrap();
+        assert!(s.get_definition(&solo.id).await.unwrap().is_none());
+        assert!(s.get_definition(&shared.id).await.unwrap().is_some());
+        assert!(s.get_template(&t1.id).await.unwrap().is_none());
     }
 
     #[tokio::test]

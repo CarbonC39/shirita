@@ -1,15 +1,18 @@
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::Value;
 
-use shirita_core::{NodeKind, OwnerKind, PromptNode, Template};
+use shirita_core::{Definition, NodeKind, OwnerKind, PromptNode, Template};
 
 use crate::AppState;
 
 #[derive(Deserialize)]
 pub struct TemplateBody { pub name: String, #[serde(default)] pub meta: Value }
+
+#[derive(Deserialize)]
+pub struct DeleteQuery { #[serde(default)] pub delete_orphans: bool }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Template>>, StatusCode> {
     state.storage.list_templates().await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
@@ -40,8 +43,12 @@ pub async fn update(State(state): State<AppState>, Path(id): Path<String>, Json(
     Ok(Json(t))
 }
 
-pub async fn delete(State(state): State<AppState>, Path(id): Path<String>) -> Result<StatusCode, StatusCode> {
-    state.storage.delete_template(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+pub async fn orphan_definitions(State(state): State<AppState>, Path(id): Path<String>) -> Result<Json<Vec<Definition>>, StatusCode> {
+    state.storage.orphaned_definitions_for_template(&id).await.map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn delete(State(state): State<AppState>, Path(id): Path<String>, Query(q): Query<DeleteQuery>) -> Result<StatusCode, StatusCode> {
+    state.storage.delete_template(&id, q.delete_orphans).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

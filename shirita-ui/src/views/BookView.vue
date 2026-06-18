@@ -18,6 +18,7 @@ import {
     updateTemplate,
     duplicateTemplate,
     deleteTemplate,
+    getOrphanDefinitions,
     getSession,
     setLocalDefinition,
     clearLocalDefinition,
@@ -474,8 +475,12 @@ async function dupTemplate() {
 }
 async function delTemplate() {
     if (!selectedTemplateId.value) return;
+    if (!confirm(tr("book.deleteTemplateConfirm"))) return;
     try {
-        await deleteTemplate(selectedTemplateId.value);
+        const orphans = await getOrphanDefinitions(selectedTemplateId.value);
+        const deleteOrphans =
+            orphans.length > 0 && confirm(tr("book.deleteTemplateOrphans", orphans.length));
+        await deleteTemplate(selectedTemplateId.value, deleteOrphans);
         selectedTemplateId.value = null;
         isDraft.value = false;
         templateName.value = "";
