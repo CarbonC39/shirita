@@ -13,5 +13,6 @@ export const fallbackModels: Record<string, string[]> = {
   cohere: ['command-a', 'command-r-plus', 'command-r'],
   together: ['meta-llama/Llama-3.3-70B-Instruct-Turbo', 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1'],
   perplexity: ['sonar', 'sonar-pro', 'sonar-reasoning', 'sonar-reasoning-pro'],
+  ollama: [],
   custom: [],
 }

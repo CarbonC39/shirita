@@ -44,6 +44,7 @@ const providerSources = [
     "cohere",
     "together",
     "perplexity",
+    "ollama",
     "custom",
 ];
 
@@ -59,6 +60,7 @@ const sourceLabels: Record<string, string> = {
     cohere: "Cohere",
     together: "Together",
     perplexity: "Perplexity",
+    ollama: "Ollama (local)",
     custom: "Custom…",
 };
 
@@ -74,8 +76,15 @@ const defaultBaseUrls: Record<string, string> = {
     cohere: "https://api.cohere.ai/v1",
     together: "https://api.together.xyz/v1",
     perplexity: "https://api.perplexity.ai",
+    ollama: "http://localhost:11434/v1",
     custom: "",
 };
+
+// Local providers like Ollama don't check the API key at all; gating the
+// live /models fetch on a non-empty key (needed for hosted providers, where
+// an empty key would just 401) would otherwise leave Ollama users stuck on
+// the static fallback catalog.
+const apiKeyOptional = computed(() => providerSource.value === "ollama");
 
 // Writable computed helpers
 function get(k: string) {
@@ -148,7 +157,7 @@ watch(
     () => [providerSource.value, providerBaseUrl.value, providerApiKey.value],
     () => {
         clearTimeout(modelsTimer);
-        if (!providerApiKey.value || !providerBaseUrl.value) {
+        if (!(providerApiKey.value || apiKeyOptional.value) || !providerBaseUrl.value) {
             settings.useFallbackModels(
                 fallbackModels[providerSource.value] ?? [],
             );
@@ -189,7 +198,7 @@ onMounted(async () => {
         const allDefs = await listDefinitions();
         regexRules.value = allDefs.filter((d) => d.type === "regex_rule");
         // seed the model list: live fetch needs a key, otherwise show the catalog
-        if (providerApiKey.value && providerBaseUrl.value)
+        if ((providerApiKey.value || apiKeyOptional.value) && providerBaseUrl.value)
             await settings.fetchModels();
         else
             settings.useFallbackModels(
@@ -343,12 +352,16 @@ async function handleTestConnection() {
                     </div>
                     <div>
                         <label class="text-[13px] text-ink block mb-1.5"
-                            >{{ $t("settings.apiKey") }}</label
+                            >{{ $t("settings.apiKey") }}
+                            <span v-if="apiKeyOptional" class="text-muted"
+                                >({{ $t("settings.apiKeyOptional") }})</span
+                            ></label
                         >
                         <div class="relative">
                             <input
                                 :value="providerApiKey"
                                 :type="showApiKey ? 'text' : 'password'"
+                                :placeholder="apiKeyOptional ? $t('settings.apiKeyOptional') : ''"
                                 class="field w-full pr-9 font-mono"
                                 @input="
                                     providerApiKey = (

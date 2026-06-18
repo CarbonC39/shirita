@@ -35,6 +35,7 @@ pub(crate) fn default_base_url(source: &str) -> &'static str {
     match source {
         "openai" => "https://api.openai.com/v1",
         "anthropic" => "https://api.anthropic.com",
+        "ollama" => "http://localhost:11434/v1",
         "google" => "https://generativelanguage.googleapis.com/v1beta",
         "openrouter" => "https://openrouter.ai/api/v1",
         "mistral" => "https://api.mistral.ai/v1",
@@ -117,6 +118,7 @@ pub(crate) fn models_request(source: &str, base_url: &str, api_key: &str) -> Mod
             url: format!("{base}/models?key={api_key}"),
             headers: vec![],
         },
+        "ollama" => ModelsRequest { url: format!("{base}/models"), headers: vec![] },
         _ => ModelsRequest {
             url: format!("{base}/models"),
             headers: vec![("Authorization", format!("Bearer {api_key}"))],
@@ -214,6 +216,18 @@ mod tests {
         assert_eq!(default_base_url("anthropic"), "https://api.anthropic.com");
         assert_eq!(default_base_url("openai"), "https://api.openai.com/v1");
         assert_eq!(default_base_url("nonsense"), "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn default_base_url_ollama_points_at_local_daemon() {
+        assert_eq!(default_base_url("ollama"), "http://localhost:11434/v1");
+    }
+
+    #[test]
+    fn models_request_ollama_sends_no_auth_header() {
+        let req = models_request("ollama", "http://localhost:11434/v1", "");
+        assert_eq!(req.url, "http://localhost:11434/v1/models");
+        assert!(req.headers.is_empty());
     }
 
     #[test]
