@@ -90,6 +90,7 @@ fn message_preview(text: &str) -> String {
 fn row_to_message(row: &SqliteRow) -> Result<Message> {
     let role_str: String = row.try_get("role")?;
     let snapshot: String = row.try_get("snapshot_state")?;
+    let attachments: String = row.try_get("attachments")?;
     let is_hidden: i64 = row.try_get("is_hidden")?;
     let is_anchor: i64 = row.try_get("is_anchor")?;
     Ok(Message {
@@ -101,6 +102,7 @@ fn row_to_message(row: &SqliteRow) -> Result<Message> {
         display_content: row.try_get("display_content")?,
         is_hidden: is_hidden != 0,
         is_anchor: is_anchor != 0,
+        attachments: serde_json::from_str(&attachments)?,
         snapshot_state: serde_json::from_str(&snapshot)?,
         created_at: row.try_get("created_at")?,
     })
@@ -280,10 +282,11 @@ impl Storage for SqliteStorage {
 
     async fn create_message(&self, message: &Message) -> Result<()> {
         let snapshot = serde_json::to_string(&message.snapshot_state)?;
+        let attachments = serde_json::to_string(&message.attachments)?;
         sqlx::query(
             "INSERT INTO messages \
-             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&message.id)
         .bind(&message.session_id)
@@ -293,6 +296,7 @@ impl Storage for SqliteStorage {
         .bind(&message.display_content)
         .bind(message.is_hidden as i64)
         .bind(message.is_anchor as i64)
+        .bind(attachments)
         .bind(snapshot)
         .bind(&message.created_at)
         .execute(&self.pool)
@@ -311,7 +315,7 @@ impl Storage for SqliteStorage {
 
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let rows = sqlx::query(
-            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at \
+            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at \
              FROM messages WHERE session_id = ? ORDER BY created_at ASC, id ASC",
         )
         .bind(session_id)
@@ -322,7 +326,7 @@ impl Storage for SqliteStorage {
 
     async fn get_message(&self, id: &str) -> Result<Option<Message>> {
         let row = sqlx::query(
-            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, snapshot_state, created_at \
+            "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at \
              FROM messages WHERE id = ?",
         )
         .bind(id)
@@ -733,6 +737,25 @@ mod tests {
         let m2 = Msg::new(&s.id, None, Role::User, "hi");
         store.create_message(&m2).await.unwrap();
         assert!(!store.get_message(&m2.id).await.unwrap().unwrap().is_anchor);
+    }
+
+    #[tokio::test]
+    async fn message_attachments_roundtrip() {
+        let store = temp_storage().await;
+        let s = Sess::new("attach");
+        store.create_session(&s).await.unwrap();
+        let mut m = Msg::new(&s.id, None, Role::User, "look at this");
+        m.attachments = vec!["asset-1".into(), "asset-2".into()];
+        store.create_message(&m).await.unwrap();
+        let got = store.get_message(&m.id).await.unwrap().unwrap();
+        assert_eq!(got.attachments, vec!["asset-1".to_string(), "asset-2".to_string()]);
+        // a plain message defaults to no attachments
+        let m2 = Msg::new(&s.id, None, Role::User, "hi");
+        store.create_message(&m2).await.unwrap();
+        assert!(store.get_message(&m2.id).await.unwrap().unwrap().attachments.is_empty());
+        // list_messages goes through the same row mapping
+        let listed = store.list_messages(&s.id).await.unwrap();
+        assert_eq!(listed.iter().find(|x| x.id == m.id).unwrap().attachments.len(), 2);
     }
 
     #[tokio::test]

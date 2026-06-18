@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::models::message::Role;
 use crate::{Error, Result};
 
-use super::{ChatRequest, ModelProvider};
+use super::{ChatMessage, ChatRequest, ModelProvider};
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -27,6 +27,42 @@ impl AnthropicProvider {
     }
 }
 
+/// 单条消息的 Anthropic `content`：无图时是纯字符串；有图时是
+/// `[{type:text}, {type:image, source:{type:base64,...}}...]` content-blocks 数组。
+/// 图片以 data URL（`data:<mime>;base64,<data>`）传入，按 `;base64,` 拆出 media_type/data。
+fn anthropic_content(m: &ChatMessage) -> serde_json::Value {
+    if m.images.is_empty() {
+        return json!(m.content);
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    if !m.content.is_empty() {
+        parts.push(json!({ "type": "text", "text": m.content }));
+    }
+    for url in &m.images {
+        if let Some((media_type, data)) = split_data_url(url) {
+            parts.push(json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": media_type, "data": data },
+            }));
+        }
+    }
+    json!(parts)
+}
+
+fn split_data_url(url: &str) -> Option<(&str, &str)> {
+    url.strip_prefix("data:")?.split_once(";base64,")
+}
+
+/// 把摘要文本前插到一个消息的 content 前面：字符串 content 直接拼接；
+/// content-parts 数组（带图）则在数组最前插一个 text part，保留图片块。
+fn prepend_text(content: &mut serde_json::Value, prefix: &str) {
+    if let Some(s) = content.as_str() {
+        *content = json!(format!("{prefix}\n\n{s}"));
+    } else if let Some(arr) = content.as_array_mut() {
+        arr.insert(0, json!({ "type": "text", "text": prefix }));
+    }
+}
+
 /// 构造 Anthropic 请求体：System 段合并进顶层 `system`；`summary` 包成 `<history_summary>`
 /// **prepend 到第一条 user 消息开头**（保持 user/assistant 交替，避免连续同 role）；无 user 则作首条 user。
 pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
@@ -40,15 +76,14 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
                 }
                 system.push_str(&m.content);
             }
-            Role::User => messages.push(json!({ "role": "user", "content": m.content })),
-            Role::Assistant => messages.push(json!({ "role": "assistant", "content": m.content })),
+            Role::User => messages.push(json!({ "role": "user", "content": anthropic_content(m) })),
+            Role::Assistant => messages.push(json!({ "role": "assistant", "content": anthropic_content(m) })),
         }
     }
     if let Some(sum) = &req.summary {
         let wrapped = format!("<history_summary>\n{sum}\n</history_summary>");
         if let Some(first_user) = messages.iter_mut().find(|m| m["role"] == "user") {
-            let cur = first_user["content"].as_str().unwrap_or("").to_string();
-            first_user["content"] = json!(format!("{wrapped}\n\n{cur}"));
+            prepend_text(&mut first_user["content"], &wrapped);
         } else {
             messages.insert(0, json!({ "role": "user", "content": wrapped }));
         }
@@ -170,7 +205,7 @@ mod tests {
 
     #[test]
     fn body_max_tokens_defaults_to_8192_and_honors_override() {
-        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], None);
         assert_eq!(anthropic_body(&r)["max_tokens"], 8192); // None → 默认 8192
         r.max_tokens = Some(2000);
         assert_eq!(anthropic_body(&r)["max_tokens"], 2000);
@@ -179,8 +214,8 @@ mod tests {
     #[test]
     fn system_segments_lifted_to_top_level() {
         let r = req(vec![
-            ChatMessage { role: Role::System, content: "SYS".into() },
-            ChatMessage { role: Role::User, content: "hi".into() },
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() },
         ], None);
         let b = anthropic_body(&r);
         assert_eq!(b["system"], "SYS");
@@ -192,9 +227,9 @@ mod tests {
     #[test]
     fn summary_prepended_to_first_user_keeps_alternation() {
         let r = req(vec![
-            ChatMessage { role: Role::System, content: "SYS".into() },
-            ChatMessage { role: Role::User, content: "hi".into() },
-            ChatMessage { role: Role::Assistant, content: "yo".into() },
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "yo".into(), ..Default::default() },
         ], Some("earlier"));
         let b = anthropic_body(&r);
         let msgs = b["messages"].as_array().unwrap();
@@ -239,5 +274,50 @@ mod tests {
     fn parse_event_extracts_thinking_delta() {
         let line = r#"{"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hm..."}}"#;
         assert_eq!(parse_anthropic_event(line).unwrap(), AnthropicEvent::Thinking("hm...".to_string()));
+    }
+
+    #[test]
+    fn message_with_image_uses_content_blocks_array() {
+        let r = req(vec![ChatMessage {
+            role: Role::User,
+            content: "what is this?".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+        }], None);
+        let b = anthropic_body(&r);
+        let parts = b["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(parts[0], json!({ "type": "text", "text": "what is this?" }));
+        assert_eq!(
+            parts[1],
+            json!({ "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": "AAA" } })
+        );
+    }
+
+    #[test]
+    fn image_only_message_omits_empty_text_block() {
+        let r = req(vec![ChatMessage {
+            role: Role::User,
+            content: "".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+        }], None);
+        let b = anthropic_body(&r);
+        let parts = b["messages"][0]["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["type"], "image");
+    }
+
+    #[test]
+    fn summary_prepends_a_text_block_when_first_user_has_images() {
+        let r = req(vec![ChatMessage {
+            role: Role::User,
+            content: "what is this?".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+        }], Some("earlier"));
+        let b = anthropic_body(&r);
+        let parts = b["messages"][0]["content"].as_array().unwrap();
+        // summary text block prepended, image block preserved
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0]["type"], "text");
+        assert!(parts[0]["text"].as_str().unwrap().contains("earlier"));
+        assert_eq!(parts[2]["type"], "image");
     }
 }

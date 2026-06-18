@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
 
+use crate::attachments::resolve_images;
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
@@ -150,6 +151,13 @@ async fn assemble_request(
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
 }
 
+/// 把一条已落库的 `Message` 转成发给 provider 的 `ChatMessage`，把它自己的
+/// `attachments`（asset id）解析成 data URL 图片。
+async fn chat_message_from(storage: &dyn Storage, assets_dir: &str, m: &Message) -> ChatMessage {
+    let images = resolve_images(storage, assets_dir, &m.attachments).await;
+    ChatMessage { role: m.role, content: m.raw_content.clone(), images }
+}
+
 /// 流式发送过程对外暴露的事件。
 #[derive(Debug, Clone, PartialEq)]
 pub enum SendEvent {
@@ -170,6 +178,8 @@ pub fn send_message(
     model: String,
     session_id: String,
     user_text: String,
+    assets_dir: String,
+    attachment_ids: Vec<String>,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
         // 0) 校验会话存在（在任何写入之前，避免依赖 FK 约束兜底）。
@@ -194,6 +204,7 @@ pub fn send_message(
 
         let mut user_msg = Message::new(&session_id, parent_id, Role::User, &user_text);
         user_msg.snapshot_state = branch_state.clone();
+        user_msg.attachments = attachment_ids.clone();
         if let Err(e) = storage.create_message(&user_msg).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -205,12 +216,12 @@ pub fn send_message(
         let summary_text = summary.map(|(c, _)| c);
 
         // 2) 组装：context = cutoff 之后的分支可见消息（过滤隐藏）+ 本次 user。
-        let mut context: Vec<ChatMessage> = path[visible_start..]
-            .iter()
-            .filter(|m| !m.is_hidden)
-            .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
-            .collect();
-        context.push(ChatMessage { role: Role::User, content: user_text.clone() });
+        let mut context: Vec<ChatMessage> = Vec::new();
+        for m in path[visible_start..].iter().filter(|m| !m.is_hidden) {
+            context.push(chat_message_from(storage.as_ref(), &assets_dir, m).await);
+        }
+        let new_turn_images = resolve_images(storage.as_ref(), &assets_dir, &attachment_ids).await;
+        context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images });
         let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
@@ -271,6 +282,7 @@ pub fn regenerate(
     model: String,
     session_id: String,
     target_id: String,
+    assets_dir: String,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
         let session = match storage.get_session(&session_id).await {
@@ -294,11 +306,10 @@ pub fn regenerate(
         let visible_start = summary.as_ref().map(|(_, i)| i + 1).unwrap_or(0);
         let summary_text = summary.map(|(c, _)| c);
 
-        let context: Vec<ChatMessage> = path[visible_start..]
-            .iter()
-            .filter(|m| !m.is_hidden)
-            .map(|m| ChatMessage { role: m.role, content: m.raw_content.clone() })
-            .collect();
+        let mut context: Vec<ChatMessage> = Vec::new();
+        for m in path[visible_start..].iter().filter(|m| !m.is_hidden) {
+            context.push(chat_message_from(storage.as_ref(), &assets_dir, m).await);
+        }
 
         // 父分支有效状态：折叠基准与 send_message 相同（schema 兜底 + seed + 父叶子快照）。
         let schema = session_schema(storage.as_ref(), &session).await;
@@ -381,6 +392,8 @@ mod tests {
             "test-model".into(),
             session.id.clone(),
             "hello".into(),
+            "".into(),
+            Vec::new(),
         );
         futures::pin_mut!(stream);
 
@@ -421,7 +434,7 @@ mod tests {
 
         // first turn
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "hi".into())).await;
+            "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new())).await;
         let s1 = storage.get_session(&session.id).await.unwrap().unwrap();
         let msgs1 = storage.list_messages(&session.id).await.unwrap();
         assert_eq!(msgs1.len(), 2); // user + assistant
@@ -430,7 +443,7 @@ mod tests {
 
         // second turn chains under the previous assistant (the active leaf)
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "again".into())).await;
+            "m".into(), session.id.clone(), "again".into(), "".into(), Vec::new())).await;
         let msgs2 = storage.list_messages(&session.id).await.unwrap();
         let user2 = msgs2.iter().find(|m| m.role == Role::User && m.raw_content == "again").unwrap();
         assert_eq!(user2.parent_id.as_deref(), Some(assistant1.id.as_str()));
@@ -496,6 +509,8 @@ mod tests {
             "m".into(),
             session.id.clone(),
             "hi".into(),
+            "".into(),
+            Vec::new(),
         );
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
@@ -543,7 +558,7 @@ mod tests {
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
 
         // user says nothing about zion → A constant active, B only if recursion scans A's content.
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -589,6 +604,8 @@ mod tests {
             "m".into(),
             session.id.clone(),
             "hi".into(),
+            "".into(),
+            Vec::new(),
         );
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
@@ -616,7 +633,7 @@ mod tests {
             reply: "helloSTOP".into(),
         });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -648,7 +665,7 @@ mod tests {
             reply: "helloSTOP".into(),
         });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -672,6 +689,8 @@ mod tests {
             "m".into(),
             "ghost-session".into(),
             "hi".into(),
+            "".into(),
+            Vec::new(),
         );
         futures::pin_mut!(stream);
 
@@ -726,7 +745,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -764,12 +783,56 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(req.messages[0].content.contains("HP is 42"), "assembly must read the branch leaf snapshot");
+    }
+
+    #[tokio::test]
+    async fn send_with_attachments_persists_ids_and_resolves_images_for_provider() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+
+        let dir = tempfile::tempdir().unwrap();
+        tokio::fs::write(dir.path().join("pic.png"), b"\x89PNG-fake-bytes").await.unwrap();
+        let asset = crate::models::asset::Asset {
+            id: "a1".into(),
+            name: "pic".into(),
+            path: "pic.png".into(),
+            created_at: "".into(),
+        };
+        storage.create_asset(&asset).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(
+            storage_dyn,
+            provider,
+            counter,
+            "m".into(),
+            session.id.clone(),
+            "look at this".into(),
+            dir.path().to_str().unwrap().to_string(),
+            vec!["a1".to_string()],
+        );
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let user = msgs.iter().find(|m| m.role == Role::User).unwrap();
+        assert_eq!(user.attachments, vec!["a1".to_string()]);
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        let user_turn = req.messages.last().unwrap();
+        assert_eq!(user_turn.content, "look at this");
+        assert_eq!(user_turn.images.len(), 1);
+        assert!(user_turn.images[0].starts_with("data:image/png;base64,"));
     }
 
     #[tokio::test]
@@ -797,7 +860,7 @@ mod tests {
         // window 设得很小 → 触发裁剪
         storage.set_setting("context.window", &serde_json::json!(20)).await.unwrap();
 
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -832,7 +895,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into(), "".into(), Vec::new());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -870,7 +933,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 

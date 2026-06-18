@@ -29,12 +29,28 @@ pub fn openai_body(req: &ChatRequest) -> serde_json::Value {
     body
 }
 
+/// 单条消息的 OpenAI `content`：无图时是纯字符串；有图时是 `[{type:text}, {type:image_url}...]`
+/// content-parts 数组（vision 格式）。空文本配图片时省略 text part。
+fn openai_content(m: &super::ChatMessage) -> serde_json::Value {
+    if m.images.is_empty() {
+        return json!(m.content);
+    }
+    let mut parts: Vec<serde_json::Value> = Vec::new();
+    if !m.content.is_empty() {
+        parts.push(json!({ "type": "text", "text": m.content }));
+    }
+    for url in &m.images {
+        parts.push(json!({ "type": "image_url", "image_url": { "url": url } }));
+    }
+    json!(parts)
+}
+
 /// 构造 OpenAI `messages` 数组：把 `req.summary`（若有）拼到首条 system 尾部；无 system 则前插一条 system。
 pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
     let mut msgs: Vec<serde_json::Value> = req
         .messages
         .iter()
-        .map(|m| json!({ "role": m.role.as_str(), "content": m.content }))
+        .map(|m| json!({ "role": m.role.as_str(), "content": openai_content(m) }))
         .collect();
     if let Some(sum) = &req.summary {
         let block = format!("\n\n[Summary of earlier conversation]\n{sum}");
@@ -133,7 +149,7 @@ mod tests {
 
     #[test]
     fn body_includes_max_tokens_only_when_set() {
-        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], None);
         assert!(openai_body(&r).get("max_tokens").is_none()); // None → 省略
         r.max_tokens = Some(8192);
         assert_eq!(openai_body(&r)["max_tokens"], 8192);
@@ -142,8 +158,8 @@ mod tests {
     #[test]
     fn summary_appended_to_existing_system() {
         let r = req(vec![
-            ChatMessage { role: Role::System, content: "SYS".into() },
-            ChatMessage { role: Role::User, content: "hi".into() },
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() },
         ], Some("earlier stuff"));
         let msgs = openai_messages(&r);
         assert_eq!(msgs[0]["role"], "system");
@@ -155,7 +171,7 @@ mod tests {
 
     #[test]
     fn summary_prepends_system_when_none() {
-        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], Some("S"));
+        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], Some("S"));
         let msgs = openai_messages(&r);
         assert_eq!(msgs[0]["role"], "system");
         assert!(msgs[0]["content"].as_str().unwrap().contains("S"));
@@ -163,9 +179,35 @@ mod tests {
 
     #[test]
     fn no_summary_passes_through() {
-        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into() }], None);
+        let r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], None);
         let msgs = openai_messages(&r);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0]["content"], "hi");
+    }
+
+    #[test]
+    fn message_with_image_uses_content_parts_array() {
+        let r = req(vec![ChatMessage {
+            role: Role::User,
+            content: "what is this?".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+        }], None);
+        let msgs = openai_messages(&r);
+        let parts = msgs[0]["content"].as_array().unwrap();
+        assert_eq!(parts[0], json!({ "type": "text", "text": "what is this?" }));
+        assert_eq!(parts[1], json!({ "type": "image_url", "image_url": { "url": "data:image/png;base64,AAA" } }));
+    }
+
+    #[test]
+    fn image_only_message_omits_empty_text_part() {
+        let r = req(vec![ChatMessage {
+            role: Role::User,
+            content: "".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+        }], None);
+        let msgs = openai_messages(&r);
+        let parts = msgs[0]["content"].as_array().unwrap();
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0]["type"], "image_url");
     }
 }

@@ -44,6 +44,11 @@ pub struct Message {
     /// an assistant first message so generation isn't assistant-first (API 400).
     #[serde(default)]
     pub is_anchor: bool,
+    /// Asset ids attached to this message (currently images), uploaded ahead of
+    /// send via `POST /api/assets`. Resolved to provider-native image content
+    /// at request-build time (see `attachments::resolve_images`); never inlined here.
+    #[serde(default)]
+    pub attachments: Vec<String>,
     #[serde(default)]
     pub snapshot_state: serde_json::Value,
     pub created_at: String,
@@ -65,6 +70,7 @@ impl Message {
             display_content: None,
             is_hidden: false,
             is_anchor: false,
+            attachments: Vec::new(),
             snapshot_state: serde_json::json!({}),
             created_at: chrono::Utc::now().to_rfc3339(),
         }

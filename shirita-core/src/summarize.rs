@@ -114,8 +114,8 @@ pub async fn run(
     let req = ChatRequest {
         model,
         messages: vec![
-            ChatMessage { role: Role::System, content: instruction },
-            ChatMessage { role: Role::User, content: body },
+            ChatMessage { role: Role::System, content: instruction, ..Default::default() },
+            ChatMessage { role: Role::User, content: body, ..Default::default() },
         ],
         summary: None,
         max_tokens,
