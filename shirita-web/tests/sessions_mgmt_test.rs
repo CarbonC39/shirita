@@ -90,3 +90,15 @@ async fn export_then_import_round_trips() {
     // a brand-new id, not the original
     assert_ne!(json(&out2)["id"].as_str().unwrap(), id);
 }
+
+#[tokio::test]
+async fn patch_renames_session() {
+    let state = test_state().await;
+    let id = create(&state, "Old").await;
+    let (st, out) = send(&state, "PATCH", &format!("/api/sessions/{id}"), Some(r#"{"name":"New"}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(json(&out)["name"], "New");
+    let (_, got) = send(&state, "GET", &format!("/api/sessions/{id}"), None).await;
+    assert_eq!(json(&got)["name"], "New");
+}
+

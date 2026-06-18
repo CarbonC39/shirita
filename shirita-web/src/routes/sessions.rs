@@ -131,6 +131,38 @@ pub async fn get_session(
         .ok_or(StatusCode::NOT_FOUND)
 }
 
+#[derive(Deserialize)]
+pub struct PatchSession {
+    pub name: Option<String>,
+    // Setting a string replaces the avatar; we don't model "clear to null" in v1.
+    pub avatar: Option<String>,
+}
+
+pub async fn patch_session(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<PatchSession>,
+) -> Result<Json<Session>, StatusCode> {
+    let mut session = state
+        .storage
+        .get_session(&id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if let Some(name) = body.name {
+        session.name = name;
+    }
+    if let Some(avatar) = body.avatar {
+        session.avatar = Some(avatar);
+    }
+    state
+        .storage
+        .update_session_profile(&id, &session.name, session.avatar.as_deref())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(session))
+}
+
 pub async fn list_sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Session>>, StatusCode> {
