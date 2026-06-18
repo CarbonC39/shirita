@@ -42,6 +42,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/sessions/{id}/duplicate", post(routes::sessions::duplicate_session))
         .route("/sessions/{id}/export", get(routes::sessions::export_session))
+        .route("/sessions/{id}/identity", get(routes::sessions::get_session_identity))
         .route(
             "/sessions/{id}/messages",
             get(routes::sessions::list_messages).post(routes::chat::send),

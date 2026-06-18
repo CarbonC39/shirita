@@ -163,6 +163,42 @@ pub async fn patch_session(
     Ok(Json(session))
 }
 
+pub async fn get_session_identity(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<shirita_core::identity::Identity>, StatusCode> {
+    let session = state
+        .storage
+        .get_session(&id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let nodes = shirita_core::conversation::effective_nodes(state.storage.as_ref(), &session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut defs = HashMap::new();
+    for n in &nodes {
+        if let Some(did) = &n.definition_id {
+            if !defs.contains_key(did) {
+                if let Ok(Some(d)) = state.storage.get_definition(did).await {
+                    defs.insert(did.clone(), d);
+                }
+            }
+        }
+    }
+    let template_name = match &session.template_id {
+        Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.name),
+        None => None,
+    };
+    let identity = shirita_core::identity::resolve_identity(
+        &nodes,
+        &defs,
+        template_name.as_deref(),
+        session.avatar.as_deref(),
+    );
+    Ok(Json(identity))
+}
+
 pub async fn list_sessions(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<Session>>, StatusCode> {
