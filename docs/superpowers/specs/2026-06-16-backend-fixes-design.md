@@ -208,5 +208,5 @@ async fn set_local_variables(&self, session_id: &str, variables: &Value) -> Resu
 
 - ~~⑧ 角色卡 personality/scenario/first_mes 入 prompt 与开场白注入（单独讨论）。~~ **已实现**：personality/scenario 在导入时映射进 char/world 定义（`adapters/charcard.rs`）；开场白注入见 `shirita-web/src/routes/sessions.rs::seed_first_message`（`create_session` 时用 `first_message` 定义生成隐藏锚点 + 可 swipe 的助手开场消息，测试 `create_session_seeds_first_message_with_anchor`）。
 - `update_node` 区分 null 与缺省（修「移到根 / 清字段」）。
-- `list_models` 适配非 OpenAI 源（anthropic/google/cohere）。
+- ~~`list_models` 适配非 OpenAI 源（anthropic/google/cohere）。~~ **已实现**：`provider_select::models_request`/`normalize_models_response` 按 source 构造请求（anthropic 用 `x-api-key`+`anthropic-version`，google 用 query 参数 key）并把响应归一化为 `{ data: [{id}] }`。
 - provider client 缓存复用；`reorder_nodes` 事务化；auth 常量时间比较；API key 加密存储。
