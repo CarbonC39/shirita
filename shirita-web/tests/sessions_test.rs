@@ -124,3 +124,38 @@ async fn create_then_list_session() {
     let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn identity_resolves_char_name_and_session_avatar() {
+    let state = test_state().await;
+    let (_, c) = send(&state, "POST", "/api/definitions", Some(r#"{"type":"char","name":"Neo","content":"desc"}"#)).await;
+    let cid = serde_json::from_str::<serde_json::Value>(&c).unwrap()["id"].as_str().unwrap().to_string();
+    let (_, p) = send(&state, "POST", "/api/definitions", Some(r#"{"type":"persona","name":"Me","content":"","meta":{"avatar":"u.png"}}"#)).await;
+    let pid = serde_json::from_str::<serde_json::Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+    let (_, t) = send(&state, "POST", "/api/templates", Some(r#"{"name":"Neo"}"#)).await;
+    let tid = serde_json::from_str::<serde_json::Value>(&t).unwrap()["id"].as_str().unwrap().to_string();
+    for did in [&cid, &pid] {
+        let body = format!(r#"{{"kind":"ref","definition_id":"{did}"}}"#);
+        send(&state, "POST", &format!("/api/templates/{tid}/nodes?owner_kind=template"), Some(&body)).await;
+    }
+    let (_, s) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"chat","template_id":"{tid}","avatar":"face.png"}}"#))).await;
+    let sid = serde_json::from_str::<serde_json::Value>(&s).unwrap()["id"].as_str().unwrap().to_string();
+
+    let (st, out) = send(&state, "GET", &format!("/api/sessions/{sid}/identity"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["assistant"]["name"], "Neo");
+    assert_eq!(v["assistant"]["avatar"], "face.png");
+    assert_eq!(v["user"]["name"], "Me");
+    assert_eq!(v["user"]["avatar"], "u.png");
+}
+
+#[tokio::test]
+async fn identity_is_null_without_a_template() {
+    let state = test_state().await;
+    let (_, s) = send(&state, "POST", "/api/sessions", Some(r#"{"name":"free"}"#)).await;
+    let sid = serde_json::from_str::<serde_json::Value>(&s).unwrap()["id"].as_str().unwrap().to_string();
+    let (st, out) = send(&state, "GET", &format!("/api/sessions/{sid}/identity"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["assistant"]["name"].is_null());
+}
