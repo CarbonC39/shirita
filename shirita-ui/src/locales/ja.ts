@@ -6,6 +6,7 @@ const ja: MessageSchema = {
     cancel: 'キャンセル',
     delete: '削除',
     duplicate: '複製',
+    rename: '名前を変更',
     add: '追加',
     close: '閉じる',
     import: 'インポート',

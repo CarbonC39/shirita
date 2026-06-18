@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { MoreVertical, Copy, Download, Trash2, GripVertical } from 'lucide-vue-next'
+import { MoreVertical, Copy, Download, Trash2, GripVertical, Pencil } from 'lucide-vue-next'
+import { useI18n } from 'vue-i18n'
 import type { Session } from '../api/types'
 import { relativeTime } from '../utils/time'
 
@@ -8,7 +9,8 @@ const props = withDefaults(
   defineProps<{ session: Session; editMode?: boolean }>(),
   { editMode: false },
 )
-const emit = defineEmits<{ duplicate: [id: string]; export: [id: string]; delete: [id: string] }>()
+const emit = defineEmits<{ duplicate: [id: string]; export: [id: string]; delete: [id: string]; rename: [id: string, name: string] }>()
+const { t } = useI18n()
 
 const menuOpen = ref(false)
 
@@ -27,6 +29,11 @@ const tint = computed(() => {
 const time = computed(() => relativeTime(props.session.updated_at))
 
 function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault(); menuOpen.value = false; fn() }
+
+function onRename() {
+  const n = window.prompt(t('common.rename'), props.session.name)
+  if (n && n.trim()) emit('rename', props.session.id, n.trim())
+}
 </script>
 
 <template>
@@ -66,6 +73,10 @@ function act(e: Event, fn: () => void) { e.stopPropagation(); e.preventDefault()
       <div v-if="menuOpen" class="fixed inset-0 z-20" @click.stop.prevent="menuOpen = false" />
       <transition name="expand">
       <div v-if="menuOpen" class="absolute right-3 top-12 z-30 bg-card border border-line rounded-xl shadow-lg overflow-hidden min-w-[150px]">
+        <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors"
+                @click="act($event, onRename)">
+          <Pencil :size="14" /> {{ $t('common.rename') }}
+        </button>
         <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('duplicate', session.id))"><Copy :size="14" /> {{ $t('common.duplicate') }}</button>
         <button class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-ink hover:bg-surface text-left transition-colors" @click="act($event, () => emit('export', session.id))"><Download :size="14" /> {{ $t('common.export') }}</button>
         <button data-test="menu-delete" class="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-coral hover:bg-surface text-left transition-colors" @click="act($event, () => emit('delete', session.id))"><Trash2 :size="14" /> {{ $t('common.delete') }}</button>

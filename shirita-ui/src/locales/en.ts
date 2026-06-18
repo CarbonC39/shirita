@@ -9,6 +9,7 @@ const en = {
     cancel: 'Cancel',
     delete: 'Delete',
     duplicate: 'Duplicate',
+    rename: 'Rename',
     add: 'Add',
     close: 'Close',
     import: 'Import',
