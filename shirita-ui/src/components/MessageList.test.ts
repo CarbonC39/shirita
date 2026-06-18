@@ -74,4 +74,19 @@ describe('MessageList', () => {
     await wrapper.find('[data-test="regenerate-btn"]').trigger('click')
     expect(wrapper.emitted('regenerate')).toBeTruthy()
   })
+
+  it('forwards identity to MessageItem, including the streaming ghost', () => {
+    const identity = { assistant: { name: 'Neo', avatar: 'a.png' }, user: { name: 'Me', avatar: 'u.png' } }
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [makeMsg({ role: 'assistant' })],
+        style: 'flat',
+        identity,
+        isStreaming: true,
+        streamingText: 'partial',
+      },
+    })
+    expect(wrapper.text()).toContain('Neo')
+    expect(wrapper.text()).not.toContain('Assistant')
+  })
 })

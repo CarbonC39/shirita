@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Message } from '../api/types'
+import type { Message, Identity } from '../api/types'
 import { siblings } from '../utils/tree'
 import MessageItem from './MessageItem.vue'
 
@@ -11,6 +11,7 @@ const props = defineProps<{
   isStreaming?: boolean
   streamingText?: string
   streamingError?: string | null
+  identity?: Identity
 }>()
 
 const emit = defineEmits<{
@@ -58,6 +59,7 @@ const streamingMsg = computed<Message | null>(() => {
       :key="msg.id"
       :message="msg"
       :style="style"
+      :identity="identity"
       :sibling-index="sibInfo(msg).index"
       :sibling-count="sibInfo(msg).count"
       @copy="emit('copy', $event)"
@@ -72,6 +74,7 @@ const streamingMsg = computed<Message | null>(() => {
       v-if="streamingMsg"
       :message="streamingMsg"
       :style="style"
+      :identity="identity"
       :is-streaming="true"
     />
 
