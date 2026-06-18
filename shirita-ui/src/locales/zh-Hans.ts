@@ -6,6 +6,7 @@ const zhHans: MessageSchema = {
     cancel: '取消',
     delete: '删除',
     duplicate: '复制',
+    rename: '重命名',
     add: '添加',
     close: '关闭',
     import: '导入',

@@ -6,6 +6,7 @@ const zhHant: MessageSchema = {
     cancel: '取消',
     delete: '刪除',
     duplicate: '複製',
+    rename: '重新命名',
     add: '新增',
     close: '關閉',
     import: '匯入',

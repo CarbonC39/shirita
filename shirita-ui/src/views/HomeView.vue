@@ -49,6 +49,10 @@ async function onDuplicate(id: string) {
     await store.duplicate(id);
 }
 
+async function onRename(id: string, name: string) {
+    await store.rename(id, name);
+}
+
 async function onDelete(id: string) {
     if (!confirm(t("home.deleteConfirm"))) return;
     await store.remove(id);
@@ -112,6 +116,7 @@ async function onImportFile(e: Event) {
                 @dragover="onDragOver(i, $event)"
                 @drop="onDrop"
                 @duplicate="onDuplicate"
+                @rename="onRename"
                 @export="onExport"
                 @delete="onDelete"
             />

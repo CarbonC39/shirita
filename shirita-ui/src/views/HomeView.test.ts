@@ -4,6 +4,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
 import * as client from '../api/client'
 import HomeView from './HomeView.vue'
+import { useSessionsStore } from '../stores/sessions'
 
 function makeRouter() {
   return createRouter({
@@ -66,5 +67,12 @@ describe('HomeView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('No conversations yet.')
+  })
+
+  it('renames a session via the store', async () => {
+    const spy = vi.spyOn(client, 'patchSession').mockResolvedValue({} as never)
+    const store = useSessionsStore()
+    await store.rename('s1', 'New title')
+    expect(spy).toHaveBeenCalledWith('s1', { name: 'New title' })
   })
 })
