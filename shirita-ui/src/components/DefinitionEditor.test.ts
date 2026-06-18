@@ -31,6 +31,25 @@ describe('DefinitionEditor wrap_in_tag', () => {
   })
 })
 
+describe('DefinitionEditor header actions', () => {
+  const d = { id: 'd1', type: 'char', name: 'Alice', content: '', meta: {} }
+
+  it('emits import and export when the header icons are clicked', async () => {
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d] } })
+    await w.get('[data-test="import-btn"]').trigger('click')
+    await w.get('[data-test="export-btn"]').trigger('click')
+    expect(w.emitted('import')).toBeTruthy()
+    expect(w.emitted('export')).toBeTruthy()
+  })
+
+  it('hides the header action row when headerActions is false', () => {
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], headerActions: false } })
+    expect(w.find('[data-test="import-btn"]').exists()).toBe(false)
+    expect(w.find('[data-test="export-btn"]').exists()).toBe(false)
+    expect(w.find('[data-test="delete-btn"]').exists()).toBe(false)
+  })
+})
+
 describe('DefinitionEditor reveal', () => {
   it('hides the editor body until a definition is active', () => {
     const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
