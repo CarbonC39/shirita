@@ -18,6 +18,15 @@ export type Inline =
 
 export type MdNode = Inline | { type: 'codeblock'; lang: string | null; value: string }
 
+// SillyTavern character cards sometimes ship a full HTML/CSS/JS document as
+// their first message (a "card front-end"), occasionally fenced in ```html.
+// Detected separately from the rest of markdown parsing because it needs a
+// completely different render path (sandboxed iframe, not the VNode whitelist).
+export function isHtmlDocument(text: string): boolean {
+  const s = text.trim().toLowerCase()
+  return s.startsWith('<!doctype html') || s.startsWith('<html')
+}
+
 // Allow only obviously-safe link targets; anything else (javascript:, data:, …)
 // falls through and the link renders as literal text.
 function safeHref(href: string): boolean {

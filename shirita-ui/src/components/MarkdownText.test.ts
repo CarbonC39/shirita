@@ -42,4 +42,20 @@ describe('MarkdownText', () => {
     expect(w.find('img').exists()).toBe(false)
     expect(w.text()).toContain('<img src=x onerror=alert(1)>')
   })
+
+  it('renders a full HTML document in a sandboxed iframe', () => {
+    const html = '<!DOCTYPE html><html><head></head><body>hi</body></html>'
+    const w = mount(MarkdownText, { props: { text: html } })
+    const frame = w.find('iframe')
+    expect(frame.exists()).toBe(true)
+    expect(frame.attributes('sandbox')).toBe('allow-scripts')
+    expect(frame.attributes('srcdoc')).toBe(html)
+  })
+
+  it('renders a fenced HTML document in a sandboxed iframe, not a <pre>', () => {
+    const html = '<!DOCTYPE html><html><body>hi</body></html>'
+    const w = mount(MarkdownText, { props: { text: '```html\n' + html + '\n```' } })
+    expect(w.find('iframe').exists()).toBe(true)
+    expect(w.find('pre').exists()).toBe(false)
+  })
 })
