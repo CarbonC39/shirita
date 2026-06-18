@@ -152,6 +152,7 @@ const zhHans: MessageSchema = {
     source: '来源',
     baseUrl: 'Base URL',
     apiKey: 'API 密钥',
+    apiKeyOptional: '本地服务商可留空',
     model: '模型',
     selectModel: '— 选择模型 —',
     modelsHint: '填写 Base URL 和 API 密钥以加载模型。',

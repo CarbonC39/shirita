@@ -152,6 +152,7 @@ const ja: MessageSchema = {
     source: 'ソース',
     baseUrl: 'Base URL',
     apiKey: 'API キー',
+    apiKeyOptional: 'ローカルプロバイダーでは省略可',
     model: 'モデル',
     selectModel: '— モデルを選択 —',
     modelsHint: 'Base URL と API キーを入力するとモデルを読み込みます。',

@@ -44,8 +44,15 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, S
     }
     match rb.send().await {
         Ok(resp) => {
-            let json: Value = resp.json().await.unwrap_or_default();
-            Ok(Json(normalize_models_response(&source, &json)))
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if !status.is_success() {
+                return Ok(Json(serde_json::json!({ "error": format!("provider {status}: {text}") })));
+            }
+            match serde_json::from_str::<Value>(&text) {
+                Ok(json) => Ok(Json(normalize_models_response(&source, &json))),
+                Err(e) => Ok(Json(serde_json::json!({ "error": format!("invalid response from /models: {e}") }))),
+            }
         }
         Err(e) => Ok(Json(serde_json::json!({ "error": e.to_string() }))),
     }

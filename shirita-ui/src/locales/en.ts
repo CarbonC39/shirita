@@ -161,6 +161,7 @@ const en = {
     source: 'Source',
     baseUrl: 'Base URL',
     apiKey: 'API Key',
+    apiKeyOptional: 'optional for local providers',
     model: 'Model',
     selectModel: '— select model —',
     modelsHint: 'Add a Base URL and API key to load models.',

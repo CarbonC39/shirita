@@ -40,12 +40,12 @@ export const useSettingsStore = defineStore('settings', () => {
   async function fetchModels() {
     modelsLoading.value = true; modelsError.value = null
     try {
-      const result = await fetchProviderModels() as { data?: { id: string }[]; error?: unknown }
-      if (result.data && Array.isArray(result.data)) {
+      const result = await fetchProviderModels() as { data?: { id: string }[]; error?: unknown } | null
+      if (result?.data && Array.isArray(result.data)) {
         models.value = result.data.map((m) => m.id).filter(Boolean).sort()
         modelsSource.value = 'live'
         if (models.value.length === 0) modelsError.value = 'No models returned by this endpoint'
-      } else if (result.error != null) {
+      } else if (result?.error != null) {
         // upstream may return a string or a { message } error object
         const e = result.error as { message?: string }
         modelsError.value = typeof result.error === 'string' ? result.error : (e.message || JSON.stringify(result.error))
