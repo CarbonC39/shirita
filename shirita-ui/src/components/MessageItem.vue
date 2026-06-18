@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
-import type { Message } from '../api/types'
+import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
 
 const props = withDefaults(defineProps<{
@@ -11,6 +11,7 @@ const props = withDefaults(defineProps<{
   isStreaming?: boolean
   siblingIndex?: number   // 0-based position among siblings
   siblingCount?: number
+  identity?: Identity
 }>(), { siblingCount: 1, siblingIndex: 0 })
 
 const emit = defineEmits<{
@@ -25,7 +26,10 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
-const label = computed(() => (isAssistant.value ? t('chat.assistant') : t('chat.you')))
+const side = computed(() => (isAssistant.value ? props.identity?.assistant : props.identity?.user))
+const displayName = computed(() => side.value?.name || (isAssistant.value ? t('chat.assistant') : t('chat.you')))
+const avatarUrl = computed(() => (side.value?.avatar ? `/assets/${side.value.avatar}` : ''))
+const label = displayName
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
 
@@ -43,7 +47,9 @@ function cancelEdit() { editing.value = false }
     data-test="msg-row"
     :class="['flex gap-2.5 mb-4', isUser ? 'justify-end' : 'justify-start']"
   >
-    <div v-if="isAssistant" data-test="assistant-avatar" class="w-8 h-8 rounded-full bg-sky/40 shrink-0 mt-0.5" />
+    <div v-if="isAssistant" data-test="assistant-avatar" class="w-8 h-8 rounded-full bg-sky/40 shrink-0 mt-0.5 overflow-hidden">
+      <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover rounded-full" alt="" />
+    </div>
     <div :class="['max-w-[78%]', isUser ? 'order-first' : '']">
       <div
         :class="[
@@ -106,7 +112,9 @@ function cancelEdit() { editing.value = false }
   <!-- Flat mode -->
   <div v-else data-test="msg-row" class="px-1 py-3.5 border-b border-line/70 last:border-b-0">
     <div class="flex items-center gap-2.5 mb-1.5">
-      <div :class="['w-6 h-6 rounded-full shrink-0', isAssistant ? 'bg-sky/40' : 'bg-mauve/30']" />
+      <div :class="['w-6 h-6 rounded-full shrink-0 overflow-hidden', isAssistant ? 'bg-sky/40' : 'bg-mauve/30']">
+        <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover rounded-full" alt="" />
+      </div>
       <span class="text-[13px] font-semibold text-ink">{{ label }}</span>
     </div>
     <div :class="['text-[15px] leading-relaxed whitespace-pre-wrap pl-[34px] text-ink', message.is_hidden ? 'opacity-50' : '']">
