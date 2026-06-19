@@ -50,7 +50,7 @@ pub use portable::{
 pub use seed::ensure_default_template;
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,
-    strip_state_tags, system_variables, Update, VarDecl, VarType,
+    strip_state_tags, system_variables, variables_block, Update, VarDecl, VarType,
 };
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
