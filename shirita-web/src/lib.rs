@@ -7,7 +7,9 @@ pub mod routes;
 pub mod state;
 
 pub use generations::Generations;
-pub use provider_select::{provider_from_env, provider_kind, resolve_provider, ProviderKind};
+pub use provider_select::{
+    provider_from_env, provider_kind, resolve_provider, resolve_provider_config, ProviderKind,
+};
 pub use state::AppState;
 
 /// 构造全进程共享的 HTTP 客户端。两个入口（web/tauri）各调一次，存入 `AppState.http_client`。

@@ -162,37 +162,70 @@ pub(crate) fn normalize_models_response(source: &str, raw: &Value) -> Value {
     }
 }
 
-async fn setting_str(state: &AppState, key: &str) -> Option<String> {
-    state
-        .storage
-        .get_setting(key)
+async fn setting_str_storage(storage: &dyn shirita_core::Storage, key: &str) -> Option<String> {
+    storage.get_setting(key).await.ok().flatten().and_then(|v| v.as_str().map(|s| s.to_string()))
+}
+
+/// Resolve the active provider's per-source config from namespaced settings,
+/// migrating legacy flat `provider_*` keys into the active source's namespace
+/// on first use. Returns (source, base_url, api_key, model); base_url falls back
+/// to the source default, api_key/model are empty when unset (callers apply
+/// their own model default / env fallback).
+pub async fn resolve_provider_config(
+    storage: &dyn shirita_core::Storage,
+) -> (String, String, String, String) {
+    let source = setting_str_storage(storage, "provider_source")
         .await
-        .ok()
-        .flatten()
-        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "openai".into());
+
+    // Migrate legacy flat keys once: if the namespaced key is unset but a flat
+    // one exists, copy it over (the flat key is left as a harmless remnant).
+    for (flat, field) in [
+        ("provider_base_url", "base_url"),
+        ("provider_api_key", "api_key"),
+        ("provider_model", "model"),
+    ] {
+        let ns = format!("provider.{source}.{field}");
+        if setting_str_storage(storage, &ns).await.is_none() {
+            if let Some(v) = setting_str_storage(storage, flat).await {
+                let _ = storage.set_setting(&ns, &serde_json::json!(v)).await;
+            }
+        }
+    }
+
+    let base_url = setting_str_storage(storage, &format!("provider.{source}.base_url"))
+        .await
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| default_base_url(&source).to_string());
+    let api_key = setting_str_storage(storage, &format!("provider.{source}.api_key"))
+        .await
+        .unwrap_or_default();
+    let model = setting_str_storage(storage, &format!("provider.{source}.model"))
+        .await
+        .unwrap_or_default();
+    (source, base_url, api_key, model)
 }
 
 /// 生成时解析实际 (provider, model)：settings 配置了任一 provider 字段则胜出，
 /// 否则整体回退到 env 构造的 `state.provider`/`state.model`（保证桌面首启离线 Echo 不破）。
 /// 复用 `state.http_client`，不新建 reqwest::Client。
 pub async fn resolve_provider(state: &AppState) -> (Arc<dyn ModelProvider>, String) {
-    let source = setting_str(state, "provider_source").await;
-    let base_url = setting_str(state, "provider_base_url").await;
-    let api_key = setting_str(state, "provider_api_key").await;
-    let model = setting_str(state, "provider_model").await;
+    let storage = state.storage.as_ref();
+    // "Configured" = the user explicitly set the active source, or has a key/model
+    // for it (flat legacy keys are migrated into the namespace by the resolver).
+    let source_set = setting_str_storage(storage, "provider_source").await;
+    let (source, base_url, api_key, model) = resolve_provider_config(storage).await;
 
-    let nonempty = |o: &Option<String>| o.as_deref().is_some_and(|s| !s.is_empty());
-    if !(nonempty(&source) || nonempty(&api_key) || nonempty(&model)) {
+    let nonempty = |s: &str| !s.is_empty();
+    let configured = source_set.as_deref().is_some_and(nonempty)
+        || nonempty(&api_key)
+        || nonempty(&model);
+    if !configured {
         return (state.provider.clone(), state.model.clone()); // 未配置 → env 兜底
     }
 
-    let source = source.filter(|s| !s.is_empty()).unwrap_or_else(|| "openai".into());
-    let base_url = base_url
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| default_base_url(&source).to_string());
-    let api_key = api_key.unwrap_or_default();
-    let model = model.filter(|s| !s.is_empty()).unwrap_or_else(|| state.model.clone());
-
+    let model = if model.is_empty() { state.model.clone() } else { model };
     let provider = build_provider(state.http_client.clone(), &source, &base_url, &api_key);
     (provider, model)
 }
