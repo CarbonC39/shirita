@@ -35,7 +35,7 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
     <!-- app-wide background image + readability scrim -->
     <template v-if="ui.background">
       <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="{ backgroundImage: `url(/assets/${ui.background})` }" />
-      <div class="fixed inset-0 -z-10 bg-surface/75" />
+      <div class="fixed inset-0 -z-10 bg-surface/30" />
     </template>
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
