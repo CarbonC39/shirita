@@ -1012,15 +1012,6 @@ async function duplicateDef() {
                 @delete-type="deleteTypeFromEditor"
             />
 
-            <button
-                v-if="defActive && editDef.id"
-                data-test="export-def"
-                class="inline-flex items-center gap-1 mt-2 text-[12px] text-muted hover:text-ink"
-                @click="exportDefinition(editDef)"
-            >
-                <Download :size="14" /> {{ $t("book.exportDefinition") }}
-            </button>
-
             <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>
             </section>
         </template>
