@@ -189,7 +189,7 @@ const zhHant: MessageSchema = {
     keepRecent: '保留最近訊息數',
     summarizeInstruction: '總結指令',
     notifications: '通知',
-    notifyReplies: '回覆完成時通知（標籤頁未聚焦時）',
+    notifyReplies: '背景回覆時通知',
     contentWidth: '內容寬度 (px)',
     appearance: '外觀',
     messageStyle: '訊息樣式',
@@ -227,8 +227,6 @@ const zhHant: MessageSchema = {
     regexInvalid: '失效',
     regexSearch: '搜尋規則',
     regexHideDisabled: '隱藏已停用',
-    regexGlobal: '全局規則',
-    regexTemplate: '模板級規則',
     regexDelete: '刪除規則',
   },
 }
