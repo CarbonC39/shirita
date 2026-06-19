@@ -40,6 +40,9 @@ async fn setting_string(s: &dyn Storage, key: &str, default: &str) -> String {
     s.get_setting(key).await.ok().flatten()
         .and_then(|v| v.as_str().map(|x| x.to_string())).unwrap_or_else(|| default.to_string())
 }
+async fn setting_bool(s: &dyn Storage, key: &str, default: bool) -> bool {
+    s.get_setting(key).await.ok().flatten().and_then(|v| v.as_bool()).unwrap_or(default)
+}
 
 /// 后台执行一次滚动总结尝试（幂等可重入）：未超阈值或无可折叠则静默返回；
 /// 否则把"上一摘要 + 待折叠原文"喂给总结指令，聚合 provider 输出，写入 `summaries`。
@@ -54,6 +57,11 @@ pub async fn run(
     let Ok(all) = storage.list_messages(&session_id).await else { return };
     let path = crate::tree::active_path(&all, session.active_leaf_id.as_deref());
     if path.is_empty() {
+        return;
+    }
+
+    // Opt-out: auto-summarize can be disabled in settings (default on).
+    if !setting_bool(storage.as_ref(), "summarize.enabled", true).await {
         return;
     }
 
@@ -210,6 +218,18 @@ mod tests {
         let storage = Arc::new(temp_storage().await);
         let (session, _leaf) = long_session(&storage, 4).await; // 短历史
         // 默认 window 200k → 远未超阈值
+        let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("X".into()));
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        run(storage.clone(), provider, counter, "m".into(), session.id.clone()).await;
+        assert!(storage.list_summaries(&session.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn run_skipped_when_disabled() {
+        let storage = Arc::new(temp_storage().await);
+        let (session, _leaf) = long_session(&storage, 14).await;
+        storage.set_setting("context.window", &json!(50)).await.unwrap(); // would normally fold
+        storage.set_setting("summarize.enabled", &json!(false)).await.unwrap();
         let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("X".into()));
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
         run(storage.clone(), provider, counter, "m".into(), session.id.clone()).await;
