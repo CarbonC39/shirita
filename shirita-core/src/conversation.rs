@@ -188,13 +188,37 @@ async fn assemble_request(
         });
     }
 
+    // Global orphan rules + this session's tree-scoped rules (see effective_regex_rules).
+    let regex_rules = effective_regex_rules(storage, session).await?;
+
+    // Prompt-side regex: rewrite the outgoing copy of each chat message by role
+    // (scope ∈ {prompt, both}); raw_content is untouched. World-info scanning above
+    // already used the original `context`, so triggers are unaffected.
+    let prompt_context: Vec<ChatMessage> = context
+        .iter()
+        .map(|m| {
+            let target = match m.role {
+                Role::Assistant => Some(crate::assembly::RegexTarget::AiOutput),
+                Role::User => Some(crate::assembly::RegexTarget::UserInput),
+                Role::System => None,
+            };
+            match target {
+                Some(t) => {
+                    let content = crate::assembly::apply_regex_rules_for(
+                        &m.content, &regex_rules, t, crate::assembly::RegexPhase::Prompt,
+                    )
+                    .unwrap_or_else(|| m.content.clone());
+                    ChatMessage { content, ..m.clone() }
+                }
+                None => m.clone(),
+            }
+        })
+        .collect();
+
     // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
     let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
     let include_history = plan.history_enabled || !has_history_node;
-    let chat_messages = crate::assembly::build_chat_messages(&plan, context, include_history);
-
-    // Global orphan rules + this session's tree-scoped rules (see effective_regex_rules).
-    let regex_rules = effective_regex_rules(storage, session).await?;
+    let chat_messages = crate::assembly::build_chat_messages(&plan, &prompt_context, include_history);
 
     let max_tokens = provider_max_tokens(storage).await;
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
@@ -755,6 +779,35 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(!req.messages.iter().any(|m| m.content.contains("<state_update")), "no state protocol without user vars");
+    }
+
+    #[tokio::test]
+    async fn prompt_side_regex_rewrites_outgoing_not_raw() {
+        let storage = Arc::new(temp_storage().await);
+        // rule: replace "dog"->"cat" on user_input, prompt scope.
+        let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
+        rule.meta = serde_json::json!({ "pattern": "dog", "replacement": "cat", "scope": "prompt", "targets": ["user_input"] });
+        storage.create_definition(&rule).await.unwrap();
+        let tmpl = crate::models::template::Template::new("rx");
+        storage.create_template(&tmpl).await.unwrap();
+        storage.create_node(&crate::models::prompt_node::PromptNode::new_ref(
+            crate::models::prompt_node::OwnerKind::Template, &tmpl.id, None, 0, &rule.id)).await.unwrap();
+        let mut session = Session::new("s");
+        session.template_id = Some(tmpl.id.clone());
+        storage.create_session(&session).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "my dog".into(), "".into(), Vec::new());
+        futures::pin_mut!(s);
+        while s.next().await.is_some() {}
+
+        // Outgoing prompt has "my cat"; stored user raw_content keeps "my dog".
+        let req = seen.lock().unwrap().clone().unwrap();
+        assert!(req.messages.iter().any(|m| m.role == Role::User && m.content == "my cat"));
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        assert!(msgs.iter().any(|m| m.role == Role::User && m.raw_content == "my dog"));
     }
 
     #[tokio::test]
