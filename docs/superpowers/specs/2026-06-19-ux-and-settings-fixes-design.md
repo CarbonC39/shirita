@@ -190,25 +190,33 @@ stripped during assembly. Works inline or as whole lines.
   while comments live in *definition* content (system segments) — different text
   streams, so there's no `{{//}}`-vs-regex collision today. The strip-first +
   linear-scan choices keep it safe regardless.
-- **Open (scope):** comments are assumed to apply to definition/template content
-  only (authoring notes). If they should also be strippable from chat messages,
-  comment-stripping must run on `m.content` **before** prompt-side regex — flag
-  for user (see review note).
+- **Scope [confirmed]:** comments apply to definition/template content only
+  (authoring notes); chat messages are untouched, so there is no interaction with
+  prompt-side message regex.
 
 ---
 
 ## 8. Active nav icon black, others gray
 
-**Status.** Appears **already implemented**: `AppShell.vue:53-61` gives the
-active section `text-ink` (near-black) and the others `text-muted` (gray),
-switched by route (`section` computed). 
+**Problem (root cause found).** Symptom: *all three* nav icons render black, so
+the active one isn't distinguishable. The `:class` logic in `AppShell.vue:53-61`
+is correct (active=`text-ink`, others=`text-muted`), but it's defeated by the CSS
+cascade: `styles.css:47-50` has an **unlayered** `a { color: inherit }`. Tailwind
+v4 puts utilities in `@layer utilities`; **unlayered rules outrank every layer**,
+so `a { color: inherit }` overrides `text-muted`/`text-ink` on every `<a>`
+(router-links) → links inherit body ink → all black. (Same bug silently affects
+breadcrumb muted links and `.md-link`'s primary color.) Confirmed: the `a` rule
+at `styles.css:47` is outside any `@layer` (only `@layer components` exists).
 
-**Decision.** Audit, don't rebuild. Verify section detection covers all
-sub-routes (`/chat/:id`, `/book/...`, `/settings`) and that contrast holds over
-the new semi-transparent header/panel (#3). **Open:** the user should confirm
-the specific symptom on review (too-subtle contrast? a route that doesn't
-switch?). If a concrete bug surfaces, fix it; otherwise strengthen the
-active/inactive contrast slightly.
+**Decision.** Fix the cascade, not the component.
+
+**Approach.**
+- Wrap the reset: `@layer base { a { color: inherit; text-decoration: none; } }`
+  in `styles.css`, so Tailwind's utility layer wins. Then `text-ink`/`text-muted`/
+  `text-primary` on links apply — active nav icon ink, others muted; md-links
+  primary again.
+- Verify section detection still covers `/chat/:id`, `/book/...`, `/settings`.
+  Optionally strengthen active emphasis once colors actually apply.
 
 ---
 
@@ -237,10 +245,9 @@ tab/window isn't focused**. Off by default; opt-in toggle in Settings.
 single keys `provider_source`/`provider_base_url`/`provider_api_key`/
 `provider_model` (`routes/provider.rs`, `summarize.rs`). Switching source
 overwrites base_url and shares one key/model across all providers — no
-isolation, and the user perceives settings as "not saved." **Open:** user to
-describe the exact "can't save" symptom; suspected to be the isolation effect
-(switch provider → previous key/model appears lost). A genuine persistence bug
-(if reproduced) is fixed under this item too.
+isolation. **[confirmed]** The "can't save" symptom is exactly this isolation
+effect (set up A, switch to B and back → A's key/model appear gone), not a
+separate persistence bug. The per-provider storage below resolves it.
 
 **Decision [confirmed].** Each provider source remembers its own base URL, API
 key, and model. Switching source swaps the active set; nothing is lost.
@@ -294,8 +301,8 @@ shippable/testable.
    token-key fix, #1 `assets.kind` column/migration.
 2. **Settings UI:** #10 per-provider form, #11 context section, #9 notify
    toggle, #5 width control, #4 CSS hooks documented.
-3. **Appearance/runtime:** #4 custom-CSS injection, #3 center panel, #5 apply
-   width, #9 notification firing, #8 nav-icon audit.
+3. **Appearance/runtime:** #8 nav-icon cascade fix (`@layer base`), #4 custom-CSS
+   injection, #3 center panel, #5 apply width, #9 notification firing.
 4. **Libraries & editors:** #1 kind-filtered pickers + avatar cropper,
    #2 rename buttons.
 
