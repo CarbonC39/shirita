@@ -804,7 +804,7 @@ async function handleTestConnection() {
                             :value="customCss"
                             rows="6"
                             class="field w-full text-[13px] leading-relaxed font-mono resize-y"
-                            placeholder="/* custom CSS */"
+                            placeholder="/* hooks: .app-chat-column .app-message[data-role] .app-composer [data-app=shell] */"
                             @input="
                                 customCss = (
                                     $event.target as HTMLTextAreaElement
