@@ -100,6 +100,7 @@ pub fn app(state: AppState) -> Router {
         .route("/import/worldinfo", post(routes::import_export::import_worldinfo))
         .route("/import/charcard", post(routes::import_export::import_charcard))
         .route("/import", post(routes::import_export::import).layer(DefaultBodyLimit::max(16 * 1024 * 1024)))
+        .route("/regex-rules/scopes", get(routes::regex_rules::list_regex_scopes))
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))

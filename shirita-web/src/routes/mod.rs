@@ -10,6 +10,7 @@ pub mod messages;
 pub mod ping;
 pub mod prompt_nodes;
 pub mod provider;
+pub mod regex_rules;
 pub mod sessions;
 pub mod settings;
 pub mod templates;
