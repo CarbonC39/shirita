@@ -214,11 +214,36 @@ pub async fn list_messages(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<Message>>, StatusCode> {
-    let msgs = state
+    use shirita_core::{apply_regex_rules_for, RegexPhase, RegexTarget, Role};
+    let session = state
+        .storage
+        .get_session(&session_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let mut msgs = state
         .storage
         .list_messages(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let rules = shirita_core::effective_regex_rules(state.storage.as_ref(), &session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for m in &mut msgs {
+        let base = m.display_content.clone().unwrap_or_else(|| m.raw_content.clone());
+        // Skip full HTML-card documents — RP regex is not meant to rewrite card markup.
+        if shirita_core::html_patch::is_html_document(&base) {
+            continue;
+        }
+        let target = match m.role {
+            Role::Assistant => RegexTarget::AiOutput,
+            Role::User => RegexTarget::UserInput,
+            Role::System => continue,
+        };
+        if let Some(s) = apply_regex_rules_for(&base, &rules, target, RegexPhase::Display) {
+            m.display_content = Some(s);
+        }
+    }
     Ok(Json(msgs))
 }
 

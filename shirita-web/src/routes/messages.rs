@@ -33,15 +33,8 @@ pub async fn edit_message(
         return Err(StatusCode::NOT_FOUND);
     }
     if let Some(content) = body.content {
-        let rules = state
-            .storage
-            .list_definitions()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            .into_iter()
-            .filter(|d| d.def_type == "regex_rule")
-            .collect::<Vec<_>>();
-        msg.display_content = shirita_core::apply_regex_rules(&content, &rules);
+        // Display-side regex is applied at read time (list_messages); store raw only.
+        msg.display_content = None;
         msg.raw_content = content;
     }
     if let Some(hidden) = body.is_hidden {
