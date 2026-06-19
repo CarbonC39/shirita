@@ -897,6 +897,14 @@ async function duplicateDef() {
                     />
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
+                        :title="$t('common.rename')"
+                        :disabled="!selectedTemplateId"
+                        @click="renamingTemplate = true"
+                    >
+                        <Pencil :size="15" />
+                    </button>
+                    <button
+                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('book.exportTemplateTitle')"
                         :disabled="!selectedTemplateId"
                         @click="exportSelectedTemplate"
@@ -945,17 +953,7 @@ async function duplicateDef() {
                 v-if="isDraft || selectedTemplateId"
                 class="flex items-center gap-2 mt-2 mb-3.5"
             >
-                <template v-if="!renamingTemplate">
-                    <span class="flex-1 text-[14px] text-ink font-medium truncate">{{ templateName || $t('book.templateNamePlaceholder') }}</span>
-                    <button
-                        v-if="selectedTemplateId"
-                        class="w-[28px] h-[28px] grid place-items-center text-muted hover:text-ink rounded-lg shrink-0"
-                        :title="$t('common.rename')"
-                        @click="renamingTemplate = true"
-                    >
-                        <Pencil :size="14" />
-                    </button>
-                </template>
+                <span v-if="!renamingTemplate" class="flex-1 text-[14px] text-ink font-medium truncate">{{ templateName || $t('book.templateNamePlaceholder') }}</span>
                 <template v-else>
                     <input
                         v-model="templateName"
