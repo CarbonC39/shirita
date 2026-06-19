@@ -7,6 +7,7 @@ pub mod budget;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod html_patch;
 pub mod identity;
 pub mod keyword;
 pub mod model;
