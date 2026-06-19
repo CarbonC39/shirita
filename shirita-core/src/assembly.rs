@@ -161,6 +161,14 @@ pub fn is_valid_regex(pattern: &str) -> bool {
     fancy_regex::Regex::new(pattern).is_ok()
 }
 
+/// 编译错误信息（合法或空 pattern 返回 None），供 UI 标记失效规则。
+pub fn regex_error(pattern: &str) -> Option<String> {
+    if pattern.is_empty() {
+        return None;
+    }
+    fancy_regex::Regex::new(pattern).err().map(|e| e.to_string())
+}
+
 /// regex_rule 作用对象（哪一侧消息）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegexTarget {
@@ -645,6 +653,13 @@ mod tests {
         assert!(is_valid_regex(r"(?<=\d)px"));
         assert!(is_valid_regex(r"(\w+)\s+\1")); // backreference
         assert!(!is_valid_regex(r"foo(")); // still invalid: unbalanced paren
+    }
+
+    #[test]
+    fn regex_error_reports_only_invalid() {
+        assert!(regex_error(r"\d+").is_none());
+        assert!(regex_error(r"foo(?=bar)").is_none()); // valid under fancy-regex
+        assert!(regex_error(r"foo(").is_some()); // unbalanced paren -> error string
     }
 
     #[test]
