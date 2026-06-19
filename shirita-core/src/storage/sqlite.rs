@@ -680,33 +680,42 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn list_assets(&self) -> Result<Vec<Asset>> {
-        let rows = sqlx::query_as::<_, (String, String, String, String)>(
-            "SELECT id, name, path, created_at FROM assets ORDER BY created_at DESC, id DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+    async fn list_assets(&self, kind: Option<&str>) -> Result<Vec<Asset>> {
+        let rows = match kind {
+            Some(k) => sqlx::query_as::<_, (String, String, String, String, String)>(
+                "SELECT id, name, path, kind, created_at FROM assets WHERE kind = ? ORDER BY created_at DESC, id DESC",
+            )
+            .bind(k)
+            .fetch_all(&self.pool)
+            .await?,
+            None => sqlx::query_as::<_, (String, String, String, String, String)>(
+                "SELECT id, name, path, kind, created_at FROM assets ORDER BY created_at DESC, id DESC",
+            )
+            .fetch_all(&self.pool)
+            .await?,
+        };
         Ok(rows
             .into_iter()
-            .map(|(id, name, path, created_at)| Asset { id, name, path, created_at })
+            .map(|(id, name, path, kind, created_at)| Asset { id, name, path, kind, created_at })
             .collect())
     }
 
     async fn get_asset(&self, id: &str) -> Result<Option<Asset>> {
-        let row = sqlx::query_as::<_, (String, String, String, String)>(
-            "SELECT id, name, path, created_at FROM assets WHERE id = ?",
+        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
+            "SELECT id, name, path, kind, created_at FROM assets WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(id, name, path, created_at)| Asset { id, name, path, created_at }))
+        Ok(row.map(|(id, name, path, kind, created_at)| Asset { id, name, path, kind, created_at }))
     }
 
     async fn create_asset(&self, asset: &Asset) -> Result<()> {
-        sqlx::query("INSERT INTO assets (id, name, path, created_at) VALUES (?, ?, ?, ?)")
+        sqlx::query("INSERT INTO assets (id, name, path, kind, created_at) VALUES (?, ?, ?, ?, ?)")
             .bind(&asset.id)
             .bind(&asset.name)
             .bind(&asset.path)
+            .bind(&asset.kind)
             .bind(&asset.created_at)
             .execute(&self.pool)
             .await?;
@@ -1018,11 +1027,11 @@ mod tests {
     #[tokio::test]
     async fn assets_crud_roundtrip() {
         let storage = temp_storage().await;
-        assert!(storage.list_assets().await.unwrap().is_empty());
+        assert!(storage.list_assets(None).await.unwrap().is_empty());
 
         let a = crate::models::asset::Asset::new("Sunset", "abc.png");
         storage.create_asset(&a).await.unwrap();
-        let listed = storage.list_assets().await.unwrap();
+        let listed = storage.list_assets(None).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].name, "Sunset");
         assert_eq!(listed[0].path, "abc.png");
@@ -1032,7 +1041,21 @@ mod tests {
 
         storage.delete_asset(&a.id).await.unwrap();
         assert!(storage.get_asset(&a.id).await.unwrap().is_none());
-        assert!(storage.list_assets().await.unwrap().is_empty());
+        assert!(storage.list_assets(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn assets_filtered_by_kind() {
+        let storage = temp_storage().await;
+        let mut av = crate::models::asset::Asset::new("face", "a.png");
+        av.kind = "avatar".into();
+        let bg = crate::models::asset::Asset::new("scene", "b.png"); // defaults to background
+        storage.create_asset(&av).await.unwrap();
+        storage.create_asset(&bg).await.unwrap();
+        assert_eq!(storage.list_assets(Some("avatar")).await.unwrap().len(), 1);
+        assert_eq!(storage.list_assets(Some("background")).await.unwrap().len(), 1);
+        assert_eq!(storage.list_assets(None).await.unwrap().len(), 2);
+        assert_eq!(storage.get_asset(&av.id).await.unwrap().unwrap().kind, "avatar");
     }
 
     #[tokio::test]

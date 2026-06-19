@@ -938,6 +938,7 @@ mod tests {
             id: "a1".into(),
             name: "pic".into(),
             path: "pic.png".into(),
+            kind: "background".into(),
             created_at: "".into(),
         };
         storage.create_asset(&asset).await.unwrap();

@@ -8,15 +8,20 @@ pub struct Asset {
     pub id: String,
     pub name: String,
     pub path: String,
+    /// Library this asset belongs to: `"avatar"` or `"background"`.
+    pub kind: String,
     pub created_at: String,
 }
 
 impl Asset {
+    /// New asset, defaulting to the `background` library (matches the column
+    /// default; avatar uploads set `kind` explicitly).
     pub fn new(name: impl Into<String>, path: impl Into<String>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             name: name.into(),
             path: path.into(),
+            kind: "background".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
         }
     }
