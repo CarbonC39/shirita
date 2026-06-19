@@ -189,6 +189,7 @@ const ja: MessageSchema = {
     summarizeInstruction: '要約の指示',
     notifications: '通知',
     notifyReplies: '応答完了時に通知（タブが非アクティブ時）',
+    contentWidth: 'コンテンツ幅 (px)',
     appearance: '外観',
     messageStyle: 'メッセージスタイル',
     styleBubble: 'バブル',

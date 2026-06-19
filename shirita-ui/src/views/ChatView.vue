@@ -115,8 +115,8 @@ async function handleFork(id: string) {
 
 <template>
   <div
-    class="flex flex-col h-full max-w-[600px] mx-auto bg-cover bg-center"
-    :style="bgStyle"
+    class="flex flex-col h-full mx-auto bg-cover bg-center"
+    :style="[bgStyle, { maxWidth: ui.contentWidth + 'px' }]"
   >
     <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>

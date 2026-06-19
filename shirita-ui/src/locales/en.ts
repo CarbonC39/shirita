@@ -199,6 +199,7 @@ const en = {
     summarizeInstruction: 'Summary instruction',
     notifications: 'Notifications',
     notifyReplies: 'Notify when reply is done (tab unfocused)',
+    contentWidth: 'Content width (px)',
     appearance: 'Appearance',
     messageStyle: 'Message style',
     styleBubble: 'Bubble',

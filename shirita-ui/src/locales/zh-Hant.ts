@@ -188,6 +188,7 @@ const zhHant: MessageSchema = {
     summarizeInstruction: '總結指令',
     notifications: '通知',
     notifyReplies: '回覆完成時通知（標籤頁未聚焦時）',
+    contentWidth: '內容寬度 (px)',
     appearance: '外觀',
     messageStyle: '訊息樣式',
     styleBubble: '氣泡',
