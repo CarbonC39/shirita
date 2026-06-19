@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
+import { Check, Pencil, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { estimateTokens, formatTokens } from "../utils/tokens";
@@ -412,6 +412,10 @@ onMounted(async () => {
             library.loadDefinitions(),
             library.loadTypes(),
         ]);
+        // Auto-select the first template as default when none is active
+        if (!selectedTemplateId.value && library.templates.length > 0) {
+            await selectTemplate(library.templates[0].id);
+        }
     } catch (e) {
         error.value = (e as Error).message;
     } finally {
@@ -945,10 +949,11 @@ async function duplicateDef() {
                     <span class="flex-1 text-[14px] text-ink font-medium truncate">{{ templateName || $t('book.templateNamePlaceholder') }}</span>
                     <button
                         v-if="selectedTemplateId"
-                        class="text-[12px] text-muted hover:text-ink shrink-0 px-2 py-0.5 rounded-md border border-line/60 hover:border-muted/60 transition-colors"
+                        class="w-[28px] h-[28px] grid place-items-center text-muted hover:text-ink rounded-lg shrink-0"
+                        :title="$t('common.rename')"
                         @click="renamingTemplate = true"
                     >
-                        {{ $t("common.rename") }}
+                        <Pencil :size="14" />
                     </button>
                 </template>
                 <template v-else>

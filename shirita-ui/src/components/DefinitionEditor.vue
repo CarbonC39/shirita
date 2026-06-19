@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Maximize2, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
+import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
 import type { Definition, DefType } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import { estimateTokens, formatTokens } from '../utils/tokens'
@@ -55,7 +55,7 @@ const showWrapInTag = computed(() => !['regex_rule', 'first_message'].includes(p
 const typeChips = computed(() => [
   ...props.types.map((t) => ({ id: t.id, label: t.label, builtin: t.builtin })),
   { id: 'prompt', label: 'Prompt', builtin: true },
-  { id: 'first_message', label: 'Message Type', builtin: true },
+  { id: 'first_message', label: 'Message', builtin: true },
 ])
 
 // `meta.depth` unset = a session-start greeting (seeded once when the chat is
@@ -93,7 +93,9 @@ const renaming = ref(false)
 const matches = computed(() => {
   const q = search.value.trim().toLowerCase()
   const list = q ? props.allDefinitions.filter((d) => d.name.toLowerCase().includes(q)) : props.allDefinitions
-  return list.slice(0, 6)
+  // Exclude the currently selected definition so it doesn't appear as a duplicate
+  // (it's already shown in the editor body).
+  return list.filter((d) => d.id !== props.definition.id).slice(0, 6)
 })
 
 function pick(id: string) {
@@ -110,35 +112,22 @@ function startNew() {
   <div>
     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
 
-    <!-- name display + rename button -->
-    <div class="flex items-center gap-2 mb-2 px-0.5">
-      <template v-if="!renaming">
-        <span class="flex-1 text-[14px] text-ink font-medium truncate">{{ definition.name || $t('definition.unnamed') }}</span>
-        <button
-          v-if="definition.id"
-          data-test="def-rename"
-          class="text-[12px] text-muted hover:text-ink shrink-0 px-2 py-0.5 rounded-md border border-line/60 hover:border-muted/60 transition-colors"
-          @click="renaming = true"
-        >
-          {{ $t('common.rename') }}
-        </button>
-      </template>
-      <template v-else>
-        <input
-          :value="definition.name"
-          type="text"
-          data-test="def-name-input"
-          class="field flex-1"
-          placeholder="Name"
-          @input="emit('update:name', ($event.target as HTMLInputElement).value)"
-          @blur="renaming = false"
-          @keydown.enter="renaming = false"
-        />
-        <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
-      </template>
+    <!-- rename inline input: replaces the heading area when active -->
+    <div v-if="renaming" class="flex items-center gap-2 mb-2.5 px-0.5">
+      <input
+        :value="definition.name"
+        type="text"
+        data-test="def-name-input"
+        class="field flex-1"
+        placeholder="Name"
+        @input="emit('update:name', ($event.target as HTMLInputElement).value)"
+        @blur="renaming = false"
+        @keydown.enter="renaming = false"
+      />
+      <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
     </div>
 
-    <!-- search + definition picker -->
+    <!-- search + definition picker + action buttons -->
     <div class="flex items-center gap-2 mb-3">
       <div class="flex-1 relative" @focusout="open = false">
         <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-card px-3 py-2.5 focus-within:border-primary/50">
@@ -169,6 +158,7 @@ function startNew() {
         </transition>
       </div>
       <div v-if="headerActions" class="flex items-center">
+        <button data-test="rename-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.rename')" @click="renaming = !renaming"><Pencil :size="15" /></button>
         <button data-test="import-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
         <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>

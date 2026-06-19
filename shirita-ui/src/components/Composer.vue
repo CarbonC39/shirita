@@ -47,6 +47,11 @@ function submit() {
   pending.value = []
 }
 
+// Called by ChatView when an HTML card posts content via postMessage.
+function setText(val: string) { text.value = val }
+
+defineExpose({ setText })
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault()

@@ -94,7 +94,7 @@ describe('DefinitionEditor type chips', () => {
     const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
     const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types, active: true } })
     const chips = w.findAll('[data-test="type-chip"]').map((b) => b.text())
-    expect(chips).toEqual(['Character', 'World', 'Prompt', 'Message Type'])
+    expect(chips).toEqual(['Character', 'World', 'Prompt', 'Message'])
   })
 
   it('only offers delete on custom (non-builtin) types', () => {

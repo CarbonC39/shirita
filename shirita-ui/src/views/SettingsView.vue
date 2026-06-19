@@ -227,21 +227,22 @@ watch(
 
 // Ordered + filtered regex list for the management UI: global rules pinned on
 // top, then by name; optional name search and hide-disabled filters.
-const visibleRegexRules = computed(() => {
+// Separate regex rules into global and template-scoped for clearer management.
+function filterRegex(list: Definition[]) {
     const q = regexSearch.value.trim().toLowerCase();
-    return [...regexRules.value]
-        .filter((r) =>
-            hideDisabled.value
-                ? (r.meta as Record<string, unknown>).disabled !== true
-                : true,
-        )
-        .filter((r) => !q || r.name.toLowerCase().includes(q))
-        .sort((a, b) => {
-            const ga = regexScopes.value[a.id]?.scope === "global" ? 0 : 1;
-            const gb = regexScopes.value[b.id]?.scope === "global" ? 0 : 1;
-            return ga - gb || a.name.localeCompare(b.name);
-        });
-});
+    return list.filter((r) => {
+        if (hideDisabled.value && (r.meta as Record<string, unknown>).disabled === true) return false;
+        return !q || r.name.toLowerCase().includes(q);
+    });
+}
+const globalRules = computed(() =>
+    filterRegex(regexRules.value.filter((r) => regexScopes.value[r.id]?.scope === "global"))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+);
+const templateRules = computed(() =>
+    filterRegex(regexRules.value.filter((r) => regexScopes.value[r.id]?.scope !== "global"))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+);
 
 // Persist a regex rule's name + meta, debounced so typing doesn't fire a
 // request per keystroke. The whole rule object is the source of truth.
@@ -687,17 +688,13 @@ async function handleTestConnection() {
                             @input="contextWindow = parseInt(($event.target as HTMLInputElement).value) || 0"
                         />
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-[14px] text-ink">{{ $t("settings.contextThreshold") }}</span>
-                        <input
-                            :value="contextThreshold"
-                            type="number"
-                            min="1"
-                            max="100"
-                            class="field w-[80px] text-right tabular-nums"
-                            @input="contextThreshold = parseInt(($event.target as HTMLInputElement).value) || 0"
-                        />
-                    </div>
+                    <SliderControl
+                        v-model="contextThreshold"
+                        :label="$t('settings.contextThreshold')"
+                        :min="1"
+                        :max="100"
+                        :step="1"
+                    />
                     <div class="flex items-center justify-between">
                         <span class="text-[14px] text-ink">{{ $t("settings.keepRecent") }}</span>
                         <input
@@ -863,58 +860,39 @@ async function handleTestConnection() {
                         {{ $t("settings.regexHideDisabled") }}
                     </label>
                 </div>
+                <p v-if="globalRules.length" class="text-[12px] font-semibold text-ink/65 uppercase tracking-wide mb-2 mt-2">{{ $t("settings.regexGlobal") }}</p>
                 <RegexRuleEditor
-                    v-for="rule in visibleRegexRules"
+                    v-for="rule in globalRules"
                     :key="rule.id"
                     :rule="metaToRule(rule)"
-                    :scope="regexScopes[rule.id]?.scope ?? 'global'"
+                    scope="global"
+                    :source-names="[]"
+                    :pattern-error="regexScopes[rule.id]?.pattern_error ?? null"
+                    :open="openRuleId === rule.id"
+                    @toggle-open="openRuleId = openRuleId === rule.id ? null : rule.id"
+                    @update:enabled="(enabled: boolean) => { (rule.meta as any).disabled = !enabled; persistRule(rule) }"
+                    @update:name="(n: string) => { rule.name = n; persistRule(rule) }"
+                    @update:pattern="(p: string) => { (rule.meta as any).pattern = p; persistRule(rule) }"
+                    @update:replacement="(r: string) => { (rule.meta as any).replacement = r; persistRule(rule) }"
+                    @update:scope="(s: any) => { const m = scopeFlagsToMeta(s); (rule.meta as any).scope = m.scope; (rule.meta as any).targets = m.targets; persistRule(rule) }"
+                    @delete="async () => { await deleteDefinition(rule.id); regexRules = regexRules.filter((r) => r.id !== rule.id); delete regexScopes[rule.id] }"
+                />
+                <p v-if="templateRules.length" class="text-[12px] font-semibold text-ink/65 uppercase tracking-wide mb-2 mt-4">{{ $t("settings.regexTemplate") }}</p>
+                <RegexRuleEditor
+                    v-for="rule in templateRules"
+                    :key="rule.id"
+                    :rule="metaToRule(rule)"
+                    :scope="regexScopes[rule.id]?.scope ?? 'template'"
                     :source-names="regexScopes[rule.id]?.template_names ?? []"
                     :pattern-error="regexScopes[rule.id]?.pattern_error ?? null"
                     :open="openRuleId === rule.id"
-                    @toggle-open="
-                        openRuleId = openRuleId === rule.id ? null : rule.id
-                    "
-                    @update:enabled="
-                        (enabled: boolean) => {
-                            (rule.meta as any).disabled = !enabled;
-                            persistRule(rule);
-                        }
-                    "
-                    @update:name="
-                        (n: string) => {
-                            rule.name = n;
-                            persistRule(rule);
-                        }
-                    "
-                    @update:pattern="
-                        (p: string) => {
-                            (rule.meta as any).pattern = p;
-                            persistRule(rule);
-                        }
-                    "
-                    @update:replacement="
-                        (r: string) => {
-                            (rule.meta as any).replacement = r;
-                            persistRule(rule);
-                        }
-                    "
-                    @update:scope="
-                        (s: any) => {
-                            const m = scopeFlagsToMeta(s);
-                            (rule.meta as any).scope = m.scope;
-                            (rule.meta as any).targets = m.targets;
-                            persistRule(rule);
-                        }
-                    "
-                    @delete="
-                        async () => {
-                            await deleteDefinition(rule.id);
-                            regexRules = regexRules.filter(
-                                (r) => r.id !== rule.id,
-                            );
-                            delete regexScopes[rule.id];
-                        }
-                    "
+                    @toggle-open="openRuleId = openRuleId === rule.id ? null : rule.id"
+                    @update:enabled="(enabled: boolean) => { (rule.meta as any).disabled = !enabled; persistRule(rule) }"
+                    @update:name="(n: string) => { rule.name = n; persistRule(rule) }"
+                    @update:pattern="(p: string) => { (rule.meta as any).pattern = p; persistRule(rule) }"
+                    @update:replacement="(r: string) => { (rule.meta as any).replacement = r; persistRule(rule) }"
+                    @update:scope="(s: any) => { const m = scopeFlagsToMeta(s); (rule.meta as any).scope = m.scope; (rule.meta as any).targets = m.targets; persistRule(rule) }"
+                    @delete="async () => { await deleteDefinition(rule.id); regexRules = regexRules.filter((r) => r.id !== rule.id); delete regexScopes[rule.id] }"
                 />
                 <button
                     class="w-full py-2 border-2 border-dashed border-line rounded-xl text-muted text-[13px] hover:text-primary hover:border-primary/30 transition-colors mt-2"

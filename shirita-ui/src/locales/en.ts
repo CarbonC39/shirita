@@ -238,6 +238,8 @@ const en = {
     regexInvalid: 'invalid',
     regexSearch: 'Search rules',
     regexHideDisabled: 'Hide disabled',
+    regexGlobal: 'Global rules',
+    regexTemplate: 'Template-scoped rules',
     regexDelete: 'Delete rule',
   },
 }
