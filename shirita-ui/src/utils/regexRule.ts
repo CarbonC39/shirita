@@ -10,6 +10,8 @@ import type { Definition, RegexRule } from '../api/types'
 export function metaToRule(def: Definition): RegexRule {
   const meta = def.meta as Record<string, unknown>
   const scopeStr = typeof meta.scope === 'string' ? meta.scope : 'display'
+  const phase: 'display' | 'both' | 'prompt' =
+    scopeStr === 'prompt' ? 'prompt' : scopeStr === 'both' ? 'both' : 'display'
   const targets = Array.isArray(meta.targets) ? (meta.targets as unknown[]) : []
   const hasTargets = targets.length > 0
   return {
@@ -22,7 +24,7 @@ export function metaToRule(def: Definition): RegexRule {
       // Empty/absent targets stay broad, matching the backend's apply path.
       ai_output: !hasTargets || targets.includes('ai_output'),
       user_input: targets.includes('user_input'),
-      display_only: scopeStr === 'display',
+      phase,
     },
   }
 }
@@ -32,5 +34,5 @@ export function scopeFlagsToMeta(scope: RegexRule['scope']): { scope: string; ta
   const targets: string[] = []
   if (scope.ai_output) targets.push('ai_output')
   if (scope.user_input) targets.push('user_input')
-  return { scope: scope.display_only ? 'display' : 'both', targets }
+  return { scope: scope.phase, targets }
 }

@@ -107,7 +107,7 @@ export interface RegexRule {
   pattern: string
   replacement: string
   enabled: boolean
-  scope: { ai_output: boolean; user_input: boolean; display_only: boolean }
+  scope: { ai_output: boolean; user_input: boolean; phase: 'display' | 'both' | 'prompt' }
 }
 
 export interface SideIdentity {

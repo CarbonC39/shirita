@@ -206,7 +206,9 @@ const zhHans: MessageSchema = {
     regexApplyTo: '应用于',
     regexAiOutput: 'AI 输出',
     regexUserInput: '用户输入',
-    regexDisplayOnly: '仅显示',
+    regexPhaseDisplay: '仅显示',
+    regexPhaseBoth: '显示 + prompt',
+    regexPhasePrompt: '仅 prompt',
     regexDelete: '删除规则',
   },
 }
