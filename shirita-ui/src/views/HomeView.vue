@@ -92,7 +92,7 @@ async function onImportFile(e: Event) {
 
 <template>
     <div
-        class="relative px-5 pt-7 pb-8 h-full flex flex-col"
+        class="relative pt-7 pb-8 h-full flex flex-col"
     >
         <div class="flex-1 overflow-y-auto">
             <p v-if="store.loading" class="text-muted text-sm">

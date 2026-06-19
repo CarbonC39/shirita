@@ -772,7 +772,7 @@ async function duplicateDef() {
 </script>
 
 <template>
-    <div class="px-5 pt-6 pb-12">
+    <div class="pt-6 pb-12">
         <p v-if="loading" class="text-muted text-sm text-center pt-12">
             {{ $t("common.loading") }}
         </p>
