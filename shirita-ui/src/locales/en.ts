@@ -197,6 +197,8 @@ const en = {
     contextThreshold: 'Summarize at (% of window)',
     keepRecent: 'Keep recent messages',
     summarizeInstruction: 'Summary instruction',
+    notifications: 'Notifications',
+    notifyReplies: 'Notify when reply is done (tab unfocused)',
     appearance: 'Appearance',
     messageStyle: 'Message style',
     styleBubble: 'Bubble',

@@ -187,6 +187,8 @@ const ja: MessageSchema = {
     contextThreshold: '要約する割合（ウィンドウの%）',
     keepRecent: '最近のメッセージを保持',
     summarizeInstruction: '要約の指示',
+    notifications: '通知',
+    notifyReplies: '応答完了時に通知（タブが非アクティブ時）',
     appearance: '外観',
     messageStyle: 'メッセージスタイル',
     styleBubble: 'バブル',
