@@ -222,24 +222,14 @@ fn latest_html_card(path: &[&Message]) -> Option<String> {
     })
 }
 
-/// Compute an assistant message's `display_content` from its raw reply. An HTML
-/// card patch (SEARCH/REPLACE blocks against the branch's latest card) is
-/// reconstructed into the full document; otherwise the regular regex-rule /
-/// state-tag-stripping path applies. `cleaned` is `full` with `<state_update>`
-/// tags already stripped.
-fn resolve_display(
-    path: &[&Message],
-    full: &str,
-    cleaned: &str,
-    regex_rules: &[Definition],
-) -> Option<String> {
+/// 写侧 display_content：仅与 regex 规则无关的变换——HTML-card 重建优先，否则
+/// state 标签剥离后的文本（与原文不同才存）。Display-side regex 改在读侧即时计算
+/// （见 web `list_messages`），故此处不再套规则。
+fn resolve_display(path: &[&Message], full: &str, cleaned: &str) -> Option<String> {
     if let Some(html) = crate::html_patch::reconstruct(latest_html_card(path).as_deref(), cleaned) {
         return Some(html);
     }
-    match crate::assembly::apply_regex_rules(cleaned, regex_rules) {
-        Some(s) => Some(s),
-        None => (cleaned != full).then(|| cleaned.to_string()),
-    }
+    (cleaned != full).then(|| cleaned.to_string())
 }
 
 /// 流式发送过程对外暴露的事件。
@@ -306,7 +296,7 @@ pub fn send_message(
         }
         let new_turn_images = resolve_images(storage.as_ref(), &assets_dir, &attachment_ids).await;
         context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images });
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, _regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -342,7 +332,7 @@ pub fn send_message(
         let cleaned = strip_state_tags(&full);
         let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
         assistant.snapshot_state = new_snapshot;
-        assistant.display_content = resolve_display(&path, &full, &cleaned, &regex_rules);
+        assistant.display_content = resolve_display(&path, &full, &cleaned);
         if let Err(e) = storage.create_message(&assistant).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -397,7 +387,7 @@ pub fn regenerate(
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, _regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -426,7 +416,7 @@ pub fn regenerate(
         let cleaned = strip_state_tags(&full);
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
         sibling.snapshot_state = new_snapshot;
-        sibling.display_content = resolve_display(&path, &full, &cleaned, &regex_rules);
+        sibling.display_content = resolve_display(&path, &full, &cleaned);
         if let Err(e) = storage.create_message(&sibling).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -677,54 +667,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn regex_rule_sets_display_content() {
-        let storage = Arc::new(temp_storage().await);
-        let mut session = Session::new("t");
-        let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
-        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
-        storage.create_definition(&rule).await.unwrap();
-        // Regex is now scoped to the session's template tree: build a template
-        // that references this rule and attach it to the session.
-        let tmpl = crate::models::template::Template::new("rx");
-        storage.create_template(&tmpl).await.unwrap();
-        let rxref = crate::models::prompt_node::PromptNode::new_ref(
-            crate::models::prompt_node::OwnerKind::Template,
-            &tmpl.id,
-            None,
-            0,
-            &rule.id,
-        );
-        storage.create_node(&rxref).await.unwrap();
-        session.template_id = Some(tmpl.id.clone());
-        storage.create_session(&session).await.unwrap();
-
-        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
-            seen: Arc::new(Mutex::new(None)),
-            reply: "helloSTOP".into(),
-        });
-        let storage_dyn: Arc<dyn Storage> = storage.clone();
-        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-
-        let stream = send_message(
-            storage_dyn,
-            provider,
-            counter,
-            "m".into(),
-            session.id.clone(),
-            "hi".into(),
-            "".into(),
-            Vec::new(),
-        );
-        futures::pin_mut!(stream);
-        while stream.next().await.is_some() {}
-
-        let msgs = storage.list_messages(&session.id).await.unwrap();
-        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
-        assert_eq!(assistant.raw_content, "helloSTOP");
-        assert_eq!(assistant.display_content.as_deref(), Some("hello"));
-    }
-
-    #[tokio::test]
     async fn html_card_patch_reconstructs_display_and_injects_instruction() {
         let storage = Arc::new(temp_storage().await);
         let session = Session::new("t"); // tree-less: history defaults on
@@ -813,65 +755,6 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(!req.messages.iter().any(|m| m.content.contains("<state_update")), "no state protocol without user vars");
-    }
-
-    #[tokio::test]
-    async fn global_regex_rule_applies_without_a_tree() {
-        // A rule created in Settings is an orphan def (referenced by no node).
-        // Hybrid model: global rules apply to every session's display output,
-        // even one with no template/tree.
-        let storage = Arc::new(temp_storage().await);
-        let mut rule = crate::models::definition::Definition::new("regex_rule", "G", "");
-        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
-        storage.create_definition(&rule).await.unwrap();
-        let session = Session::new("t"); // no template, no nodes
-        storage.create_session(&session).await.unwrap();
-
-        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
-            seen: Arc::new(Mutex::new(None)),
-            reply: "helloSTOP".into(),
-        });
-        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
-        futures::pin_mut!(stream);
-        while stream.next().await.is_some() {}
-
-        let msgs = storage.list_messages(&session.id).await.unwrap();
-        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
-        assert_eq!(assistant.display_content.as_deref(), Some("hello"));
-    }
-
-    #[tokio::test]
-    async fn scoped_regex_rule_does_not_leak_to_other_sessions() {
-        // A rule mounted in loreset A's tree is NOT an orphan, so it must not
-        // apply to an unrelated tree-less session.
-        let storage = Arc::new(temp_storage().await);
-        let mut rule = crate::models::definition::Definition::new("regex_rule", "R", "");
-        rule.meta = serde_json::json!({ "pattern": "STOP", "replacement": "" });
-        storage.create_definition(&rule).await.unwrap();
-        let tmpl = crate::models::template::Template::new("rx");
-        storage.create_template(&tmpl).await.unwrap();
-        let rxref = crate::models::prompt_node::PromptNode::new_ref(
-            crate::models::prompt_node::OwnerKind::Template, &tmpl.id, None, 0, &rule.id,
-        );
-        storage.create_node(&rxref).await.unwrap();
-        // A different session that does NOT use that template.
-        let session = Session::new("other");
-        storage.create_session(&session).await.unwrap();
-
-        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
-            seen: Arc::new(Mutex::new(None)),
-            reply: "helloSTOP".into(),
-        });
-        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
-        futures::pin_mut!(stream);
-        while stream.next().await.is_some() {}
-
-        let msgs = storage.list_messages(&session.id).await.unwrap();
-        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
-        // Rule belongs to loreset A's tree, so the reply is untouched here.
-        assert_eq!(assistant.display_content.as_deref(), None);
     }
 
     #[tokio::test]
