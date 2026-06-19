@@ -227,6 +227,8 @@ const zhHans: MessageSchema = {
     regexInvalid: '失效',
     regexSearch: '搜索规则',
     regexHideDisabled: '隐藏已禁用',
+    regexGlobal: '全局规则',
+    regexTemplate: '模板级规则',
     regexDelete: '删除规则',
   },
 }

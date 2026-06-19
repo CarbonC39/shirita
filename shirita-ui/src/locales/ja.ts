@@ -228,6 +228,8 @@ const ja: MessageSchema = {
     regexInvalid: '無効',
     regexSearch: 'ルールを検索',
     regexHideDisabled: '無効を隠す',
+    regexGlobal: 'グローバルルール',
+    regexTemplate: 'テンプレートスコープのルール',
     regexDelete: 'ルールを削除',
   },
 }

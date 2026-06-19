@@ -20,7 +20,7 @@ defineProps<{ html: string }>()
 .html-card-frame {
   display: block;
   width: 100%;
-  height: 480px;
+  height: 640px;
   border: 1px solid var(--color-line, #e5e5e5);
   border-radius: 10px;
   background: #fff;

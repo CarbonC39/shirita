@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch, computed } from 'vue'
+import { onMounted, onUnmounted, ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
@@ -80,6 +80,22 @@ watch(
   },
 )
 
+const composerRef = ref<InstanceType<typeof Composer> | null>(null)
+
+// Strip HTML tags and limit length for content injected from HTML cards.
+function sanitizeCardContent(raw: string): string {
+  return raw.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+}
+
+function onCardMessage(e: MessageEvent) {
+  if (e.data?.type === 'shirita-add-input' && typeof e.data.content === 'string') {
+    composerRef.value?.setText(sanitizeCardContent(e.data.content))
+  }
+}
+
+onMounted(() => { window.addEventListener('message', onCardMessage) })
+onUnmounted(() => { window.removeEventListener('message', onCardMessage) })
+
 async function handleSend(text: string, attachments: string[]) {
   await chat.send(sessionId, text, attachments)
   await loadState()
@@ -146,6 +162,6 @@ async function handleFork(id: string) {
     />
 
     <VariablesPanel :schema="sessionState.schema" :values="sessionState.values" />
-    <Composer :disabled="chat.isStreaming" @send="handleSend" />
+    <Composer ref="composerRef" :disabled="chat.isStreaming" @send="handleSend" />
   </div>
 </template>

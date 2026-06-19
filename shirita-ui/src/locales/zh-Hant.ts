@@ -227,6 +227,8 @@ const zhHant: MessageSchema = {
     regexInvalid: '失效',
     regexSearch: '搜尋規則',
     regexHideDisabled: '隱藏已停用',
+    regexGlobal: '全局規則',
+    regexTemplate: '模板級規則',
     regexDelete: '刪除規則',
   },
 }
