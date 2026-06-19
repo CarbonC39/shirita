@@ -210,6 +210,13 @@ const ja: MessageSchema = {
     regexPhaseDisplay: '表示のみ',
     regexPhaseBoth: '表示＋prompt',
     regexPhasePrompt: 'promptのみ',
+    regexUserShort: 'ユーザー',
+    regexPhase_display: '表示',
+    regexPhase_both: '両方',
+    regexPhase_prompt: 'prompt',
+    regexInvalid: '無効',
+    regexSearch: 'ルールを検索',
+    regexHideDisabled: '無効を隠す',
     regexDelete: 'ルールを削除',
   },
 }

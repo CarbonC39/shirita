@@ -110,6 +110,13 @@ export interface RegexRule {
   scope: { ai_output: boolean; user_input: boolean; phase: 'display' | 'both' | 'prompt' }
 }
 
+export interface RegexScope {
+  id: string
+  scope: 'global' | 'template'
+  template_names: string[]
+  pattern_error: string | null
+}
+
 export interface SideIdentity {
   name: string | null
   avatar: string | null

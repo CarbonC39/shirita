@@ -220,6 +220,13 @@ const en = {
     regexPhaseDisplay: 'Display only',
     regexPhaseBoth: 'Display + prompt',
     regexPhasePrompt: 'Prompt only',
+    regexUserShort: 'User',
+    regexPhase_display: 'display',
+    regexPhase_both: 'both',
+    regexPhase_prompt: 'prompt',
+    regexInvalid: 'invalid',
+    regexSearch: 'Search rules',
+    regexHideDisabled: 'Hide disabled',
     regexDelete: 'Delete rule',
   },
 }

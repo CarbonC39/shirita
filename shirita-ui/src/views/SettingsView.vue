@@ -7,8 +7,9 @@ import {
     createDefinition,
     updateDefinition,
     deleteDefinition,
+    getRegexScopes,
 } from "../api/client";
-import type { Definition } from "../api/types";
+import type { Definition, RegexScope } from "../api/types";
 import { metaToRule, scopeFlagsToMeta } from "../utils/regexRule";
 import { fallbackModels } from "../api/modelCatalog";
 import SliderControl from "../components/SliderControl.vue";
@@ -24,6 +25,12 @@ const ui = useUiStore();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const regexRules = ref<Definition[]>([]);
+// Per-rule scope metadata (global vs template, source names, compile error),
+// keyed by rule id; merged into the list for the compact management UI.
+const regexScopes = ref<Record<string, RegexScope>>({});
+const regexSearch = ref("");
+const hideDisabled = ref(false);
+const openRuleId = ref<string | null>(null);
 const showApiKey = ref(false);
 const cssFullscreen = ref(false);
 // Auto-save: settings persist on change (debounced); the header shows transient
@@ -175,6 +182,24 @@ watch(
     },
 );
 
+// Ordered + filtered regex list for the management UI: global rules pinned on
+// top, then by name; optional name search and hide-disabled filters.
+const visibleRegexRules = computed(() => {
+    const q = regexSearch.value.trim().toLowerCase();
+    return [...regexRules.value]
+        .filter((r) =>
+            hideDisabled.value
+                ? (r.meta as Record<string, unknown>).disabled !== true
+                : true,
+        )
+        .filter((r) => !q || r.name.toLowerCase().includes(q))
+        .sort((a, b) => {
+            const ga = regexScopes.value[a.id]?.scope === "global" ? 0 : 1;
+            const gb = regexScopes.value[b.id]?.scope === "global" ? 0 : 1;
+            return ga - gb || a.name.localeCompare(b.name);
+        });
+});
+
 // Persist a regex rule's name + meta, debounced so typing doesn't fire a
 // request per keystroke. The whole rule object is the source of truth.
 const ruleTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -197,6 +222,8 @@ onMounted(async () => {
             ui.setBackground(bg);
         const allDefs = await listDefinitions();
         regexRules.value = allDefs.filter((d) => d.type === "regex_rule");
+        const sc = await getRegexScopes();
+        regexScopes.value = Object.fromEntries(sc.map((s) => [s.id, s]));
         // seed the model list: live fetch needs a key, otherwise show the catalog
         if ((providerApiKey.value || apiKeyOptional.value) && providerBaseUrl.value)
             await settings.fetchModels();
@@ -634,15 +661,36 @@ async function handleTestConnection() {
 
             <!-- Regex -->
             <section class="mb-8">
-                <h3
-                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
-                >
-                    {{ $t("settings.regex") }}
-                </h3>
+                <div class="flex items-center gap-3 mb-4">
+                    <h3
+                        class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide shrink-0"
+                    >
+                        {{ $t("settings.regex") }}
+                    </h3>
+                    <input
+                        v-model="regexSearch"
+                        type="search"
+                        class="flex-1 min-w-0 border border-line rounded-md px-2 py-1 text-[12px] outline-none focus:border-primary/50"
+                        :placeholder="$t('settings.regexSearch')"
+                    />
+                    <label
+                        class="flex items-center gap-1.5 text-[12px] text-muted shrink-0"
+                    >
+                        <ToggleSwitch v-model="hideDisabled" />
+                        {{ $t("settings.regexHideDisabled") }}
+                    </label>
+                </div>
                 <RegexRuleEditor
-                    v-for="rule in regexRules"
+                    v-for="rule in visibleRegexRules"
                     :key="rule.id"
                     :rule="metaToRule(rule)"
+                    :scope="regexScopes[rule.id]?.scope ?? 'global'"
+                    :source-names="regexScopes[rule.id]?.template_names ?? []"
+                    :pattern-error="regexScopes[rule.id]?.pattern_error ?? null"
+                    :open="openRuleId === rule.id"
+                    @toggle-open="
+                        openRuleId = openRuleId === rule.id ? null : rule.id
+                    "
                     @update:enabled="
                         (enabled: boolean) => {
                             (rule.meta as any).disabled = !enabled;
@@ -681,6 +729,7 @@ async function handleTestConnection() {
                             regexRules = regexRules.filter(
                                 (r) => r.id !== rule.id,
                             );
+                            delete regexScopes[rule.id];
                         }
                     "
                 />
@@ -701,6 +750,13 @@ async function handleTestConnection() {
                                 },
                             });
                             regexRules = [...regexRules, created];
+                            regexScopes[created.id] = {
+                                id: created.id,
+                                scope: 'global',
+                                template_names: [],
+                                pattern_error: null,
+                            };
+                            openRuleId = created.id;
                         }
                     "
                 >

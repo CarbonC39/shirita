@@ -209,6 +209,13 @@ const zhHans: MessageSchema = {
     regexPhaseDisplay: '仅显示',
     regexPhaseBoth: '显示 + prompt',
     regexPhasePrompt: '仅 prompt',
+    regexUserShort: '用户',
+    regexPhase_display: '显示',
+    regexPhase_both: '两者',
+    regexPhase_prompt: 'prompt',
+    regexInvalid: '失效',
+    regexSearch: '搜索规则',
+    regexHideDisabled: '隐藏已禁用',
     regexDelete: '删除规则',
   },
 }

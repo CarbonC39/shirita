@@ -235,6 +235,10 @@ export function listDefinitions(type?: string): Promise<Definition[]> {
   return apiGet<Definition[]>(`/definitions${qs}`)
 }
 
+export function getRegexScopes(): Promise<import('./types').RegexScope[]> {
+  return apiGet<import('./types').RegexScope[]>('/regex-rules/scopes')
+}
+
 export async function createDefinition(body: { type: string; name: string; content: string; meta?: Record<string, unknown> }): Promise<Definition> {
   const res = await fetch(`${BASE}/api/definitions`, {
     method: 'POST',
