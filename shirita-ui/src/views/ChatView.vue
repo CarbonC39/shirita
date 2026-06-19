@@ -131,8 +131,8 @@ async function handleFork(id: string) {
 
 <template>
   <div
-    class="app-chat-column flex flex-col h-full mx-auto rounded-[24px] my-3"
-    :style="{ maxWidth: ui.contentWidth + 'px', backgroundColor: 'var(--color-surface, #f8f7f6)' }"
+    class="app-chat-column flex flex-col h-full mx-auto bg-surface/85"
+    :style="{ maxWidth: ui.contentWidth + 'px' }"
   >
     <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
