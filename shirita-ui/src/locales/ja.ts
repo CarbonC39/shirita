@@ -147,6 +147,7 @@ const ja: MessageSchema = {
     roleSystem: 'システム',
     roleUser: 'ユーザー',
     roleAssistant: 'アシスタント',
+    unnamed: '無題',
   },
   variables: {
     heading: '変数',

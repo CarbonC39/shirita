@@ -48,6 +48,7 @@ const nodes = ref<PromptNode[]>([]);
 // manual Save — so picking "+ New template" never litters the list.
 const isDraft = ref(false);
 const templateName = ref("");
+const renamingTemplate = ref(false);
 
 // Rough token total for the template: sum the content of every enabled ref
 // node's definition. Display-only estimate (real assembly happens server-side).
@@ -940,14 +941,27 @@ async function duplicateDef() {
                 v-if="isDraft || selectedTemplateId"
                 class="flex items-center gap-2 mt-2 mb-3.5"
             >
-                <input
-                    v-model="templateName"
-                    type="text"
-                    class="field flex-1"
-                    :placeholder="$t('book.templateNamePlaceholder')"
-                    @change="renameTemplate"
-                    @keydown.enter="($event.target as HTMLInputElement).blur()"
-                />
+                <template v-if="!renamingTemplate">
+                    <span class="flex-1 text-[14px] text-ink font-medium truncate">{{ templateName || $t('book.templateNamePlaceholder') }}</span>
+                    <button
+                        v-if="selectedTemplateId"
+                        class="text-[12px] text-muted hover:text-ink shrink-0 px-2 py-0.5 rounded-md border border-line/60 hover:border-muted/60 transition-colors"
+                        @click="renamingTemplate = true"
+                    >
+                        {{ $t("common.rename") }}
+                    </button>
+                </template>
+                <template v-else>
+                    <input
+                        v-model="templateName"
+                        type="text"
+                        class="field flex-1"
+                        :placeholder="$t('book.templateNamePlaceholder')"
+                        @change="renameTemplate"
+                        @keydown.enter="($event.target as HTMLInputElement).blur(); renamingTemplate = false"
+                    />
+                    <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renamingTemplate = false">{{ $t("common.done") }}</button>
+                </template>
                 <button
                     v-if="isDraft"
                     class="btn btn-primary shrink-0"

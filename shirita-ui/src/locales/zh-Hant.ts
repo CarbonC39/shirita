@@ -147,6 +147,7 @@ const zhHant: MessageSchema = {
     roleSystem: '系統',
     roleUser: '使用者',
     roleAssistant: '助手',
+    unnamed: '未命名',
   },
   variables: {
     heading: '變數',
