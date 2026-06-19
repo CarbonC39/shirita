@@ -17,6 +17,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     storage.run_migrations().await?;
     // First-launch convenience: seed a default template if none exist yet.
     shirita_core::ensure_default_template(&storage).await?;
+    shirita_core::ensure_builtin_definitions(&storage).await?;
     tokio::fs::create_dir_all(&config.assets_dir).await.ok();
 
     // 共享 HTTP 客户端：env 兜底 provider 与运行期 settings provider 复用同一连接池。
