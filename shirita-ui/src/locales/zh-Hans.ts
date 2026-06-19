@@ -186,6 +186,8 @@ const zhHans: MessageSchema = {
     contextThreshold: '触发总结（窗口占比 %）',
     keepRecent: '保留最近消息数',
     summarizeInstruction: '总结指令',
+    notifications: '通知',
+    notifyReplies: '回复完成时通知（标签页未聚焦时）',
     appearance: '外观',
     messageStyle: '消息样式',
     styleBubble: '气泡',

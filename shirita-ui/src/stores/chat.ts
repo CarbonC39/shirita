@@ -6,6 +6,8 @@ import {
   editMessage, setActiveLeaf, forkSession,
 } from '../api/client'
 import { activePath } from '../utils/tree'
+import { notifyReplyDone } from '../utils/notify'
+import { useSettingsStore } from './settings'
 
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
@@ -49,7 +51,15 @@ export const useChatStore = defineStore('chat', () => {
     try {
       for await (const event of stream) {
         if (event.type === 'delta') streamingText.value += event.text
-        else if (event.type === 'done') { streamingText.value = ''; await loadMessages(sessionId) }
+        else if (event.type === 'done') {
+          streamingText.value = ''
+          await loadMessages(sessionId)
+          const s = useSettingsStore()
+          if (s.data.notify_enabled) {
+            const last = messages.value[messages.value.length - 1]
+            notifyReplyDone(document.title || 'Shirita', (last?.display_content ?? last?.raw_content ?? '').slice(0, 120))
+          }
+        }
         else if (event.type === 'error') { streamingError.value = event.message ?? null; isStreaming.value = false; return }
       }
     } catch (e) {

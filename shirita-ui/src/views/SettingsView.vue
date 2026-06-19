@@ -20,6 +20,7 @@ import FullscreenEditor from "../components/FullscreenEditor.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
+import { ensureNotifyPermission } from "../utils/notify";
 
 const settings = useSettingsStore();
 const ui = useUiStore();
@@ -160,6 +161,12 @@ const genMaxTokens = computed({
 const customCss = computed({
     get: () => (get("custom_css") as string) || "",
     set: (v: string) => set("custom_css", v),
+});
+
+// Notifications opt-in
+const notifyEnabled = computed({
+    get: () => (get("notify_enabled") as boolean) ?? false,
+    set: (v: boolean) => set("notify_enabled", v),
 });
 
 // Context / auto-summarize (keys consumed by summarize.rs). Threshold is stored
@@ -312,6 +319,7 @@ watch(
         contextThreshold.value,
         keepRecent.value,
         summarizeInstruction.value,
+        notifyEnabled.value,
         customCss.value,
     ],
     () => {
@@ -336,6 +344,7 @@ watch(
                     "context.threshold": contextThreshold.value / 100,
                     "context.keep_recent": keepRecent.value,
                     "summarize.instruction": summarizeInstruction.value,
+                    ...(notifyEnabled.value !== undefined && { "notify_enabled": notifyEnabled.value }),
                     custom_css: customCss.value,
                 });
                 saveState.value = "saved";
@@ -355,6 +364,13 @@ function onBackgroundChange(path: string) {
     settings.save({ appearance_background: path }).catch((e) => {
         error.value = (e as Error).message;
     });
+}
+
+async function handleNotifyToggle(enabled: boolean) {
+    notifyEnabled.value = enabled;
+    if (enabled && !(await ensureNotifyPermission())) {
+        notifyEnabled.value = false;
+    }
 }
 
 async function handleTestConnection() {
@@ -778,6 +794,24 @@ async function handleTestConnection() {
                         :open="cssFullscreen"
                         @close="cssFullscreen = false"
                         @update:model-value="customCss = $event"
+                    />
+                </div>
+            </section>
+
+            <div class="border-t border-line my-6" />
+
+            <!-- Notifications -->
+            <section class="mb-8">
+                <h3
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                >
+                    {{ $t("settings.notifications") }}
+                </h3>
+                <div class="flex items-center justify-between">
+                    <span class="text-[14px] text-ink">{{ $t("settings.notifyReplies") }}</span>
+                    <ToggleSwitch
+                        :model-value="notifyEnabled"
+                        @update:model-value="handleNotifyToggle($event)"
                     />
                 </div>
             </section>

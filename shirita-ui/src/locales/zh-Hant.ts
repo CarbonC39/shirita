@@ -186,6 +186,8 @@ const zhHant: MessageSchema = {
     contextThreshold: '觸發總結（視窗佔比 %）',
     keepRecent: '保留最近訊息數',
     summarizeInstruction: '總結指令',
+    notifications: '通知',
+    notifyReplies: '回覆完成時通知（標籤頁未聚焦時）',
     appearance: '外觀',
     messageStyle: '訊息樣式',
     styleBubble: '氣泡',
