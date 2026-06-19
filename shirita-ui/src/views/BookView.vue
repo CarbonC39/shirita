@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from "vue";
+import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import { Check, Pencil, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
@@ -48,6 +48,7 @@ const nodes = ref<PromptNode[]>([]);
 // manual Save — so picking "+ New template" never litters the list.
 const templateName = ref("");
 const renamingTemplate = ref(false);
+const templateNameInput = ref<HTMLInputElement | null>(null);
 
 // Rough token total for the template: sum the content of every enabled ref
 // node's definition. Display-only estimate (real assembly happens server-side).
@@ -445,6 +446,11 @@ async function startDraft() {
         const t = await createTemplate("New template");
         await library.loadTemplates();
         await selectTemplate(t.id);
+        templateName.value = t.name;
+        renamingTemplate.value = true;
+        await nextTick();
+        templateNameInput.value?.focus();
+        templateNameInput.value?.select();
     } catch (e) {
         error.value = (e as Error).message;
     }
@@ -937,6 +943,7 @@ async function duplicateDef() {
             <!-- rename inline: replaces content during rename -->
             <div v-if="renamingTemplate && selectedTemplateId" class="flex items-center gap-2 mt-2 mb-2">
                 <input
+                    ref="templateNameInput"
                     v-model="templateName"
                     type="text"
                     class="field flex-1"
