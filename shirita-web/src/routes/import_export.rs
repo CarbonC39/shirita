@@ -95,7 +95,8 @@ async fn save_png_asset(state: &AppState, bytes: &[u8], display: &str) -> Result
     let path = FsPath::new(&state.config.assets_dir).join(&stored);
     tokio::fs::create_dir_all(&state.config.assets_dir).await.ok();
     tokio::fs::write(&path, bytes).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let asset = shirita_core::Asset::new(display, stored.clone());
+    let mut asset = shirita_core::Asset::new(display, stored.clone());
+    asset.kind = "avatar".into(); // character-card PNGs are avatars
     state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(stored)
 }

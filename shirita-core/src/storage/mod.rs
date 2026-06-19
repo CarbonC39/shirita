@@ -98,8 +98,8 @@ pub trait Storage: Send + Sync {
     async fn delete_def_type(&self, id: &str) -> Result<()>;
 
     // --- assets (named media library) ---
-    /// 列出资源（按 created_at 降序，最新在前）。
-    async fn list_assets(&self) -> Result<Vec<Asset>>;
+    /// 列出资源（按 created_at 降序，最新在前）；`kind` 过滤库（avatar/background），None 为全部。
+    async fn list_assets(&self, kind: Option<&str>) -> Result<Vec<Asset>>;
     async fn get_asset(&self, id: &str) -> Result<Option<Asset>>;
     async fn create_asset(&self, asset: &Asset) -> Result<()>;
     /// 重命名资源（仅 name）。

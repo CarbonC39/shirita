@@ -66,7 +66,7 @@ mod tests {
         tokio::fs::create_dir_all(&assets_dir).await.unwrap();
         tokio::fs::write(assets_dir.join("pic.png"), b"\x89PNG-fake-bytes").await.unwrap();
 
-        let asset = Asset { id: "a1".into(), name: "pic".into(), path: "pic.png".into(), created_at: "".into() };
+        let asset = Asset { id: "a1".into(), name: "pic".into(), path: "pic.png".into(), kind: "background".into(), created_at: "".into() };
         storage.create_asset(&asset).await.unwrap();
 
         let urls = resolve_images(&storage, assets_dir.to_str().unwrap(), &["a1".to_string()]).await;
@@ -84,7 +84,7 @@ mod tests {
     #[tokio::test]
     async fn skips_assets_whose_file_is_missing_on_disk() {
         let (storage, dir) = temp_storage_and_dir().await;
-        let asset = Asset { id: "a1".into(), name: "pic".into(), path: "gone.png".into(), created_at: "".into() };
+        let asset = Asset { id: "a1".into(), name: "pic".into(), path: "gone.png".into(), kind: "background".into(), created_at: "".into() };
         storage.create_asset(&asset).await.unwrap();
         let urls = resolve_images(&storage, dir.path().to_str().unwrap(), &["a1".to_string()]).await;
         assert!(urls.is_empty());

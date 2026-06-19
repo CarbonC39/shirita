@@ -1,6 +1,6 @@
 use std::path::Path as FsPath;
 
-use axum::extract::{Multipart, Path, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
@@ -10,6 +10,20 @@ use shirita_core::Asset;
 
 use crate::AppState;
 
+/// Which media library a request targets.
+#[derive(Deserialize)]
+pub struct KindQuery {
+    pub kind: Option<String>,
+}
+
+/// Normalize a requested kind to one of the two libraries; default background.
+fn norm_kind(kind: Option<&str>) -> String {
+    match kind {
+        Some("avatar") => "avatar".into(),
+        _ => "background".into(),
+    }
+}
+
 /// Web 下的资源 URL 解析：相对路径 → `/assets/<rel>`。
 /// （Tauri 入口在 M8 返回 `asset://localhost/<rel>`。）
 pub fn resolve_asset_url(relative: &str) -> String {
@@ -17,19 +31,27 @@ pub fn resolve_asset_url(relative: &str) -> String {
 }
 
 fn asset_json(a: &Asset) -> Value {
-    json!({ "id": a.id, "name": a.name, "path": a.path, "url": resolve_asset_url(&a.path) })
+    json!({ "id": a.id, "name": a.name, "path": a.path, "kind": a.kind, "url": resolve_asset_url(&a.path) })
 }
 
-/// GET /api/assets — list the media library, newest first.
-pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Value>>, StatusCode> {
-    let assets = state.storage.list_assets().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+/// GET /api/assets[?kind=avatar|background] — list the media library, newest first.
+pub async fn list(
+    State(state): State<AppState>,
+    Query(q): Query<KindQuery>,
+) -> Result<Json<Vec<Value>>, StatusCode> {
+    let assets = state
+        .storage
+        .list_assets(q.kind.as_deref())
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(assets.iter().map(asset_json).collect()))
 }
 
-/// POST /api/assets — store the uploaded file and record it with a friendly,
-/// editable name derived from the original filename.
+/// POST /api/assets[?kind=avatar|background] — store the uploaded file and record
+/// it with a friendly, editable name derived from the original filename.
 pub async fn upload(
     State(state): State<AppState>,
+    Query(q): Query<KindQuery>,
     mut multipart: Multipart,
 ) -> Result<Json<Value>, StatusCode> {
     // Store the first uploaded field (callers send a single `file` part).
@@ -59,7 +81,8 @@ pub async fn upload(
             .filter(|s| !s.is_empty())
             .unwrap_or("Image")
             .to_string();
-        let asset = Asset::new(display, stored);
+        let mut asset = Asset::new(display, stored);
+        asset.kind = norm_kind(q.kind.as_deref());
         state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         return Ok(Json(asset_json(&asset)));
     }
