@@ -190,7 +190,7 @@ const ja: MessageSchema = {
     keepRecent: '最近のメッセージを保持',
     summarizeInstruction: '要約の指示',
     notifications: '通知',
-    notifyReplies: '応答完了時に通知（タブが非アクティブ時）',
+    notifyReplies: 'バックグラウンド応答通知',
     contentWidth: 'コンテンツ幅 (px)',
     appearance: '外観',
     messageStyle: 'メッセージスタイル',
@@ -228,8 +228,6 @@ const ja: MessageSchema = {
     regexInvalid: '無効',
     regexSearch: 'ルールを検索',
     regexHideDisabled: '無効を隠す',
-    regexGlobal: 'グローバルルール',
-    regexTemplate: 'テンプレートスコープのルール',
     regexDelete: 'ルールを削除',
   },
 }

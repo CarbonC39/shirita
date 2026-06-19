@@ -225,24 +225,20 @@ watch(
     },
 );
 
-// Ordered + filtered regex list for the management UI: global rules pinned on
-// top, then by name; optional name search and hide-disabled filters.
-// Separate regex rules into global and template-scoped for clearer management.
-function filterRegex(list: Definition[]) {
+// Regex rules in Settings: only global rules (not referenced by any template).
+// Template-scoped rules are managed per-template in the Book editor.
+const visibleRegexRules = computed(() => {
     const q = regexSearch.value.trim().toLowerCase();
-    return list.filter((r) => {
-        if (hideDisabled.value && (r.meta as Record<string, unknown>).disabled === true) return false;
-        return !q || r.name.toLowerCase().includes(q);
-    });
-}
-const globalRules = computed(() =>
-    filterRegex(regexRules.value.filter((r) => regexScopes.value[r.id]?.scope === "global"))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-);
-const templateRules = computed(() =>
-    filterRegex(regexRules.value.filter((r) => regexScopes.value[r.id]?.scope !== "global"))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-);
+    return [...regexRules.value]
+        .filter((r) => regexScopes.value[r.id]?.scope === "global") // only global
+        .filter((r) =>
+            hideDisabled.value
+                ? (r.meta as Record<string, unknown>).disabled !== true
+                : true,
+        )
+        .filter((r) => !q || r.name.toLowerCase().includes(q))
+        .sort((a, b) => a.name.localeCompare(b.name));
+});
 
 // Persist a regex rule's name + meta, debounced so typing doesn't fire a
 // request per keystroke. The whole rule object is the source of truth.
@@ -860,30 +856,12 @@ async function handleTestConnection() {
                         {{ $t("settings.regexHideDisabled") }}
                     </label>
                 </div>
-                <p v-if="globalRules.length" class="text-[12px] font-semibold text-ink/65 uppercase tracking-wide mb-2 mt-2">{{ $t("settings.regexGlobal") }}</p>
                 <RegexRuleEditor
-                    v-for="rule in globalRules"
+                    v-for="rule in visibleRegexRules"
                     :key="rule.id"
                     :rule="metaToRule(rule)"
                     scope="global"
                     :source-names="[]"
-                    :pattern-error="regexScopes[rule.id]?.pattern_error ?? null"
-                    :open="openRuleId === rule.id"
-                    @toggle-open="openRuleId = openRuleId === rule.id ? null : rule.id"
-                    @update:enabled="(enabled: boolean) => { (rule.meta as any).disabled = !enabled; persistRule(rule) }"
-                    @update:name="(n: string) => { rule.name = n; persistRule(rule) }"
-                    @update:pattern="(p: string) => { (rule.meta as any).pattern = p; persistRule(rule) }"
-                    @update:replacement="(r: string) => { (rule.meta as any).replacement = r; persistRule(rule) }"
-                    @update:scope="(s: any) => { const m = scopeFlagsToMeta(s); (rule.meta as any).scope = m.scope; (rule.meta as any).targets = m.targets; persistRule(rule) }"
-                    @delete="async () => { await deleteDefinition(rule.id); regexRules = regexRules.filter((r) => r.id !== rule.id); delete regexScopes[rule.id] }"
-                />
-                <p v-if="templateRules.length" class="text-[12px] font-semibold text-ink/65 uppercase tracking-wide mb-2 mt-4">{{ $t("settings.regexTemplate") }}</p>
-                <RegexRuleEditor
-                    v-for="rule in templateRules"
-                    :key="rule.id"
-                    :rule="metaToRule(rule)"
-                    :scope="regexScopes[rule.id]?.scope ?? 'template'"
-                    :source-names="regexScopes[rule.id]?.template_names ?? []"
                     :pattern-error="regexScopes[rule.id]?.pattern_error ?? null"
                     :open="openRuleId === rule.id"
                     @toggle-open="openRuleId = openRuleId === rule.id ? null : rule.id"

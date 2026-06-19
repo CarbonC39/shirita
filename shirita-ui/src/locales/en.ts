@@ -200,7 +200,7 @@ const en = {
     keepRecent: 'Keep recent messages',
     summarizeInstruction: 'Summary instruction',
     notifications: 'Notifications',
-    notifyReplies: 'Notify when reply is done (tab unfocused)',
+    notifyReplies: 'Notify on reply (background tab)',
     contentWidth: 'Content width (px)',
     appearance: 'Appearance',
     messageStyle: 'Message style',
@@ -238,8 +238,6 @@ const en = {
     regexInvalid: 'invalid',
     regexSearch: 'Search rules',
     regexHideDisabled: 'Hide disabled',
-    regexGlobal: 'Global rules',
-    regexTemplate: 'Template-scoped rules',
     regexDelete: 'Delete rule',
   },
 }

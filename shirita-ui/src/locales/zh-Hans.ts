@@ -189,7 +189,7 @@ const zhHans: MessageSchema = {
     keepRecent: '保留最近消息数',
     summarizeInstruction: '总结指令',
     notifications: '通知',
-    notifyReplies: '回复完成时通知（标签页未聚焦时）',
+    notifyReplies: '后台回复时通知',
     contentWidth: '内容宽度 (px)',
     appearance: '外观',
     messageStyle: '消息样式',
@@ -227,8 +227,6 @@ const zhHans: MessageSchema = {
     regexInvalid: '失效',
     regexSearch: '搜索规则',
     regexHideDisabled: '隐藏已禁用',
-    regexGlobal: '全局规则',
-    regexTemplate: '模板级规则',
     regexDelete: '删除规则',
   },
 }

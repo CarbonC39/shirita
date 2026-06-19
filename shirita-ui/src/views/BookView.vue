@@ -46,7 +46,6 @@ const selectedTemplateId = ref<string | null>(null);
 const nodes = ref<PromptNode[]>([]);
 // A new template is composed as a local draft and only persisted on first
 // manual Save — so picking "+ New template" never litters the list.
-const isDraft = ref(false);
 const templateName = ref("");
 const renamingTemplate = ref(false);
 
@@ -429,7 +428,6 @@ async function selectTemplate(id: string) {
         startDraft();
         return;
     }
-    isDraft.value = false;
     selectedTemplateId.value = id || null;
     templateName.value = library.templates.find((t) => t.id === id)?.name ?? "";
     if (id) {
@@ -442,22 +440,11 @@ async function selectTemplate(id: string) {
         nodes.value = [];
     }
 }
-function startDraft() {
-    isDraft.value = true;
-    selectedTemplateId.value = null;
-    templateName.value = "New template";
-    nodes.value = [];
-}
-async function saveDraft() {
+async function startDraft() {
     try {
-        const t = await createTemplate(
-            templateName.value.trim() || "New template",
-        );
+        const t = await createTemplate("New template");
         await library.loadTemplates();
-        isDraft.value = false;
-        selectedTemplateId.value = t.id;
-        templateName.value = t.name;
-        nodes.value = await listNodes("template", t.id);
+        await selectTemplate(t.id);
     } catch (e) {
         error.value = (e as Error).message;
     }
@@ -498,7 +485,6 @@ async function delTemplate() {
             orphans.length > 0 && confirm(tr("book.deleteTemplateOrphans", orphans.length));
         await deleteTemplate(selectedTemplateId.value, deleteOrphans);
         selectedTemplateId.value = null;
-        isDraft.value = false;
         templateName.value = "";
         nodes.value = [];
         await library.loadTemplates();
@@ -861,7 +847,7 @@ async function duplicateDef() {
             <!-- template picker + ops -->
             <div class="flex items-center gap-2">
                 <select
-                    :value="isDraft ? '__new__' : (selectedTemplateId ?? '')"
+                    :value="selectedTemplateId ?? ''"
                     class="field flex-1"
                     @change="
                         selectTemplate(
@@ -948,22 +934,6 @@ async function duplicateDef() {
                 <button class="text-muted hover:text-ink" :disabled="importBusy" @click="pendingImportFile = null">{{ $t("common.dismiss") }}</button>
             </div>
 
-            <!-- draft: new template name + save -->
-            <div v-if="isDraft" class="flex items-center gap-2 mt-2 mb-2">
-                <input
-                    v-model="templateName"
-                    type="text"
-                    class="field flex-1"
-                    :placeholder="$t('book.templateNamePlaceholder')"
-                />
-                <button class="btn btn-primary shrink-0" @click="saveDraft">
-                    {{ $t("common.save") }}
-                </button>
-            </div>
-            <p v-if="isDraft" class="text-muted text-[13px] py-2">
-                {{ $t("book.draftHint") }}
-            </p>
-
             <!-- rename inline: replaces content during rename -->
             <div v-if="renamingTemplate && selectedTemplateId" class="flex items-center gap-2 mt-2 mb-2">
                 <input
@@ -978,7 +948,7 @@ async function duplicateDef() {
             </div>
 
             <!-- state indicator inline in the toolbar -->
-            <template v-if="selectedTemplateId && !isDraft && !renamingTemplate">
+            <template v-if="selectedTemplateId && !renamingTemplate">
                 <div class="flex items-center gap-2.5 mt-1.5 mb-1.5 justify-end">
                     <span class="text-[11.5px] text-muted tabular-nums"
                         >{{ $t("common.tokensEstimate", { tokens: formatTokens(templateTokens) }, templateTokens) }}</span
