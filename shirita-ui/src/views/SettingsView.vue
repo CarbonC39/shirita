@@ -393,7 +393,7 @@ async function handleTestConnection() {
 </script>
 
 <template>
-    <div class="mx-auto px-5 pt-8 pb-12" :style="{ maxWidth: ui.contentWidth + 'px' }">
+    <div class="px-5 pt-8 pb-12">
         <p v-if="loading" class="text-muted text-sm text-center pt-12">
             {{ $t("common.loading") }}
         </p>
