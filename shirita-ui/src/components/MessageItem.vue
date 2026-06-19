@@ -57,7 +57,8 @@ function cancelEdit() { editing.value = false }
   <div
     v-if="style === 'bubble'"
     data-test="msg-row"
-    :class="['flex gap-2.5 mb-4', isUser ? 'justify-end' : 'justify-start']"
+    :data-role="message.role"
+    :class="['app-message flex gap-2.5 mb-4', isUser ? 'justify-end' : 'justify-start']"
   >
     <div v-if="isAssistant" data-test="assistant-avatar" class="w-8 h-8 rounded-full bg-sky/40 shrink-0 mt-0.5 overflow-hidden">
       <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover rounded-full" alt="" />
@@ -128,7 +129,7 @@ function cancelEdit() { editing.value = false }
   </div>
 
   <!-- Flat mode -->
-  <div v-else data-test="msg-row" class="px-1 py-3.5 border-b border-line/70 last:border-b-0">
+  <div v-else data-test="msg-row" :data-role="message.role" class="app-message px-1 py-3.5 border-b border-line/70 last:border-b-0">
     <div class="flex items-center gap-2.5 mb-1.5">
       <div :class="['w-6 h-6 rounded-full shrink-0 overflow-hidden', isAssistant ? 'bg-sky/40' : 'bg-mauve/30']">
         <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover rounded-full" alt="" />

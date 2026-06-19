@@ -56,7 +56,7 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="border-t border-line bg-card px-4 py-3">
+  <div class="app-composer border-t border-line bg-card px-4 py-3">
     <div v-if="pending.length" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pb-2 flex flex-wrap gap-2">
       <div v-for="a in pending" :key="a.id" class="relative w-14 h-14 rounded-lg overflow-hidden border border-line">
         <img :src="a.url" class="w-full h-full object-cover" alt="" />
