@@ -157,6 +157,7 @@ const en = {
     roleSystem: 'System',
     roleUser: 'User',
     roleAssistant: 'Assistant',
+    unnamed: 'Untitled',
   },
   variables: {
     heading: 'Variables',

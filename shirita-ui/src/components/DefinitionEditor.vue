@@ -87,8 +87,11 @@ const chipTint: Record<string, string> = {
   first_message: 'bg-line/60 border-line',
 }
 
+const search = ref('')
+const renaming = ref(false)
+
 const matches = computed(() => {
-  const q = props.definition.name.trim().toLowerCase()
+  const q = search.value.trim().toLowerCase()
   const list = q ? props.allDefinitions.filter((d) => d.name.toLowerCase().includes(q)) : props.allDefinitions
   return list.slice(0, 6)
 })
@@ -107,18 +110,46 @@ function startNew() {
   <div>
     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
 
-    <!-- merged search + name combobox + ops -->
+    <!-- name display + rename button -->
+    <div class="flex items-center gap-2 mb-2 px-0.5">
+      <template v-if="!renaming">
+        <span class="flex-1 text-[14px] text-ink font-medium truncate">{{ definition.name || $t('definition.unnamed') }}</span>
+        <button
+          v-if="definition.id"
+          data-test="def-rename"
+          class="text-[12px] text-muted hover:text-ink shrink-0 px-2 py-0.5 rounded-md border border-line/60 hover:border-muted/60 transition-colors"
+          @click="renaming = true"
+        >
+          {{ $t('common.rename') }}
+        </button>
+      </template>
+      <template v-else>
+        <input
+          :value="definition.name"
+          type="text"
+          data-test="def-name-input"
+          class="field flex-1"
+          placeholder="Name"
+          @input="emit('update:name', ($event.target as HTMLInputElement).value)"
+          @blur="renaming = false"
+          @keydown.enter="renaming = false"
+        />
+        <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
+      </template>
+    </div>
+
+    <!-- search + definition picker -->
     <div class="flex items-center gap-2 mb-3">
       <div class="flex-1 relative" @focusout="open = false">
         <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-card px-3 py-2.5 focus-within:border-primary/50">
           <Search :size="16" class="text-muted shrink-0" />
           <input
-            :value="definition.name"
+            v-model="search"
             type="text"
+            data-test="def-search"
             :placeholder="$t('definition.searchPlaceholder')"
             class="flex-1 bg-transparent outline-none text-[14px] text-ink placeholder:text-muted/60"
             @focus="open = true"
-            @input="emit('update:name', ($event.target as HTMLInputElement).value); open = true"
           />
           <button class="text-muted shrink-0" tabindex="-1" @mousedown.prevent="open = !open"><ChevronDown :size="16" /></button>
         </div>
