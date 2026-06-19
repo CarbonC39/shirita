@@ -118,7 +118,7 @@ async fn assemble_request(
 
     // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
     let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
-    let plan = crate::assembly::assemble_from_nodes(
+    let mut plan = crate::assembly::assemble_from_nodes(
         &nodes,
         &defs,
         &local,
@@ -126,6 +126,21 @@ async fn assemble_request(
         &recent,
         &mut || rand::Rng::gen::<f64>(&mut rng),
     );
+
+    // HTML-card patching: once the conversation holds a rendered card (a full
+    // HTML doc, or a prior reply carrying edit blocks), tell the model to edit
+    // it with compact SEARCH/REPLACE blocks instead of resending the whole
+    // document. Injected after history so it is the model's freshest guidance.
+    let has_card = context
+        .iter()
+        .any(|m| crate::html_patch::is_html_document(&m.content) || crate::html_patch::has_patch_blocks(&m.content));
+    if has_card {
+        plan.segments.push(crate::assembly::PromptSegment {
+            placement: crate::assembly::Placement::AfterHistory,
+            content: crate::html_patch::INSTRUCTION.to_string(),
+            source: "html_patch".into(),
+        });
+    }
 
     // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
     let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
@@ -156,6 +171,41 @@ async fn assemble_request(
 async fn chat_message_from(storage: &dyn Storage, assets_dir: &str, m: &Message) -> ChatMessage {
     let images = resolve_images(storage, assets_dir, &m.attachments).await;
     ChatMessage { role: m.role, content: m.raw_content.clone(), images }
+}
+
+/// The most recent rendered HTML "card" in this branch, if any — the base a new
+/// reply's SEARCH/REPLACE patch edits against. Prefers the reconstructed
+/// `display_content` (already a full doc for a prior patch turn), falling back
+/// to `raw_content` (the originally-emitted full document).
+fn latest_html_card(path: &[&Message]) -> Option<String> {
+    path.iter().rev().find_map(|m| {
+        if let Some(dc) = m.display_content.as_deref() {
+            if crate::html_patch::is_html_document(dc) {
+                return Some(dc.to_string());
+            }
+        }
+        crate::html_patch::is_html_document(&m.raw_content).then(|| m.raw_content.clone())
+    })
+}
+
+/// Compute an assistant message's `display_content` from its raw reply. An HTML
+/// card patch (SEARCH/REPLACE blocks against the branch's latest card) is
+/// reconstructed into the full document; otherwise the regular regex-rule /
+/// state-tag-stripping path applies. `cleaned` is `full` with `<state_update>`
+/// tags already stripped.
+fn resolve_display(
+    path: &[&Message],
+    full: &str,
+    cleaned: &str,
+    regex_rules: &[Definition],
+) -> Option<String> {
+    if let Some(html) = crate::html_patch::reconstruct(latest_html_card(path).as_deref(), cleaned) {
+        return Some(html);
+    }
+    match crate::assembly::apply_regex_rules(cleaned, regex_rules) {
+        Some(s) => Some(s),
+        None => (cleaned != full).then(|| cleaned.to_string()),
+    }
 }
 
 /// 流式发送过程对外暴露的事件。
@@ -258,10 +308,7 @@ pub fn send_message(
         let cleaned = strip_state_tags(&full);
         let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
         assistant.snapshot_state = new_snapshot;
-        assistant.display_content = match crate::assembly::apply_regex_rules(&cleaned, &regex_rules) {
-            Some(s) => Some(s),
-            None => if cleaned != full { Some(cleaned) } else { None },
-        };
+        assistant.display_content = resolve_display(&path, &full, &cleaned, &regex_rules);
         if let Err(e) = storage.create_message(&assistant).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -345,10 +392,7 @@ pub fn regenerate(
         let cleaned = strip_state_tags(&full);
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
         sibling.snapshot_state = new_snapshot;
-        sibling.display_content = match crate::assembly::apply_regex_rules(&cleaned, &regex_rules) {
-            Some(s) => Some(s),
-            None => if cleaned != full { Some(cleaned) } else { None },
-        };
+        sibling.display_content = resolve_display(&path, &full, &cleaned, &regex_rules);
         if let Err(e) = storage.create_message(&sibling).await {
             yield SendEvent::Error(e.to_string());
             return;
@@ -614,6 +658,52 @@ mod tests {
         let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
         assert_eq!(assistant.raw_content, "helloSTOP");
         assert_eq!(assistant.display_content.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn html_card_patch_reconstructs_display_and_injects_instruction() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("t"); // tree-less: history defaults on
+        storage.create_session(&session).await.unwrap();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        // Turn 1: the model emits a full HTML card. No card existed yet, so the
+        // patch instruction must NOT be injected this turn.
+        let card = "<!DOCTYPE html>\n<html><body><p>HP: 100</p></body></html>";
+        let seen1 = Arc::new(Mutex::new(None));
+        let p1: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen1.clone(), reply: card.into() });
+        let s1 = send_message(storage.clone(), p1, counter.clone(), "m".into(), session.id.clone(), "draw".into(), "".into(), Vec::new());
+        futures::pin_mut!(s1);
+        while s1.next().await.is_some() {}
+        let req1 = seen1.lock().unwrap().clone().unwrap();
+        assert!(
+            !req1.messages.iter().any(|m| m.content.contains("<<<<<<< SEARCH")),
+            "no patch instruction before any card exists",
+        );
+
+        // Turn 2: a card is now in history → the instruction is injected, and a
+        // SEARCH/REPLACE reply is reconstructed into a full document for display
+        // while raw_content keeps the compact patch.
+        let patch = "<<<<<<< SEARCH\n<p>HP: 100</p>\n=======\n<p>HP: 80</p>\n>>>>>>> REPLACE";
+        let seen2 = Arc::new(Mutex::new(None));
+        let p2: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen2.clone(), reply: patch.into() });
+        let s2 = send_message(storage.clone(), p2, counter, "m".into(), session.id.clone(), "hit".into(), "".into(), Vec::new());
+        futures::pin_mut!(s2);
+        while s2.next().await.is_some() {}
+
+        let req2 = seen2.lock().unwrap().clone().unwrap();
+        assert!(
+            req2.messages.iter().any(|m| m.role == Role::System && m.content.contains("<<<<<<< SEARCH")),
+            "patch instruction injected once a card is present",
+        );
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let patched = msgs.iter().filter(|m| m.role == Role::Assistant).last().unwrap();
+        assert_eq!(patched.raw_content, patch, "raw_content keeps the compact patch");
+        let display = patched.display_content.as_deref().unwrap();
+        assert!(display.starts_with("<!DOCTYPE html>"), "display is the full reconstructed doc");
+        assert!(display.contains("<p>HP: 80</p>"));
+        assert!(!display.contains("HP: 100"));
     }
 
     #[tokio::test]
