@@ -34,43 +34,41 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 </script>
 
 <template>
-  <div data-app="shell" class="h-full flex flex-col">
+  <div data-app="shell" class="h-full">
     <!-- app-wide background image + scrim (full viewport, fixed) -->
     <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="bgStyle" />
     <div class="fixed inset-0 -z-10 bg-surface/30" />
 
-    <!-- nav header: full width, transparent over the background -->
-    <header>
-      <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
-        <div class="flex items-center gap-2 min-w-[120px]">
-          <router-link to="/" class="w-7 h-7 rounded-lg bg-primary text-white grid place-items-center font-bold text-sm shrink-0">
-            S
-          </router-link>
-          <template v-for="(c, i) in crumbs" :key="i">
-            <ChevronRight :size="13" class="text-muted/50 shrink-0" />
-            <router-link v-if="c.to" :to="c.to" class="text-[13px] text-muted hover:text-ink whitespace-nowrap">{{ $t(c.label) }}</router-link>
-            <span v-else class="text-[13px] text-ink whitespace-nowrap">{{ $t(c.label) }}</span>
-          </template>
+    <!-- centered app panel: header + content together over the background -->
+    <div class="mx-auto h-full flex flex-col bg-surface/85" :style="{ maxWidth: ui.contentWidth + 'px' }">
+      <header>
+        <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
+          <div class="flex items-center gap-2 min-w-[120px]">
+            <router-link to="/" class="w-7 h-7 rounded-lg bg-primary text-white grid place-items-center font-bold text-sm shrink-0">
+              S
+            </router-link>
+            <template v-for="(c, i) in crumbs" :key="i">
+              <ChevronRight :size="13" class="text-muted/50 shrink-0" />
+              <router-link v-if="c.to" :to="c.to" class="text-[13px] text-muted hover:text-ink whitespace-nowrap">{{ $t(c.label) }}</router-link>
+              <span v-else class="text-[13px] text-ink whitespace-nowrap">{{ $t(c.label) }}</span>
+            </template>
+          </div>
+          <nav class="flex items-center gap-8">
+            <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
+              <MessageCircle :size="22" :stroke-width="1.8" />
+            </router-link>
+            <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
+              <BookOpen :size="22" :stroke-width="1.8" />
+            </router-link>
+            <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
+              <Settings :size="22" :stroke-width="1.8" />
+            </router-link>
+          </nav>
+          <div class="min-w-[120px]" />
         </div>
-        <nav class="flex items-center gap-8">
-          <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
-            <MessageCircle :size="22" :stroke-width="1.8" />
-          </router-link>
-          <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
-            <BookOpen :size="22" :stroke-width="1.8" />
-          </router-link>
-          <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
-            <Settings :size="22" :stroke-width="1.8" />
-          </router-link>
-        </nav>
-        <div class="min-w-[120px]" />
-      </div>
-      <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
-    </header>
-
-    <!-- content panel: centered, semi-transparent, width follows contentWidth -->
-    <div class="flex-1 min-h-0 mx-auto w-full bg-surface/85" :style="{ maxWidth: ui.contentWidth + 'px' }">
-      <main class="h-full overflow-y-auto">
+        <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
+      </header>
+      <main class="flex-1 min-h-0 overflow-y-auto">
         <slot />
       </main>
     </div>

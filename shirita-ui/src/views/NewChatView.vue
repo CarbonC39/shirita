@@ -17,7 +17,7 @@ function proceed() {
 </script>
 
 <template>
-  <div class="max-w-[380px] mx-auto px-5 pt-8">
+  <div class="px-5 pt-8">
     <div class="flex flex-col items-center gap-5">
       <AvatarPicker @select="avatar = $event" />
       <div class="w-full">

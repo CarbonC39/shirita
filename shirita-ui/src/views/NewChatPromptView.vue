@@ -119,7 +119,7 @@ async function createChat() {
 </script>
 
 <template>
-  <div class="max-w-[480px] mx-auto px-5 pt-6 pb-12">
+  <div class="px-5 pt-6 pb-12">
     <h2 class="text-lg font-semibold mb-1">{{ sessionName }}</h2>
     <p class="text-[13px] text-muted mb-6">{{ $t('prompt.subtitle') }}</p>
     <div class="mb-4">
