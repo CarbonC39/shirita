@@ -48,6 +48,7 @@ const nodes = ref<PromptNode[]>([]);
 // manual Save — so picking "+ New template" never litters the list.
 const templateName = ref("");
 const renamingTemplate = ref(false);
+const creatingTemplate = ref(false);
 const templateNameInput = ref<HTMLInputElement | null>(null);
 
 // Rough token total for the template: sum the content of every enabled ref
@@ -441,19 +442,25 @@ async function selectTemplate(id: string) {
         nodes.value = [];
     }
 }
-async function startDraft() {
+function startDraft() {
+    creatingTemplate.value = true;
+    templateName.value = "";
+    nextTick(() => templateNameInput.value?.focus());
+}
+async function finishCreateTemplate() {
+    const name = templateName.value.trim() || "New template";
+    creatingTemplate.value = false;
     try {
-        const t = await createTemplate("New template");
+        const t = await createTemplate(name);
         await library.loadTemplates();
         await selectTemplate(t.id);
-        templateName.value = t.name;
-        renamingTemplate.value = true;
-        await nextTick();
-        templateNameInput.value?.focus();
-        templateNameInput.value?.select();
     } catch (e) {
         error.value = (e as Error).message;
     }
+}
+function cancelCreateTemplate() {
+    creatingTemplate.value = false;
+    templateName.value = "";
 }
 async function renameTemplate() {
     if (!selectedTemplateId.value) return;
@@ -850,27 +857,32 @@ async function duplicateDef() {
             <div v-if="ui.activeChatId" class="h-px bg-line my-6" />
 
             <section data-test="book-global">
-            <!-- template picker + ops -->
+            <!-- template picker / new-template input + ops -->
             <div class="flex items-center gap-2">
-                <select
-                    :value="selectedTemplateId ?? ''"
-                    class="field flex-1"
-                    @change="
-                        selectTemplate(
-                            ($event.target as HTMLSelectElement).value,
-                        )
-                    "
-                >
-                    <option value="" disabled>{{ $t("book.selectTemplate") }}</option>
-                    <option value="__new__">{{ $t("book.newTemplate") }}</option>
-                    <option
-                        v-for="t in library.templates"
-                        :key="t.id"
-                        :value="t.id"
+                <template v-if="creatingTemplate">
+                    <input
+                        v-model="templateName"
+                        type="text"
+                        ref="templateNameInput"
+                        class="field flex-1"
+                        :placeholder="$t('book.templateNamePlaceholder')"
+                        @keydown.enter="finishCreateTemplate"
+                        @keydown.escape="cancelCreateTemplate"
+                    />
+                    <button class="btn btn-primary shrink-0" @click="finishCreateTemplate">{{ $t("common.save") }}</button>
+                    <button class="text-muted hover:text-ink shrink-0" @click="cancelCreateTemplate">{{ $t("common.cancel") }}</button>
+                </template>
+                <template v-else>
+                    <select
+                        :value="selectedTemplateId ?? ''"
+                        class="field flex-1"
+                        @change="selectTemplate(($event.target as HTMLSelectElement).value)"
                     >
-                        {{ t.name }}
-                    </option>
-                </select>
+                        <option value="" disabled>{{ $t("book.selectTemplate") }}</option>
+                        <option value="__new__">{{ $t("book.newTemplate") }}</option>
+                        <option v-for="t in library.templates" :key="t.id" :value="t.id">{{ t.name }}</option>
+                    </select>
+                </template>
                 <div class="flex items-center">
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
