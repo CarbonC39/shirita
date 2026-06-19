@@ -55,6 +55,29 @@ pub fn schema_initials(schema: &[VarDecl]) -> Map<String, Value> {
     schema.iter().map(|d| (d.name.clone(), d.initial.clone())).collect()
 }
 
+/// 当前变量清单文本（仅非系统变量，取当前值否则初值）。无用户变量时返回 None，
+/// 这同时作为 state_update 协议的注入触发条件。
+pub fn variables_block(schema: &[VarDecl], state: &Value) -> Option<String> {
+    let lines: Vec<String> = schema
+        .iter()
+        .filter(|d| d.scope.as_deref() != Some("system"))
+        .map(|d| {
+            let val = state.get(&d.name).cloned().unwrap_or_else(|| d.initial.clone());
+            let ty = match d.var_type {
+                VarType::Number => "number",
+                VarType::Bool => "bool",
+                VarType::String => "string",
+                VarType::List => "list",
+            };
+            format!("- {} ({}) = {}", d.name, ty, val)
+        })
+        .collect();
+    if lines.is_empty() {
+        return None;
+    }
+    Some(format!("Current variables:\n{}", lines.join("\n")))
+}
+
 /// 读侧唯一真相：schema 初值 < seed(session.current_state) < 分支叶子快照（后者覆盖前者）。
 /// 保证新增变量在旧快照分支上回填初值，旧快照对 schema 增长免疫。
 pub fn effective_state(schema: &[VarDecl], seed: &Value, leaf_snapshot: &Value) -> Value {
@@ -245,6 +268,24 @@ mod tests {
             VarDecl { name: "gold".into(), var_type: VarType::Number, initial: json!(0), scope: None },
             VarDecl { name: "reputation".into(), var_type: VarType::Number, initial: json!(50), scope: None },
         ]
+    }
+
+    #[test]
+    fn variables_block_lists_only_user_vars() {
+        let schema = vec![
+            VarDecl { name: "$avatar".into(), var_type: VarType::String, initial: Value::String("".into()), scope: Some("system".into()) },
+            VarDecl { name: "hp".into(), var_type: VarType::Number, initial: json!(100), scope: Some("template".into()) },
+        ];
+        let state = json!({ "hp": 80 });
+        let block = variables_block(&schema, &state).unwrap();
+        assert!(block.contains("- hp (number) = 80"));
+        assert!(!block.contains("$avatar")); // system vars excluded
+    }
+
+    #[test]
+    fn variables_block_is_none_without_user_vars() {
+        let schema = system_variables(); // only $-vars
+        assert_eq!(variables_block(&schema, &json!({})), None);
     }
 
     #[test]
