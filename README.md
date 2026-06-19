@@ -1,62 +1,192 @@
 # Shirita
 
-本地优先的 AI 对话引擎（Rust 后端 + Vue 前端），Web 与桌面（Tauri）共享同一套
-`shirita-core`。
+**A local-first, privacy-focused AI chat engine.** Rust backend + Vue frontend, sharing the same `shirita-core` across web and desktop (Tauri). Think self-hosted SillyTavern, designed for roleplay, creative writing, and in-depth conversation.
 
-- `shirita-core` — 领域模型、存储（SQLite/sqlx）、上下文组装、对话、预算/总结、provider 适配。
-- `shirita-web` — Axum REST + SSE + Bearer 鉴权适配层。
-- `shirita-ui` — Vue 3 + Vite 前端（仅视图层）。
-- `shirita-tauri` — Tauri v2 桌面外壳，进程内嵌 `shirita-web`。
+- **Self-contained** — one binary, SQLite storage, offline-capable with local models
+- **No telemetry, no cloud, no account required**
+- **Dual target** — web (standalone Axum server) and desktop (Tauri + embedded Axum)
+- **Privacy-first** — API keys stay on your machine, all data local
 
-## Web
+---
 
-```bash
-# 前端
-npm --prefix shirita-ui run dev
-# 后端（需要 TOKEN_SECRET）
-TOKEN_SECRET=dev cargo run -p shirita-web
+## Architecture
+
+```
+shirita/
+├── shirita-core/       Domain models, storage (SQLite/sqlx), prompt assembly,
+│                       context engine, auto-summarization, regex rules,
+│                       provider adapters, variable/state sandbox
+├── shirita-web/        Axum REST + SSE layer (bearer auth, CORS, multipart uploads)
+├── shirita-ui/         Vue 3 + Vite + Pinia + Tailwind v4 (view layer only)
+└── shirita-tauri/      Tauri v2 desktop shell, embeds shirita-web in-process
 ```
 
-## 桌面端（Tauri）
+### Design principles
 
-Shirita 桌面版复用同一套 `shirita-core` + `shirita-web`：Tauri 进程内嵌 Axum
-服务（绑 `127.0.0.1` 随机端口），前端经注入的运行时配置走本地 HTTP + SSE。
+| Principle | How |
+|-----------|-----|
+| **Everything is a definition** | Characters, prompts, world entries, regex rules, first messages — unified as `Definition` with a type tag |
+| **Copy-on-write** | Editing a definition in a chat doesn't touch the global library; diffs are stored per-session |
+| **Backend owns context engineering** | The frontend never counts tokens, assembles prompts, or parses tool calls |
+| **Three trait boundaries** | `Storage`, `ModelProvider`, `TokenCounter` — core is testable without I/O |
+| **Safe rendering** | No `v-html` — dynamic HTML cards use template engines; state updates go through a sandbox |
 
-### 本机依赖（Linux / Debian 13）
+---
+
+## Features
+
+- **Prompt tree** — hierarchical system prompt builder with folders, containers, and triggers (keyword / random / constant). Each node can reference any definition type
+- **Regex rules** — scoped (global or template-level), filtered by target (`ai_output` / `user_input`) and phase (`display` / `prompt`); supports lookaround and backreferences via `fancy-regex`
+- **Variables & state** — declare variables with type and initial value on templates; update them mid-conversation via `<state_update>` tags or future native tool calls; per-message snapshots for branching
+- **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
+- **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation
+- **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, Shirita-native template bundles (.json) with dedup conflict resolution (skip / overwrite / duplicate)
+- **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars
+- **i18n** — English, 简体中文, 繁體中文, 日本語
+- **Custom CSS** — injected from a live-editable textarea with stable hooks (`.app-chat-column`, `.app-message[data-role]`, `.app-composer`, `[data-app=shell]`); cached in localStorage to prevent FOUC
+- **Provider isolation** — each provider source (OpenAI, Anthropic, Ollama, Google, etc.) keeps its own API key, base URL, and model selection — switching never clobbers the others
+
+---
+
+## Quick start
+
+### Prerequisites
+
+| Tool | Version | Notes |
+|------|---------|-------|
+| Rust | 1.80+ | `rustup update` |
+| Node.js | 20+ | for the frontend |
+| npm | 10+ | ships with Node |
+
+### Web (development)
+
+```bash
+# Terminal 1 — backend
+TOKEN_SECRET=dev cargo run -p shirita-web
+
+# Terminal 2 — frontend
+npm --prefix shirita-ui run dev
+```
+
+Then open `http://localhost:5173`. The default API secret is `dev`.
+
+### Desktop (Tauri)
+
+**Linux (Debian 13 / Bookworm):**
 
 ```bash
 sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev \
   librsvg2-dev libayatana-appindicator3-dev patchelf
 cargo install tauri-cli --version "^2" --locked
+
+# Dev mode (starts Vite + desktop window)
+cargo tauri dev
+
+# Production build
+npm --prefix shirita-ui run build
+cargo tauri build --bundles deb
 ```
 
-### 开发
+**macOS / Windows:** Install Tauri prerequisites per the [Tauri v2 guide](https://v2.tauri.app/start/prerequisites/), then `cargo tauri dev`.
+
+> **Note:** Production build doesn't use `beforeBuildCommand` — CWD differs between local and CI. Always `npm run build` first, then `cargo tauri build`. `beforeDevCommand` is kept for `tauri dev`.
+
+---
+
+## Provider configuration
+
+Set the active provider source and its API key/model in Settings → Provider. Each source is isolated — switching from OpenAI to Anthropic preserves both configurations.
+
+### Environment fallback (desktop, when no settings are configured)
+
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `PROVIDER` | *(empty, =OpenAI compat)* | `anthropic`, `ollama`, or empty |
+| `OPENAI_API_KEY` | — | API key (also used for Anthropic) |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL |
+| `OPENAI_MODEL` | `gpt-4o` | Default model |
+| `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic base (only when `PROVIDER=anthropic`) |
+| `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama base (only when `PROVIDER=ollama`) |
+
+When both env and UI settings are configured, the UI settings win.
+
+---
+
+## Project layout
+
+| Path | Purpose |
+|------|---------|
+| `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters |
+| `shirita-core/migrations/` | SQLite schema migrations (0016 = current) |
+| `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, etc.) |
+| `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, NewChatPrompt) |
+| `shirita-ui/src/components/` | Vue shared components (MessageItem, Composer, AssetPicker, PromptTree, etc.) |
+| `shirita-ui/src/stores/` | Pinia stores (chat, settings, ui, media, library) |
+| `shirita-ui/src/utils/` | Frontend utilities (tree, regex, tokens, notify, providerKeys, etc.) |
+| `shirita-tauri/src/` | Tauri bootstrap (embedded Axum server, webview window, graceful shutdown) |
+
+---
+
+## Building for distribution
+
+### Web (Docker)
+
+*Pending — roadmap milestone M9.*
+
+### Desktop CI packages
+
+`.deb` / `.AppImage` / `.dmg` / `.msi` are built via GitHub Actions on tag push or `workflow_dispatch`:
+
+```yaml
+.github/workflows/desktop.yml
+```
+
+Artifacts are **unsigned** — macOS requires right-click → Open, Windows shows SmartScreen warnings.
+
+---
+
+## Development
+
+### Running tests
 
 ```bash
-cargo tauri dev          # 自动起 vite dev + 桌面窗口
+# Backend (Rust)
+cargo test --workspace
+
+# Frontend (Vue)
+npm --prefix shirita-ui run test        # vitest
+npm --prefix shirita-ui run typecheck   # vue-tsc
+npm --prefix shirita-ui run build       # vite build
 ```
 
-### 构建安装包
+### Code conventions
 
-```bash
-npm --prefix shirita-ui run build      # 先产出前端 dist（生产构建不走 beforeBuildCommand）
-cargo tauri build --bundles deb        # 本机 Linux（.deb，无需 FUSE）
-```
+- Comments and commit messages in **English**
+- TDD: failing test → implement → passing test → commit
+- No `v-html` anywhere in the frontend
+- Each migration file is a numbered `.sql` in `shirita-core/migrations/`
 
-> 生产构建**不配** `beforeBuildCommand`：其 CWD 在本机（配置目录）与 CI 的
-> `tauri-action`（仓库根）下不一致，相对路径无法两端通吃。CI 在 `tauri build` 前已显式
-> `npm run build`，本机手动先构建前端即可。`beforeDevCommand` 仅 `tauri dev` 用，保留。
+---
 
-> AppImage（`--bundles appimage`）依赖 `linuxdeploy`：需要 FUSE，且其 GTK 插件在
-> Debian trixie 上对 `librsvg-2.0` 存在 `libdir` 兼容问题。本机若无 FUSE/遇该问题，
-> 用 `.deb` 即可；`.AppImage` 由 CI（ubuntu-latest）产出。
+## License
 
-Windows(.msi) / macOS(.dmg) / Linux(.AppImage) 由 GitHub Actions
-（`.github/workflows/desktop.yml`，`workflow_dispatch` 或 `v*` tag 触发）构建，产物为
-**未签名** 安装包——macOS 需右键「打开」绕过 Gatekeeper，Windows 会有 SmartScreen 警告。
+[AGPL-3.0-only](LICENSE) — the strongest copyleft license. If you modify and distribute this software, you must make your changes available under the same license, including network use (the "ASP loophole" is closed).
 
-### provider 配置（桌面）
+---
 
-当前桌面版仍读环境变量：`PROVIDER`（`anthropic` / `ollama` / 留空 = OpenAI 兼容）、
-`OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL` 等。未设 key 时使用离线 Echo。
-应用内 provider 配置为后续小项。
+## Roadmap
+
+| Milestone | Status |
+|-----------|--------|
+| M0 — Foundation (workspace, storage, auth) | ✅ Done |
+| M1 — Minimal chat (send/receive, SSE) | ✅ Done |
+| M2 — Definition system & assembly | ✅ Done |
+| M3 — Frontend (Vue 3) | ✅ Done |
+| M4 — Message tree & copy-on-write | ✅ Done |
+| M5 — Variables & state sandbox | ✅ Done |
+| M6 — Context engineering (summarize, budget) | ✅ Done |
+| M7 — Import / export (ST cards, bundles) | ✅ Done |
+| M8 — Tauri desktop shell | ✅ Done |
+| M9 — Deploy (Docker, CI, release) | 🚧 Pending |
+
+See `docs/superpowers/specs/` for milestone design documents and `docs/superpowers/plans/` for implementation plans.
