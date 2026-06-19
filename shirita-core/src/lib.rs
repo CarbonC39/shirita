@@ -47,7 +47,7 @@ pub use pngcard::read_card_json;
 pub use portable::{
     export_definition, export_template, parse_portable, PortableDef, PortableDoc, PortableNode,
 };
-pub use seed::ensure_default_template;
+pub use seed::{ensure_builtin_definitions, ensure_default_template};
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,
     strip_state_tags, system_variables, variables_block, Update, VarDecl, VarType,
