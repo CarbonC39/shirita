@@ -161,48 +161,70 @@ pub fn is_valid_regex(pattern: &str) -> bool {
     fancy_regex::Regex::new(pattern).is_ok()
 }
 
-/// 依挂载顺序对文本应用 regex_rule（meta: {pattern, replacement}）。无规则返回 None。
-/// 运行期宽容：非法 pattern 仅 warn 并跳过，绝不中断生成（校验在创作期做）。
-pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
-    if rules.is_empty() {
-        return None;
-    }
+/// regex_rule 作用对象（哪一侧消息）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegexTarget {
+    AiOutput,
+    UserInput,
+}
+/// regex_rule 作用阶段（改显示 / 改发给模型的内容）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegexPhase {
+    Display,
+    Prompt,
+}
+
+/// 依挂载顺序对文本应用适用的 regex_rule。按 (target, phase) 过滤：
+/// `disabled` 跳过；phase 须匹配 `scope`（display→{display,both}，prompt→{prompt,both}）；
+/// target 须在 `targets` 内（空/缺省 = 广义）。返回 None 表示没有任何适用规则真正执行。
+/// 运行期宽容：非法 pattern 仅 warn 跳过（校验在创作期做）。
+pub fn apply_regex_rules_for(
+    text: &str,
+    rules: &[Definition],
+    target: RegexTarget,
+    phase: RegexPhase,
+) -> Option<String> {
+    let target_key = match target {
+        RegexTarget::AiOutput => "ai_output",
+        RegexTarget::UserInput => "user_input",
+    };
     let mut out = text.to_string();
+    let mut ran = false;
     for rule in rules {
-        // Honor ST-derived switches: disabled rules are skipped; prompt-only
-        // rules don't apply to display output (prompt-side application is a
-        // later slice). Default scope is "display".
         if rule.meta.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
             continue;
         }
         let scope = rule.meta.get("scope").and_then(|v| v.as_str()).unwrap_or("display");
-        if scope == "prompt" {
+        let phase_ok = match phase {
+            RegexPhase::Display => scope == "display" || scope == "both",
+            RegexPhase::Prompt => scope == "prompt" || scope == "both",
+        };
+        if !phase_ok {
             continue;
         }
-        // This is the AI-output (display) path: honor `targets`. A rule that
-        // explicitly lists targets but not "ai_output" doesn't apply here.
-        // Missing/empty targets stay broad (apply), preserving older rules.
         if let Some(targets) = rule.meta.get("targets").and_then(|v| v.as_array()) {
-            if !targets.is_empty()
-                && !targets.iter().any(|t| t.as_str() == Some("ai_output"))
-            {
+            if !targets.is_empty() && !targets.iter().any(|t| t.as_str() == Some(target_key)) {
                 continue;
             }
         }
         let pattern = rule.meta.get("pattern").and_then(|v| v.as_str());
-        let replacement = rule
-            .meta
-            .get("replacement")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let replacement = rule.meta.get("replacement").and_then(|v| v.as_str()).unwrap_or("");
         if let Some(p) = pattern {
             match fancy_regex::Regex::new(p) {
-                Ok(re) => out = re.replace_all(&out, replacement).into_owned(),
+                Ok(re) => {
+                    out = re.replace_all(&out, replacement).into_owned();
+                    ran = true;
+                }
                 Err(e) => tracing::warn!(rule = %rule.id, error = %e, "invalid regex_rule pattern, skipping"),
             }
         }
     }
-    Some(out)
+    ran.then_some(out)
+}
+
+/// AI 输出、显示侧的便捷封装（沿用旧调用点的语义）。
+pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
+    apply_regex_rules_for(text, rules, RegexTarget::AiOutput, RegexPhase::Display)
 }
 
 /// 段落落点：历史消息节点之前 / 之后。
@@ -631,6 +653,27 @@ mod tests {
         let mut r = def("regex_rule", "r", "");
         r.meta = json!({ "pattern": r"(?<=\d)px", "replacement": "" });
         assert_eq!(apply_regex_rules("12px and apx", &[r]).as_deref(), Some("12 and apx"));
+    }
+
+    #[test]
+    fn apply_for_filters_by_phase_and_target() {
+        let mut ai_disp = def("regex_rule", "ai_disp", "");
+        ai_disp.meta = json!({ "pattern": "X", "replacement": "", "scope": "display", "targets": ["ai_output"] });
+        let mut user_prompt = def("regex_rule", "user_prompt", "");
+        user_prompt.meta = json!({ "pattern": "Y", "replacement": "", "scope": "prompt", "targets": ["user_input"] });
+        let rules = vec![ai_disp, user_prompt];
+
+        assert_eq!(apply_regex_rules_for("XY", &rules, RegexTarget::AiOutput, RegexPhase::Display).as_deref(), Some("Y"));
+        assert_eq!(apply_regex_rules_for("XY", &rules, RegexTarget::UserInput, RegexPhase::Prompt).as_deref(), Some("X"));
+        assert_eq!(apply_regex_rules_for("XY", &rules, RegexTarget::UserInput, RegexPhase::Display), None);
+    }
+
+    #[test]
+    fn apply_for_both_scope_covers_display_and_prompt() {
+        let mut r = def("regex_rule", "r", "");
+        r.meta = json!({ "pattern": "Z", "replacement": "", "scope": "both" }); // empty targets = broad
+        assert_eq!(apply_regex_rules_for("Z", &[r.clone()], RegexTarget::AiOutput, RegexPhase::Display).as_deref(), Some(""));
+        assert_eq!(apply_regex_rules_for("Z", &[r], RegexTarget::UserInput, RegexPhase::Prompt).as_deref(), Some(""));
     }
 
     fn ent(id: &str, mode: TriggerMode, keys: &[&str], content: &str) -> Entry {
