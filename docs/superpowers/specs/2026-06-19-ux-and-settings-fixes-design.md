@@ -30,10 +30,17 @@ re-tagged. Avatars get a square crop step on upload.
 - Frontend: `media.ts` keys cached lists by kind (or filters client-side);
   `AssetPicker` takes a `kind` prop and only shows/uploads that kind. Background
   picker in Settings → `kind="background"`; `AvatarPicker` → `kind="avatar"`.
-- Cropping: a lightweight client-side square cropper (canvas; zoom + drag)
-  shown when uploading into the **avatar** library. Produces a square image
-  (e.g. 512×512) before upload. Background uploads skip cropping. No new heavy
-  dependency — a small in-house cropper component (`<ImageCropper>`).
+- Cropping: a lightweight client-side square cropper (canvas; zoom + drag),
+  a small in-house `<ImageCropper>` (no new heavy dependency), producing a
+  square image (e.g. 512×512). Background uploads skip cropping.
+- **Cropping is a library action, not an upload-only step.** It runs on avatar
+  upload *and* is available on any existing avatar asset (a "crop"/"re-frame"
+  action in the avatar library). This covers the path the frontend cropper can't
+  reach: backend PNG character-card import
+  (`import_export.rs::save_png_asset`) stores the full PNG untouched and tags it
+  `avatar`; the user can re-frame it afterward. Display already uses
+  `object-cover`, so uncropped avatars still render correctly meanwhile. No
+  server-side image processing dependency is added.
 
 ---
 
@@ -90,10 +97,17 @@ no stable selectors.
 easy to write.
 
 **Approach.**
-- A `useCustomCss()` composable (called from `App.vue`) maintains a single
-  `<style id="user-custom-css">` element whose text content tracks the
-  `custom_css` setting. It watches the settings store's reactive `data.custom_css`
-  (already a Pinia ref) and updates the element on load and on every edit.
+- **Avoid FOUC.** Custom CSS comes from server settings (async), so injecting it
+  only in `onMounted`/after `settings.load()` would render default styles first,
+  then flash to the custom look on every refresh. Instead, cache `custom_css` in
+  localStorage and inject it **synchronously in `main.ts` before `app.mount`**
+  (create/populate `<style id="user-custom-css">` from the cached value) — the
+  same "paint immediately from cache, mirror to server" pattern the UI store
+  already uses for theme/background (`stores/ui.ts`).
+- A `useCustomCss()` composable (called from `App.vue`) then watches the settings
+  store's reactive `data.custom_css` (a Pinia ref): on load/edit it updates the
+  `<style>` element's text and refreshes the localStorage cache, so the server
+  value reconciles the cached one without a flash.
 - Add stable, documented hooks on key structural elements: e.g.
   `data-app="shell"`, `.app-chat-column`, `.app-message`, `.app-composer`,
   `data-role="user|assistant"`. Document the available hooks (a short list in
@@ -129,17 +143,26 @@ template. `regex_rule`/`first_message` legitimately have empty *content* (their
 payload is in `meta`) and must not be dropped.
 
 **Decision.** Don't create content-bearing definitions with empty content on
-import; preserve meta-only types.
+import — **except** identity anchors. The identity system stays the single
+source of truth: a `char` or `persona` definition is created **unconditionally**
+whenever it carries an identity (`meta.avatar` non-empty **or** a non-empty
+name), even with empty `content`. Cleanliness must not delete an anchor.
 
 **Approach.**
-- In `charcard_to_loreset`, guard the description def with `nonempty` like the
-  others. Preserve the avatar/`st_raw` anchoring that currently targets the
-  `char` def: if there's no description def, attach `avatar`/`st_raw` to a
-  fallback (e.g. synthesize a minimal char def only when there's metadata to
-  carry, or move the anchor onto template meta).
-- Optionally, a defensive filter in `persist_loreset`/`persist_defs` that skips
-  defs whose `content` is empty **and** whose type isn't meta-only
-  (`regex_rule`, `first_message`). Keep it minimal to avoid surprising drops.
+- In `charcard_to_loreset`, guard the description def with `nonempty` *unless* it
+  is the identity anchor: keep the main `char` def whenever it has a name or an
+  avatar (it carries `st_raw`/`avatar` in meta), so the avatar/extension
+  anchoring in `import_export.rs::with_avatar` always has a target. Other empty
+  content-bearing fields are skipped as before.
+- Defensive filter in `persist_loreset`/`persist_defs`: skip defs whose `content`
+  is empty **and** type isn't meta-only (`regex_rule`, `first_message`) **and**
+  isn't an identity anchor (`char`/`persona` with avatar or name). Keep minimal.
+- Assembly hardening (so empty content is genuinely harmless, not just tolerated):
+  in `assemble_from_nodes`, **drop empty-string bodies** from folder joins and
+  skip empty root-ref segments. Today an empty active `char` child still renders
+  `<char>\n\n</char>` because the folder join keeps `Some("")`; filtering empty
+  bodies means an empty identity anchor contributes nothing to the prompt while
+  still existing as the identity record. Add a test for the empty-child case.
 
 ---
 
@@ -152,14 +175,25 @@ don't reach the model.
 stripped during assembly. Works inline or as whole lines.
 
 **Approach.**
-- A `strip_comments(&str) -> String` in `assembly.rs`, applied to definition
-  content during render (in `effective_def_content` or right before/after
-  `render_vars` in `assemble_from_nodes`, and for depth inserts). Remove
-  `{{// ... }}` spans; collapse a comment that occupies a whole line so no blank
-  line is left behind. Add unit tests (inline, whole-line, multiple,
-  unterminated tolerance).
-- Order vs `{{var}}`: strip comments before variable rendering so a comment can
-  contain `{{var}}`-looking text without being substituted.
+- A `strip_comments(&str) -> String` in `assembly.rs`, implemented as a **linear
+  scan** (find `{{//`, scan to the next `}}`), **not a regex** — so the stripper
+  itself cannot catastrophically backtrack on adversarial content. Remove
+  `{{// ... }}` spans; collapse a comment occupying a whole line so no blank line
+  is left behind. Tolerate an unterminated `{{//` (strip to end). Unit tests:
+  inline, whole-line, multiple, nested-ish, unterminated.
+- **Ordering:** strip comments *first*, before `render_vars` (so a comment may
+  contain `{{var}}`-looking text without being substituted) and before any other
+  transformation. Applied in `assemble_from_nodes` to definition content and
+  depth inserts.
+- **Pipeline note (re: regex):** verified that prompt-side regex
+  (`conversation.rs:194-221`) rewrites chat *messages* (`m.content` by role),
+  while comments live in *definition* content (system segments) — different text
+  streams, so there's no `{{//}}`-vs-regex collision today. The strip-first +
+  linear-scan choices keep it safe regardless.
+- **Open (scope):** comments are assumed to apply to definition/template content
+  only (authoring notes). If they should also be strippable from chat messages,
+  comment-stripping must run on `m.content` **before** prompt-side regex — flag
+  for user (see review note).
 
 ---
 
