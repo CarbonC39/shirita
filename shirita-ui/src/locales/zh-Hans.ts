@@ -188,6 +188,7 @@ const zhHans: MessageSchema = {
     summarizeInstruction: '总结指令',
     notifications: '通知',
     notifyReplies: '回复完成时通知（标签页未聚焦时）',
+    contentWidth: '内容宽度 (px)',
     appearance: '外观',
     messageStyle: '消息样式',
     styleBubble: '气泡',

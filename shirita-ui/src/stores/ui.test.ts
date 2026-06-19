@@ -21,6 +21,14 @@ describe('ui store', () => {
     expect(localStorage.getItem('ui.messageStyle')).toBe('flat')
   })
 
+  it('defaults content width to 760 and persists changes', () => {
+    const ui = useUiStore()
+    expect(ui.contentWidth).toBe(760)
+    ui.setContentWidth(900)
+    expect(ui.contentWidth).toBe(900)
+    expect(localStorage.getItem('ui.contentWidth')).toBe('900')
+  })
+
   it('tracks the active chat id', () => {
     const ui = useUiStore()
     expect(ui.activeChatId).toBeNull()

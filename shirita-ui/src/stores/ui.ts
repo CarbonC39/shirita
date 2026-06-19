@@ -19,6 +19,8 @@ export const useUiStore = defineStore('ui', {
     // UI language. Persisted to localStorage (key `ui.locale`); resolved on
     // boot from localStorage -> navigator.language -> en. Mirrors `theme`.
     locale: resolveInitialLocale() as AppLocale,
+    // Center content column width (px). Cached locally, mirrored to server setting.
+    contentWidth: Number(localStorage.getItem('ui.contentWidth')) || 760,
   }),
   actions: {
     setActiveChatId(id: string | null) {
@@ -36,6 +38,10 @@ export const useUiStore = defineStore('ui', {
       this.background = path
       if (path) localStorage.setItem('ui.background', path)
       else localStorage.removeItem('ui.background')
+    },
+    setContentWidth(px: number) {
+      this.contentWidth = px
+      localStorage.setItem('ui.contentWidth', String(px))
     },
     setLocale(locale: AppLocale) {
       this.locale = locale

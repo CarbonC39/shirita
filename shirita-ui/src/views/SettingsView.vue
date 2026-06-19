@@ -263,6 +263,9 @@ onMounted(async () => {
         const bg = settings.data.appearance_background;
         if (typeof bg === "string" && bg !== ui.background)
             ui.setBackground(bg);
+        const cw = settings.data.appearance_content_width;
+        if (typeof cw === "number" && cw !== ui.contentWidth)
+            ui.setContentWidth(cw);
         // Legacy flat provider keys → active source's namespace (one-time mirror;
         // the backend does the same server-side on its first provider call).
         const flatMap: [string, ProviderField][] = [
@@ -362,6 +365,14 @@ watch(
 function onBackgroundChange(path: string) {
     ui.setBackground(path);
     settings.save({ appearance_background: path }).catch((e) => {
+        error.value = (e as Error).message;
+    });
+}
+
+function onWidthChange(v: string) {
+    const px = parseInt(v) || 760;
+    ui.setContentWidth(px);
+    settings.save({ appearance_content_width: px }).catch((e) => {
         error.value = (e as Error).message;
     });
 }
@@ -761,6 +772,18 @@ async function handleTestConnection() {
                                 @update:model-value="onBackgroundChange"
                             />
                         </div>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.contentWidth") }}</span>
+                        <input
+                            :value="ui.contentWidth"
+                            type="number"
+                            min="560"
+                            max="1100"
+                            step="20"
+                            class="field w-[88px] text-right tabular-nums"
+                            @input="onWidthChange(($event.target as HTMLInputElement).value)"
+                        />
                     </div>
                     <div>
                         <div
