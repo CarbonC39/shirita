@@ -11,6 +11,7 @@ import {
 } from "../api/client";
 import type { Definition, RegexScope } from "../api/types";
 import { metaToRule, scopeFlagsToMeta } from "../utils/regexRule";
+import { providerKey, type ProviderField } from "../utils/providerKeys";
 import { fallbackModels } from "../api/modelCatalog";
 import SliderControl from "../components/SliderControl.vue";
 import RegexRuleEditor from "../components/RegexRuleEditor.vue";
@@ -101,24 +102,34 @@ function set(k: string, v: unknown) {
     settings.data[k] = v;
 }
 
+// Provider config is per-source: each provider keeps its own base_url/api_key/
+// model under `provider.<source>.<field>` so switching source never clobbers
+// the others (mirrors the backend's resolve_provider_config).
+const pget = (field: ProviderField) =>
+    (get(providerKey(providerSource.value, field)) as string) || "";
+const pset = (field: ProviderField, v: string) =>
+    set(providerKey(providerSource.value, field), v);
+
 const providerSource = computed({
     get: () => (get("provider_source") as string) || "openai",
     set: (v: string) => {
         set("provider_source", v);
-        set("provider_base_url", defaultBaseUrls[v] || "");
+        // Seed this source's base URL only if it has none saved yet.
+        if (!get(providerKey(v, "base_url")))
+            set(providerKey(v, "base_url"), defaultBaseUrls[v] || "");
     },
 });
 const providerBaseUrl = computed({
-    get: () => (get("provider_base_url") as string) || "",
-    set: (v: string) => set("provider_base_url", v),
+    get: () => pget("base_url"),
+    set: (v: string) => pset("base_url", v),
 });
 const providerApiKey = computed({
-    get: () => (get("provider_api_key") as string) || "",
-    set: (v: string) => set("provider_api_key", v),
+    get: () => pget("api_key"),
+    set: (v: string) => pset("api_key", v),
 });
 const providerModel = computed({
-    get: () => (get("provider_model") as string) || "",
-    set: (v: string) => set("provider_model", v),
+    get: () => pget("model"),
+    set: (v: string) => pset("model", v),
 });
 const providerStream = computed({
     get: () => (get("provider_stream") as boolean) ?? true,
@@ -140,9 +151,11 @@ const genPresPenalty = computed({
     get: () => (get("gen_presence_penalty") as number) ?? 0,
     set: (v: number) => set("gen_presence_penalty", v),
 });
+// NB: the backend reads the response-token limit from `provider_max_tokens`
+// (conversation.rs / summarize.rs), so write that key — not gen_max_response_tokens.
 const genMaxTokens = computed({
-    get: () => (get("gen_max_response_tokens") as number) ?? 4096,
-    set: (v: number) => set("gen_max_response_tokens", v),
+    get: () => (get("provider_max_tokens") as number) ?? 4096,
+    set: (v: number) => set("provider_max_tokens", v),
 });
 const customCss = computed({
     get: () => (get("custom_css") as string) || "",
@@ -174,8 +187,8 @@ watch(
             // persist creds so the server's /models uses them, then fetch.
             await settings.save({
                 provider_source: providerSource.value,
-                provider_base_url: providerBaseUrl.value,
-                provider_api_key: providerApiKey.value,
+                [providerKey(providerSource.value, "base_url")]: providerBaseUrl.value,
+                [providerKey(providerSource.value, "api_key")]: providerApiKey.value,
             });
             await settings.fetchModels();
         }, 800);
@@ -220,6 +233,22 @@ onMounted(async () => {
         const bg = settings.data.appearance_background;
         if (typeof bg === "string" && bg !== ui.background)
             ui.setBackground(bg);
+        // Legacy flat provider keys → active source's namespace (one-time mirror;
+        // the backend does the same server-side on its first provider call).
+        const flatMap: [string, ProviderField][] = [
+            ["provider_base_url", "base_url"],
+            ["provider_api_key", "api_key"],
+            ["provider_model", "model"],
+        ];
+        const migration: Record<string, unknown> = {};
+        for (const [flat, field] of flatMap) {
+            const nsKey = providerKey(providerSource.value, field);
+            if (settings.data[nsKey] == null && settings.data[flat] != null) {
+                settings.data[nsKey] = settings.data[flat];
+                migration[nsKey] = settings.data[flat];
+            }
+        }
+        if (Object.keys(migration).length) await settings.save(migration);
         const allDefs = await listDefinitions();
         regexRules.value = allDefs.filter((d) => d.type === "regex_rule");
         const sc = await getRegexScopes();
@@ -265,15 +294,15 @@ watch(
             try {
                 await settings.save({
                     provider_source: providerSource.value,
-                    provider_base_url: providerBaseUrl.value,
-                    provider_api_key: providerApiKey.value,
-                    provider_model: providerModel.value,
+                    [providerKey(providerSource.value, "base_url")]: providerBaseUrl.value,
+                    [providerKey(providerSource.value, "api_key")]: providerApiKey.value,
+                    [providerKey(providerSource.value, "model")]: providerModel.value,
                     provider_stream: providerStream.value,
                     gen_temperature: genTemp.value,
                     gen_top_p: genTopP.value,
                     gen_frequency_penalty: genFreqPenalty.value,
                     gen_presence_penalty: genPresPenalty.value,
-                    gen_max_response_tokens: genMaxTokens.value,
+                    provider_max_tokens: genMaxTokens.value,
                     custom_css: customCss.value,
                 });
                 saveState.value = "saved";
