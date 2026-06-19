@@ -3615,6 +3615,7 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "chrono",
+ "fancy-regex",
  "futures",
  "rand 0.8.6",
  "regex",
