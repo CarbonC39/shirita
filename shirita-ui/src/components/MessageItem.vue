@@ -38,10 +38,11 @@ const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) 
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
 
 const media = useMediaStore()
-onMounted(() => media.load())
+onMounted(() => { media.load('avatar'); media.load('background') })
+const allAssets = computed(() => [...media.byKind('avatar'), ...media.byKind('background')])
 const attachmentUrls = computed(() =>
   props.message.attachments
-    .map((id) => media.assets.find((a) => a.id === id)?.url)
+    .map((id) => allAssets.value.find((a) => a.id === id)?.url)
     .filter((u): u is string => !!u),
 )
 

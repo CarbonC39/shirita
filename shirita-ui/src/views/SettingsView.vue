@@ -769,6 +769,7 @@ async function handleTestConnection() {
                             <AssetPicker
                                 :model-value="ui.background"
                                 shape="rect"
+                                kind="background"
                                 @update:model-value="onBackgroundChange"
                             />
                         </div>

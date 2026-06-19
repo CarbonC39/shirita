@@ -23,6 +23,7 @@ const en = {
     // choice: t('common.tokensEstimate', { tokens: formatTokens(n) }, n).
     tokensEstimate: '~{tokens} token | ~{tokens} tokens',
     avatarPickHint: 'Pick from the library or upload a new image.',
+    avatarCropHint: 'Crop your avatar to a square.',
     imageDeleteConfirm: 'Delete this image from the library?',
     imageNone: 'No image',
     imageName: 'Image name',

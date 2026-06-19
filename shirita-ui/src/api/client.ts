@@ -389,15 +389,19 @@ export async function fetchProviderModels(): Promise<{ data?: Array<{ id: string
 }
 
 // --- Media library (assets) ---
-export interface Asset { id: string; name: string; path: string; url: string }
+export interface Asset { id: string; name: string; path: string; kind: string; url: string }
 
-export function listAssets(): Promise<Asset[]> { return apiGet<Asset[]>('/assets') }
+export function listAssets(kind?: string): Promise<Asset[]> {
+  return apiGet<Asset[]>('/assets' + (kind ? '?kind=' + kind : ''))
+}
 
 // Upload an image (or any file) to the library; returns the new asset record.
-export async function uploadAsset(file: File): Promise<Asset> {
+// `kind` determines the library it belongs to ("avatar" or "background").
+export async function uploadAsset(file: File, kind = 'background'): Promise<Asset> {
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${BASE}/api/assets`, { method: 'POST', headers: authHeaders(), body: form })
+  const qs = kind ? `?kind=${kind}` : ''
+  const res = await fetch(`${BASE}/api/assets${qs}`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) throw new Error(`Asset upload failed: ${res.status}`)
   return res.json()
 }
