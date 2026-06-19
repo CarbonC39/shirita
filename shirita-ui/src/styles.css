@@ -44,9 +44,14 @@ body {
     "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+/* Wrapped in @layer base so Tailwind's utility layer (text-ink/text-muted/…)
+   still wins on <a>. Unlayered, this reset outranks every layer and would force
+   all links to inherit body ink — making the nav icons (and md-links) all dark. */
+@layer base {
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /* Drop the obtrusive native number-input spinners everywhere. */
