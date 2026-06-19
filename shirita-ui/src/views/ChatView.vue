@@ -133,14 +133,14 @@ async function handleFork(id: string) {
   <div
     class="app-chat-column flex flex-col h-full"
   >
-    <div class="flex items-center gap-2 px-5 pt-4 pb-2 min-w-0">
+    <div class="flex items-center gap-2 pt-4 pb-2 min-w-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
     </div>
 
-    <p v-if="chat.error" class="text-coral text-sm px-5 py-4">{{ chat.error }}</p>
-    <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm px-5 pt-12 text-center">{{ $t('common.loading') }}</p>
+    <p v-if="chat.error" class="text-coral text-sm py-4">{{ chat.error }}</p>
+    <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm pt-12 text-center">{{ $t('common.loading') }}</p>
 
     <MessageList
       v-else

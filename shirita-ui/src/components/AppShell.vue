@@ -68,7 +68,7 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
         </div>
         <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
       </header>
-      <main class="flex-1 min-h-0 overflow-y-auto">
+      <main class="flex-1 min-h-0 overflow-y-auto px-8">
         <slot />
       </main>
     </div>
