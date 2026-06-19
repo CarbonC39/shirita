@@ -156,8 +156,9 @@ pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
 }
 
 /// 校验一条 regex_rule 的 pattern 能否编译（创作期使用；空 pattern 视为合法/无操作）。
+/// 用 fancy-regex 引擎（支持 lookaround / 反向引用，吃下 ST 兼容）。
 pub fn is_valid_regex(pattern: &str) -> bool {
-    regex::Regex::new(pattern).is_ok()
+    fancy_regex::Regex::new(pattern).is_ok()
 }
 
 /// 依挂载顺序对文本应用 regex_rule（meta: {pattern, replacement}）。无规则返回 None。
@@ -613,6 +614,15 @@ mod tests {
             Some("ab")
         );
         assert_eq!(apply_regex_rules("abc", &[]), None);
+    }
+
+    #[test]
+    fn is_valid_regex_accepts_lookaround() {
+        // Plain `regex` rejects lookahead; fancy-regex accepts it.
+        assert!(is_valid_regex(r"foo(?=bar)"));
+        assert!(is_valid_regex(r"(?<=\d)px"));
+        assert!(is_valid_regex(r"(\w+)\s+\1")); // backreference
+        assert!(!is_valid_regex(r"foo(")); // still invalid: unbalanced paren
     }
 
     fn ent(id: &str, mode: TriggerMode, keys: &[&str], content: &str) -> Entry {
