@@ -155,6 +155,57 @@ pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
     .into_owned()
 }
 
+/// Strip `{{// ... }}` authoring comments. Linear scan (no regex → no
+/// catastrophic backtracking): find each `{{//`, drop through the next `}}`.
+/// A comment alone on its line takes the line's leading whitespace and one
+/// trailing newline with it. An unterminated `{{//` strips to end of input.
+pub fn strip_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(start) = rest.find("{{//") {
+        out.push_str(&rest[..start]);
+
+        // Find the close, balancing nested {{ }} so the comment body may contain
+        // {{var}}-looking text. Depth starts at 1 for the opening "{{". `{`/`}`
+        // are ASCII, so byte scanning is UTF-8 safe.
+        let bytes = rest.as_bytes();
+        let len = rest.len();
+        let mut depth = 1i32;
+        let mut j = start + 2; // scan after the opening "{{"
+        let mut end = len; // unterminated → strip to end
+        while j + 1 < len {
+            if bytes[j] == b'{' && bytes[j + 1] == b'{' {
+                depth += 1;
+                j += 2;
+            } else if bytes[j] == b'}' && bytes[j + 1] == b'}' {
+                depth -= 1;
+                j += 2;
+                if depth == 0 {
+                    end = j;
+                    break;
+                }
+            } else {
+                j += 1;
+            }
+        }
+        let after = &rest[end..];
+
+        // Whole-line comment: emitted text ends at a line start (only ws since
+        // the last newline) → drop the line's leading ws and one trailing '\n'.
+        let line_start = out.rsplit_once('\n').map(|(_, t)| t).unwrap_or(&out[..]);
+        if line_start.trim().is_empty() {
+            let cut = out.len() - line_start.len();
+            out.truncate(cut);
+            let trimmed = after.trim_start_matches([' ', '\t']);
+            rest = trimmed.strip_prefix('\n').unwrap_or(trimmed);
+        } else {
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// 校验一条 regex_rule 的 pattern 能否编译（创作期使用；空 pattern 视为合法/无操作）。
 /// 用 fancy-regex 引擎（支持 lookaround / 反向引用，吃下 ST 兼容）。
 pub fn is_valid_regex(pattern: &str) -> bool {
@@ -386,7 +437,7 @@ pub fn assemble_from_nodes(
         entries.push(Entry {
             id: def.id.clone(),
             trigger: effective_trigger(def, overrides),
-            content: render_vars(&effective_def_content(def, overrides), state),
+            content: render_vars(&strip_comments(&effective_def_content(def, overrides)), state),
             scan_depth,
             recursive,
         });
@@ -407,7 +458,7 @@ pub fn assemble_from_nodes(
         if !active.contains(&def.id) {
             return None;
         }
-        let body = render_vars(&effective_def_content(def, overrides), state);
+        let body = render_vars(&strip_comments(&effective_def_content(def, overrides)), state);
         Some(maybe_wrap(def, n, body))
     };
 
@@ -484,7 +535,7 @@ pub fn assemble_from_nodes(
                 Some("assistant") => Role::Assistant,
                 _ => Role::System,
             };
-            let content = render_vars(&effective_def_content(d, overrides), state);
+            let content = render_vars(&strip_comments(&effective_def_content(d, overrides)), state);
             Some(DepthInsert { depth, role, content })
         })
         .collect();
@@ -633,6 +684,22 @@ mod tests {
             render_vars("Hi {{name}}, hp={{hp}} {{missing}}", &s),
             "Hi Alice, hp=80 {{missing}}"
         );
+    }
+
+    #[test]
+    fn strip_comments_inline_and_whole_line() {
+        assert_eq!(strip_comments("Hi {{// note}}there"), "Hi there");
+        assert_eq!(strip_comments("a\n{{// c}}\nb"), "a\nb");
+        assert_eq!(strip_comments("keep {{// x}} mid {{// y}} end"), "keep  mid  end");
+        assert_eq!(strip_comments("x {{// unterminated"), "x ");
+        assert_eq!(strip_comments("plain {{name}} text"), "plain {{name}} text");
+    }
+
+    #[test]
+    fn strip_comments_runs_before_var_render() {
+        // a comment may contain {{var}}-looking text; it must not be substituted
+        let s = json!({ "name": "Neo" });
+        assert_eq!(render_vars(&strip_comments("{{// {{name}} }}hi {{name}}"), &s), "hi Neo");
     }
 
     #[test]
