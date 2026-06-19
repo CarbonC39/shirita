@@ -8,7 +8,7 @@ const defs: Record<string, Definition> = {
 }
 function node(p: Partial<PromptNode>): PromptNode {
   return { id: 'n1', owner_kind: 'template', owner_id: 't', parent_id: null, sort_order: 0,
-    kind: 'ref', tag: null, definition_id: 'd1', enabled: true, created_at: '', ...p }
+    kind: 'ref', tag: null, definition_id: 'd1', enabled: true, created_at: '', meta: {}, ...p }
 }
 
 describe('NodeRow', () => {

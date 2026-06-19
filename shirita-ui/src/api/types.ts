@@ -74,6 +74,7 @@ export interface PromptNode {
   definition_id: string | null
   enabled: boolean
   created_at: string
+  meta: Record<string, unknown>
 }
 
 export interface DefType {

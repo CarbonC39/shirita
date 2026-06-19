@@ -309,6 +309,7 @@ async fn import_template_bundle(
                 definition_id,
                 enabled: pn.enabled,
                 created_at: chrono::Utc::now().to_rfc3339(),
+                meta: pn.meta.clone(),
             };
             state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             inserted.insert(pn.local_id.clone());

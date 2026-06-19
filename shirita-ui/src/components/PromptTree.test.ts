@@ -13,7 +13,7 @@ const defs: Definition[] = [
 ]
 function n(p: Partial<PromptNode>): PromptNode {
   return { id: 'x', owner_kind: 'template', owner_id: 't', parent_id: null, sort_order: 0,
-    kind: 'ref', tag: null, definition_id: null, enabled: true, created_at: '', ...p }
+    kind: 'ref', tag: null, definition_id: null, enabled: true, created_at: '', meta: {}, ...p }
 }
 
 describe('PromptTree omnibox add flow', () => {

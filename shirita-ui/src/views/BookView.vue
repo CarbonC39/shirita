@@ -358,6 +358,17 @@ async function localToggleEnabled(nodeId: string) {
         error.value = (e as Error).message;
     }
 }
+async function localUpdateNodeMeta(nodeId: string, meta: Record<string, unknown>) {
+    const sid = ui.activeChatId;
+    if (!sid) return;
+    try {
+        await ensureMaterialized();
+        await updateNode(nodeId, { meta });
+        await loadLocalNodes();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
 async function localDeleteNode(nodeId: string) {
     const sid = ui.activeChatId;
     if (!sid) return;
@@ -636,6 +647,20 @@ async function handleUpdateContent(definitionId: string, content: string) {
         error.value = (e as Error).message;
     }
 }
+async function handleUpdateNodeMeta(nodeId: string, meta: Record<string, unknown>) {
+    try {
+        const updated = await updateNode(nodeId, { meta });
+        const i = nodes.value.findIndex((n) => n.id === nodeId);
+        if (i !== -1)
+            nodes.value = [
+                ...nodes.value.slice(0, i),
+                updated,
+                ...nodes.value.slice(i + 1),
+            ];
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
 async function handleDeleteNode(nodeId: string) {
     const node = nodes.value.find((n) => n.id === nodeId);
     if (!node) return;
@@ -799,6 +824,7 @@ async function duplicateDef() {
                         @create-type="localCreateType"
                         @update-content="localUpdateContent"
                         @update-trigger="localUpdateTrigger"
+                        @update-node-meta="localUpdateNodeMeta"
                         @delete-node="localDeleteNode"
                         @reorder="localReorder"
                     />
@@ -957,6 +983,7 @@ async function duplicateDef() {
                 @create-type="createType"
                 @update-content="handleUpdateContent"
                 @update-trigger="handleUpdateTrigger"
+                @update-node-meta="handleUpdateNodeMeta"
                 @delete-node="handleDeleteNode"
                 @reorder="handleReorder"
             />

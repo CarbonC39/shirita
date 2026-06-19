@@ -6,6 +6,7 @@ import type { Definition, PromptNode, Trigger } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
+import ToggleSwitch from './ToggleSwitch.vue'
 
 const props = defineProps<{
   node: PromptNode
@@ -14,7 +15,15 @@ const props = defineProps<{
   isExpanded: boolean
 }>()
 
-const emit = defineEmits<{ toggleEnabled: []; toggleExpand: []; updateContent: [content: string]; delete: []; updateTrigger: [trigger: Trigger]; add: [] }>()
+const emit = defineEmits<{
+  toggleEnabled: []
+  toggleExpand: []
+  updateContent: [content: string]
+  delete: []
+  updateTrigger: [trigger: Trigger]
+  updateNodeMeta: [meta: Record<string, unknown>]
+  add: []
+}>()
 
 const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
@@ -38,6 +47,21 @@ const iconColor = computed(() => {
   const t = isFolder.value ? (props.node.tag ?? '') : (def.value?.type ?? '')
   return props.node.enabled ? (typeTint[t] ?? 'text-muted') : 'text-muted/40'
 })
+
+// Per-use wrap_in_tag override (this template placement only) takes priority
+// over the definition's own setting when present, mirroring assembly.rs's
+// maybe_wrap precedence.
+const showWrapToggle = computed(
+  () => !!def.value && !['regex_rule', 'first_message'].includes(def.value.type),
+)
+const wrapValue = computed(() => {
+  const nodeMeta = props.node.meta as Record<string, unknown>
+  if (typeof nodeMeta.wrap_in_tag === 'boolean') return nodeMeta.wrap_in_tag
+  return (def.value?.meta as Record<string, unknown> | undefined)?.wrap_in_tag === true
+})
+function updateWrap(v: boolean) {
+  emit('updateNodeMeta', { ...(props.node.meta as Record<string, unknown>), wrap_in_tag: v })
+}
 
 // Local editable copy of the referenced definition's content; persisted on blur.
 const draft = ref(def.value?.content ?? '')
@@ -134,6 +158,17 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
           @update:model-value="emit('updateTrigger', $event)"
         />
       </div>
+
+      <!-- per-use wrap_in_tag override: this template placement only -->
+      <label
+        v-if="showWrapToggle"
+        data-test="node-wrap-in-tag"
+        class="flex items-center gap-2 mt-2.5 text-[13px] text-ink"
+        :title="$t('definition.wrapInTagHint')"
+      >
+        {{ $t('definition.wrapInTag') }}
+        <ToggleSwitch :model-value="wrapValue" @update:model-value="updateWrap" />
+      </label>
     </div>
     </transition>
 

@@ -309,9 +309,14 @@ pub fn sanitize_tag(name: &str) -> String {
     out
 }
 
-/// 若定义开了 `meta.wrap_in_tag`，用其 `sanitize_tag(name)`（空则兜底 def_type）包裹内容。
-fn maybe_wrap(def: &Definition, content: String) -> String {
-    let on = def.meta.get("wrap_in_tag").and_then(|v| v.as_bool()).unwrap_or(false);
+/// 若 `wrap_in_tag` 开着，用其 `sanitize_tag(name)`（空则兜底 def_type）包裹内容。节点级
+/// `meta.wrap_in_tag`（这一处使用的覆盖）优先于定义自身的设置，未设置则回退到定义的值。
+fn maybe_wrap(def: &Definition, node: &PromptNode, content: String) -> String {
+    let on = node
+        .meta
+        .get("wrap_in_tag")
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| def.meta.get("wrap_in_tag").and_then(|v| v.as_bool()).unwrap_or(false));
     if !on {
         return content;
     }
@@ -372,7 +377,7 @@ pub fn assemble_from_nodes(
             return None;
         }
         let body = render_vars(&effective_def_content(def, overrides), state);
-        Some(maybe_wrap(def, body))
+        Some(maybe_wrap(def, n, body))
     };
 
     // 3) 按 sort_order 遍历根节点；history 切换落点。
@@ -536,19 +541,39 @@ mod tests {
         assert_eq!(sanitize_tag("<>&\"'/"), "");
     }
 
+    fn plain_ref_node() -> PromptNode {
+        PromptNode::new_ref(OwnerKind::Template, "t", None, 0, "unused")
+    }
+
     #[test]
     fn maybe_wrap_wraps_only_when_flag_on() {
         let mut d = Definition::new("char", "Alice Smith", "body");
-        assert_eq!(maybe_wrap(&d, "body".into()), "body"); // 默认关
+        let n = plain_ref_node();
+        assert_eq!(maybe_wrap(&d, &n, "body".into()), "body"); // 默认关
         d.meta = serde_json::json!({ "wrap_in_tag": true });
-        assert_eq!(maybe_wrap(&d, "body".into()), "<Alice_Smith>\nbody\n</Alice_Smith>");
+        assert_eq!(maybe_wrap(&d, &n, "body".into()), "<Alice_Smith>\nbody\n</Alice_Smith>");
     }
 
     #[test]
     fn maybe_wrap_falls_back_to_def_type_when_name_empty() {
         let mut d = Definition::new("world", "<>", "body");
         d.meta = serde_json::json!({ "wrap_in_tag": true });
-        assert_eq!(maybe_wrap(&d, "body".into()), "<world>\nbody\n</world>");
+        assert_eq!(maybe_wrap(&d, &plain_ref_node(), "body".into()), "<world>\nbody\n</world>");
+    }
+
+    #[test]
+    fn maybe_wrap_node_override_takes_priority_over_definition() {
+        let mut d = Definition::new("char", "Hero", "body");
+        d.meta = serde_json::json!({ "wrap_in_tag": true });
+        let mut n = plain_ref_node();
+        // node-level override turns wrapping back off even though the definition has it on
+        n.meta = serde_json::json!({ "wrap_in_tag": false });
+        assert_eq!(maybe_wrap(&d, &n, "body".into()), "body");
+
+        // and the reverse: definition off, node-level override turns it on
+        d.meta = serde_json::json!({});
+        n.meta = serde_json::json!({ "wrap_in_tag": true });
+        assert_eq!(maybe_wrap(&d, &n, "body".into()), "<Hero>\nbody\n</Hero>");
     }
 
     #[test]
