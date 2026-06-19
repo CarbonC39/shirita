@@ -217,7 +217,9 @@ const en = {
     regexApplyTo: 'Apply to',
     regexAiOutput: 'AI output',
     regexUserInput: 'User input',
-    regexDisplayOnly: 'Display only',
+    regexPhaseDisplay: 'Display only',
+    regexPhaseBoth: 'Display + prompt',
+    regexPhasePrompt: 'Prompt only',
     regexDelete: 'Delete rule',
   },
 }

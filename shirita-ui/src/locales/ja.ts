@@ -207,7 +207,9 @@ const ja: MessageSchema = {
     regexApplyTo: '適用先',
     regexAiOutput: 'AI 出力',
     regexUserInput: 'ユーザー入力',
-    regexDisplayOnly: '表示のみ',
+    regexPhaseDisplay: '表示のみ',
+    regexPhaseBoth: '表示＋prompt',
+    regexPhasePrompt: 'promptのみ',
     regexDelete: 'ルールを削除',
   },
 }

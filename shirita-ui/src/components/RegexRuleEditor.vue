@@ -67,7 +67,15 @@ function commitRename() {
         <div class="flex flex-wrap gap-3">
           <label class="flex items-center gap-1 text-[13px]"><input type="checkbox" :checked="rule.scope.ai_output" class="w-3 h-3 rounded accent-primary" @change="emit('update:scope', { ...rule.scope, ai_output: ($event.target as HTMLInputElement).checked })" /> {{ $t('settings.regexAiOutput') }}</label>
           <label class="flex items-center gap-1 text-[13px]"><input type="checkbox" :checked="rule.scope.user_input" class="w-3 h-3 rounded accent-primary" @change="emit('update:scope', { ...rule.scope, user_input: ($event.target as HTMLInputElement).checked })" /> {{ $t('settings.regexUserInput') }}</label>
-          <label class="flex items-center gap-1 text-[13px]"><input type="checkbox" :checked="rule.scope.display_only" class="w-3 h-3 rounded accent-primary" @change="emit('update:scope', { ...rule.scope, display_only: ($event.target as HTMLInputElement).checked })" /> {{ $t('settings.regexDisplayOnly') }}</label>
+          <select
+            :value="rule.scope.phase"
+            class="text-[13px] border border-line rounded-md px-1.5 py-1 outline-none focus:border-primary/50"
+            @change="emit('update:scope', { ...rule.scope, phase: ($event.target as HTMLSelectElement).value as 'display'|'both'|'prompt' })"
+          >
+            <option value="display">{{ $t('settings.regexPhaseDisplay') }}</option>
+            <option value="both">{{ $t('settings.regexPhaseBoth') }}</option>
+            <option value="prompt">{{ $t('settings.regexPhasePrompt') }}</option>
+          </select>
         </div>
       </div>
       <button class="flex items-center gap-1 text-[12px] text-muted hover:text-coral" @click="emit('delete')"><Trash2 :size="13" /> {{ $t('settings.regexDelete') }}</button>
