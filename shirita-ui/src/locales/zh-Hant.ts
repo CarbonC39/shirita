@@ -209,6 +209,13 @@ const zhHant: MessageSchema = {
     regexPhaseDisplay: '僅顯示',
     regexPhaseBoth: '顯示 + prompt',
     regexPhasePrompt: '僅 prompt',
+    regexUserShort: '用戶',
+    regexPhase_display: '顯示',
+    regexPhase_both: '兩者',
+    regexPhase_prompt: 'prompt',
+    regexInvalid: '失效',
+    regexSearch: '搜尋規則',
+    regexHideDisabled: '隱藏已停用',
     regexDelete: '刪除規則',
   },
 }
