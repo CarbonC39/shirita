@@ -127,18 +127,36 @@ async fn assemble_request(
         &mut || rand::Rng::gen::<f64>(&mut rng),
     );
 
-    // HTML-card patching: once the conversation holds a rendered card (a full
-    // HTML doc, or a prior reply carrying edit blocks), tell the model to edit
-    // it with compact SEARCH/REPLACE blocks instead of resending the whole
-    // document. Injected after history so it is the model's freshest guidance.
-    let has_card = context
-        .iter()
-        .any(|m| crate::html_patch::is_html_document(&m.content) || crate::html_patch::has_patch_blocks(&m.content));
-    if has_card {
+    // Auto-inject protocol instructions. Their text lives in builtin `protocol`
+    // definitions (spec §4); each is injected after history when its meta.kind
+    // trigger holds. state_update fires when the session declares a non-system
+    // variable (and appends the live variable list); html_patch fires when the
+    // conversation already holds a card. Both may coexist; the provider adapter
+    // merges adjacent System segments.
+    let has_card = context.iter().any(|m| {
+        crate::html_patch::is_html_document(&m.content) || crate::html_patch::has_patch_blocks(&m.content)
+    });
+    let schema = session_schema(storage, session).await;
+    let protocols = storage.list_definitions().await?;
+    for pdef in protocols.iter().filter(|d| d.def_type == "protocol") {
+        let kind = pdef.meta.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let content = match kind {
+            "state_update" => match crate::state::variables_block(&schema, state) {
+                Some(block) => format!("{}\n\n{}", pdef.content, block),
+                None => continue,
+            },
+            "html_patch" => {
+                if !has_card {
+                    continue;
+                }
+                pdef.content.clone()
+            }
+            _ => continue,
+        };
         plan.segments.push(crate::assembly::PromptSegment {
             placement: crate::assembly::Placement::AfterHistory,
-            content: crate::html_patch::INSTRUCTION.to_string(),
-            source: "html_patch".into(),
+            content,
+            source: format!("protocol:{kind}"),
         });
     }
 
@@ -665,6 +683,7 @@ mod tests {
         let storage = Arc::new(temp_storage().await);
         let session = Session::new("t"); // tree-less: history defaults on
         storage.create_session(&session).await.unwrap();
+        crate::seed::ensure_builtin_definitions(storage.as_ref()).await.unwrap();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
 
         // Turn 1: the model emits a full HTML card. No card existed yet, so the
@@ -704,6 +723,50 @@ mod tests {
         assert!(display.starts_with("<!DOCTYPE html>"), "display is the full reconstructed doc");
         assert!(display.contains("<p>HP: 80</p>"));
         assert!(!display.contains("HP: 100"));
+    }
+
+    #[tokio::test]
+    async fn state_protocol_injected_only_when_user_vars_declared() {
+        let storage = Arc::new(temp_storage().await);
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        // Template declaring a user variable `hp`.
+        let mut t = crate::models::template::Template::new("T");
+        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        storage.create_template(&t).await.unwrap();
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        storage.create_session(&session).await.unwrap();
+        crate::seed::ensure_builtin_definitions(storage.as_ref()).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        futures::pin_mut!(s);
+        while s.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        let sys = req.messages.iter().filter(|m| m.role == Role::System).map(|m| m.content.clone()).collect::<Vec<_>>().join("\n");
+        assert!(sys.contains("<state_update"), "protocol text injected");
+        assert!(sys.contains("- hp (number) = 100"), "live variable list appended");
+    }
+
+    #[tokio::test]
+    async fn state_protocol_absent_without_user_vars() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s"); // no template → only system vars
+        storage.create_session(&session).await.unwrap();
+        crate::seed::ensure_builtin_definitions(storage.as_ref()).await.unwrap();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        futures::pin_mut!(s);
+        while s.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        assert!(!req.messages.iter().any(|m| m.content.contains("<state_update")), "no state protocol without user vars");
     }
 
     #[tokio::test]
