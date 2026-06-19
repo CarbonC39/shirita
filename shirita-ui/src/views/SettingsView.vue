@@ -162,6 +162,29 @@ const customCss = computed({
     set: (v: string) => set("custom_css", v),
 });
 
+// Context / auto-summarize (keys consumed by summarize.rs). Threshold is stored
+// as a 0..1 fraction but edited as a percentage.
+const summarizeEnabled = computed({
+    get: () => (get("summarize.enabled") as boolean) ?? true,
+    set: (v: boolean) => set("summarize.enabled", v),
+});
+const contextWindow = computed({
+    get: () => (get("context.window") as number) ?? 200000,
+    set: (v: number) => set("context.window", v),
+});
+const contextThreshold = computed({
+    get: () => Math.round(((get("context.threshold") as number) ?? 0.8) * 100),
+    set: (v: number) => set("context.threshold", Math.min(100, Math.max(0, v)) / 100),
+});
+const keepRecent = computed({
+    get: () => (get("context.keep_recent") as number) ?? 10,
+    set: (v: number) => set("context.keep_recent", v),
+});
+const summarizeInstruction = computed({
+    get: () => (get("summarize.instruction") as string) || "",
+    set: (v: string) => set("summarize.instruction", v),
+});
+
 // The model is chosen from the dropdown only. If a saved value isn't in the
 // fetched/fallback list, keep it selectable so it isn't silently dropped.
 const modelOptions = computed(() => {
@@ -284,6 +307,11 @@ watch(
         genFreqPenalty.value,
         genPresPenalty.value,
         genMaxTokens.value,
+        summarizeEnabled.value,
+        contextWindow.value,
+        contextThreshold.value,
+        keepRecent.value,
+        summarizeInstruction.value,
         customCss.value,
     ],
     () => {
@@ -303,6 +331,11 @@ watch(
                     gen_frequency_penalty: genFreqPenalty.value,
                     gen_presence_penalty: genPresPenalty.value,
                     provider_max_tokens: genMaxTokens.value,
+                    ...(summarizeEnabled.value !== undefined && { "summarize.enabled": summarizeEnabled.value }),
+                    "context.window": contextWindow.value,
+                    "context.threshold": contextThreshold.value / 100,
+                    "context.keep_recent": keepRecent.value,
+                    "summarize.instruction": summarizeInstruction.value,
                     custom_css: customCss.value,
                 });
                 saveState.value = "saved";
@@ -596,6 +629,69 @@ async function handleTestConnection() {
                                 ) || 0
                         "
                     />
+                </div>
+            </section>
+
+            <div class="border-t border-line my-6" />
+
+            <!-- Context / auto-summarize -->
+            <section class="mb-8">
+                <h3
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                >
+                    {{ $t("settings.context") }}
+                </h3>
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.autoSummarize") }}</span>
+                        <ToggleSwitch
+                            :model-value="summarizeEnabled"
+                            @update:model-value="summarizeEnabled = $event"
+                        />
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.contextWindow") }}</span>
+                        <input
+                            :value="contextWindow"
+                            type="number"
+                            min="1000"
+                            step="1000"
+                            class="field w-[120px] text-right tabular-nums"
+                            @input="contextWindow = parseInt(($event.target as HTMLInputElement).value) || 0"
+                        />
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.contextThreshold") }}</span>
+                        <input
+                            :value="contextThreshold"
+                            type="number"
+                            min="1"
+                            max="100"
+                            class="field w-[80px] text-right tabular-nums"
+                            @input="contextThreshold = parseInt(($event.target as HTMLInputElement).value) || 0"
+                        />
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.keepRecent") }}</span>
+                        <input
+                            :value="keepRecent"
+                            type="number"
+                            min="1"
+                            class="field w-[80px] text-right tabular-nums"
+                            @input="keepRecent = parseInt(($event.target as HTMLInputElement).value) || 1"
+                        />
+                    </div>
+                    <div>
+                        <label class="text-[13px] text-ink block mb-1.5"
+                            >{{ $t("settings.summarizeInstruction") }}</label
+                        >
+                        <textarea
+                            :value="summarizeInstruction"
+                            rows="3"
+                            class="field w-full text-[13px] leading-relaxed font-mono resize-y"
+                            @input="summarizeInstruction = ($event.target as HTMLTextAreaElement).value"
+                        />
+                    </div>
                 </div>
             </section>
 
