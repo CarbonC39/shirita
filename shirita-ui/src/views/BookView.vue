@@ -882,6 +882,14 @@ async function duplicateDef() {
                 <div class="flex items-center">
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
+                        :title="$t('common.rename')"
+                        :disabled="!selectedTemplateId"
+                        @click="renamingTemplate = true"
+                    >
+                        <Pencil :size="15" />
+                    </button>
+                    <button
+                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('book.importTitle')"
                         :disabled="importBusy"
                         @click="importInput?.click()"
@@ -895,14 +903,6 @@ async function duplicateDef() {
                         class="hidden"
                         @change="onImportPicked"
                     />
-                    <button
-                        class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
-                        :title="$t('common.rename')"
-                        :disabled="!selectedTemplateId"
-                        @click="renamingTemplate = true"
-                    >
-                        <Pencil :size="15" />
-                    </button>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('book.exportTemplateTitle')"
@@ -948,31 +948,38 @@ async function duplicateDef() {
                 <button class="text-muted hover:text-ink" :disabled="importBusy" @click="pendingImportFile = null">{{ $t("common.dismiss") }}</button>
             </div>
 
-            <!-- name + save/saved state -->
-            <div
-                v-if="isDraft || selectedTemplateId"
-                class="flex items-center gap-2 mt-2 mb-3.5"
-            >
-                <span v-if="!renamingTemplate" class="flex-1 text-[14px] text-ink font-medium truncate">{{ templateName || $t('book.templateNamePlaceholder') }}</span>
-                <template v-else>
-                    <input
-                        v-model="templateName"
-                        type="text"
-                        class="field flex-1"
-                        :placeholder="$t('book.templateNamePlaceholder')"
-                        @change="renameTemplate"
-                        @keydown.enter="($event.target as HTMLInputElement).blur(); renamingTemplate = false"
-                    />
-                    <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renamingTemplate = false">{{ $t("common.done") }}</button>
-                </template>
-                <button
-                    v-if="isDraft"
-                    class="btn btn-primary shrink-0"
-                    @click="saveDraft"
-                >
+            <!-- draft: new template name + save -->
+            <div v-if="isDraft" class="flex items-center gap-2 mt-2 mb-2">
+                <input
+                    v-model="templateName"
+                    type="text"
+                    class="field flex-1"
+                    :placeholder="$t('book.templateNamePlaceholder')"
+                />
+                <button class="btn btn-primary shrink-0" @click="saveDraft">
                     {{ $t("common.save") }}
                 </button>
-                <span v-else class="flex items-center gap-2.5 shrink-0">
+            </div>
+            <p v-if="isDraft" class="text-muted text-[13px] py-2">
+                {{ $t("book.draftHint") }}
+            </p>
+
+            <!-- rename inline: replaces content during rename -->
+            <div v-if="renamingTemplate && selectedTemplateId" class="flex items-center gap-2 mt-2 mb-2">
+                <input
+                    v-model="templateName"
+                    type="text"
+                    class="field flex-1"
+                    :placeholder="$t('book.templateNamePlaceholder')"
+                    @change="renameTemplate"
+                    @keydown.enter="($event.target as HTMLInputElement).blur(); renamingTemplate = false"
+                />
+                <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renamingTemplate = false">{{ $t("common.done") }}</button>
+            </div>
+
+            <!-- state indicator inline in the toolbar -->
+            <template v-if="selectedTemplateId && !isDraft && !renamingTemplate">
+                <div class="flex items-center gap-2.5 mt-1.5 mb-1.5 justify-end">
                     <span class="text-[11.5px] text-muted tabular-nums"
                         >{{ $t("common.tokensEstimate", { tokens: formatTokens(templateTokens) }, templateTokens) }}</span
                     >
@@ -980,12 +987,8 @@ async function duplicateDef() {
                         <Check :size="13" :stroke-width="2.4" />
                         <span class="text-[11.5px] text-muted">{{ $t("common.saved") }}</span>
                     </span>
-                </span>
-            </div>
-
-            <p v-if="isDraft" class="text-muted text-[13px] py-4">
-                {{ $t("book.draftHint") }}
-            </p>
+                </div>
+            </template>
             <PromptTree
                 v-if="selectedTemplateId"
                 :nodes="nodes"
