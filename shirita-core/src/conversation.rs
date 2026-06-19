@@ -81,6 +81,34 @@ pub async fn effective_nodes(
     Ok(Vec::new())
 }
 
+/// 本会话生效的 regex 规则：全局 orphan 规则（不被任何节点引用，处处生效）+ 本会话
+/// effective 树里被启用 ref 引用的 scoped 规则。两集合互斥；global 在前。
+pub async fn effective_regex_rules(
+    storage: &dyn Storage,
+    session: &Session,
+) -> crate::Result<Vec<Definition>> {
+    let referenced: std::collections::HashSet<String> =
+        storage.referenced_definition_ids().await?.into_iter().collect();
+    let all = storage.list_definitions().await?;
+    let mut rules: Vec<Definition> = all
+        .iter()
+        .filter(|d| d.def_type == "regex_rule" && !referenced.contains(&d.id))
+        .cloned()
+        .collect();
+    let by_id: std::collections::HashMap<&str, &Definition> =
+        all.iter().map(|d| (d.id.as_str(), d)).collect();
+    for n in effective_nodes(storage, session).await? {
+        if n.kind == crate::models::prompt_node::NodeKind::Ref && n.enabled {
+            if let Some(d) = n.definition_id.as_deref().and_then(|id| by_id.get(id)) {
+                if d.def_type == "regex_rule" {
+                    rules.push((*d).clone());
+                }
+            }
+        }
+    }
+    Ok(rules)
+}
+
 /// Build the provider request for a turn whose visible, ordered context is
 /// `context` (hidden already filtered, ending with the latest user turn), plus
 /// the regex rules used to clean the reply. Shared by send + regenerate.
@@ -165,20 +193,8 @@ async fn assemble_request(
     let include_history = plan.history_enabled || !has_history_node;
     let chat_messages = crate::assembly::build_chat_messages(&plan, context, include_history);
 
-    // Hybrid regex model: global rules (orphan regex_rule defs, managed in
-    // Settings and referenced by no node) apply to every session; loreset rules
-    // (referenced by this session's tree, e.g. ST imports) apply only here. The
-    // two sets are disjoint by construction — a tree-referenced def is never an
-    // orphan — so a concat needs no dedup. Global first, then scoped.
-    let referenced: std::collections::HashSet<String> =
-        storage.referenced_definition_ids().await?.into_iter().collect();
-    let mut regex_rules: Vec<Definition> = storage
-        .list_definitions()
-        .await?
-        .into_iter()
-        .filter(|d| d.def_type == "regex_rule" && !referenced.contains(&d.id))
-        .collect();
-    regex_rules.extend(plan.regex_rules.clone());
+    // Global orphan rules + this session's tree-scoped rules (see effective_regex_rules).
+    let regex_rules = effective_regex_rules(storage, session).await?;
 
     let max_tokens = provider_max_tokens(storage).await;
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
@@ -484,6 +500,36 @@ mod tests {
     async fn drain(stream: impl futures::Stream<Item = SendEvent>) {
         futures::pin_mut!(stream);
         while futures::StreamExt::next(&mut stream).await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn effective_regex_rules_global_plus_scoped() {
+        let storage = Arc::new(temp_storage().await);
+        // global orphan rule (referenced by no node)
+        let mut g = crate::models::definition::Definition::new("regex_rule", "G", "");
+        g.meta = serde_json::json!({ "pattern": "g", "replacement": "" });
+        storage.create_definition(&g).await.unwrap();
+        // scoped rule referenced by a template the session uses
+        let mut s = crate::models::definition::Definition::new("regex_rule", "S", "");
+        s.meta = serde_json::json!({ "pattern": "s", "replacement": "" });
+        storage.create_definition(&s).await.unwrap();
+        let tmpl = crate::models::template::Template::new("rx");
+        storage.create_template(&tmpl).await.unwrap();
+        storage.create_node(&crate::models::prompt_node::PromptNode::new_ref(
+            crate::models::prompt_node::OwnerKind::Template, &tmpl.id, None, 0, &s.id)).await.unwrap();
+        let mut session = Session::new("x");
+        session.template_id = Some(tmpl.id.clone());
+        storage.create_session(&session).await.unwrap();
+
+        let rules = super::effective_regex_rules(storage.as_ref(), &session).await.unwrap();
+        let names: Vec<&str> = rules.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, vec!["G", "S"], "global orphan first, then scoped");
+
+        // A different session without that template gets only the global rule.
+        let other = Session::new("y");
+        storage.create_session(&other).await.unwrap();
+        let other_rules = super::effective_regex_rules(storage.as_ref(), &other).await.unwrap();
+        assert_eq!(other_rules.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["G"]);
     }
 
     #[tokio::test]

@@ -28,7 +28,7 @@ pub use assembly::{
 };
 pub use budget::{over_threshold, trim_history};
 pub use config::{apply_provider_env, Config};
-pub use conversation::{regenerate, send_message, SendEvent};
+pub use conversation::{effective_regex_rules, regenerate, send_message, SendEvent};
 pub use error::{Error, Result};
 pub use model::{
     AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
