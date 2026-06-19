@@ -196,7 +196,7 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if let Some(p) = pattern {
-            match regex::Regex::new(p) {
+            match fancy_regex::Regex::new(p) {
                 Ok(re) => out = re.replace_all(&out, replacement).into_owned(),
                 Err(e) => tracing::warn!(rule = %rule.id, error = %e, "invalid regex_rule pattern, skipping"),
             }
@@ -623,6 +623,14 @@ mod tests {
         assert!(is_valid_regex(r"(?<=\d)px"));
         assert!(is_valid_regex(r"(\w+)\s+\1")); // backreference
         assert!(!is_valid_regex(r"foo(")); // still invalid: unbalanced paren
+    }
+
+    #[test]
+    fn apply_regex_rules_supports_lookaround() {
+        // Strip a trailing "px" only when preceded by digits (lookbehind).
+        let mut r = def("regex_rule", "r", "");
+        r.meta = json!({ "pattern": r"(?<=\d)px", "replacement": "" });
+        assert_eq!(apply_regex_rules("12px and apx", &[r]).as_deref(), Some("12 and apx"));
     }
 
     fn ent(id: &str, mode: TriggerMode, keys: &[&str], content: &str) -> Entry {
