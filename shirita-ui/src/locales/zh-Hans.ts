@@ -17,6 +17,7 @@ const zhHans: MessageSchema = {
     saving: '保存中…',
     tokensEstimate: '~{tokens} tokens',
     avatarPickHint: '从图库选择或上传新图片。',
+    avatarCropHint: '将头像裁剪为正方形。',
     imageDeleteConfirm: '从图库删除此图片？',
     imageNone: '无图片',
     imageName: '图片名称',

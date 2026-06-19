@@ -58,7 +58,7 @@ describe('Composer', () => {
   })
 
   it('uploads a picked file and emits its asset id with the send', async () => {
-    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png' })
+    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png', kind: 'background' })
     const wrapper = mount(Composer, { props: { disabled: false } })
     const fileInput = wrapper.find('input[type="file"]')
     const file = new File(['bytes'], 'pic.png', { type: 'image/png' })
@@ -70,7 +70,7 @@ describe('Composer', () => {
   })
 
   it('enables send with only an attachment and no text', async () => {
-    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png' })
+    vi.spyOn(client, 'uploadAsset').mockResolvedValue({ id: 'a1', name: 'pic', path: 'pic.png', url: '/assets/pic.png', kind: 'background' })
     const wrapper = mount(Composer, { props: { disabled: false } })
     expect((wrapper.find('[data-test="send-btn"]').element as HTMLButtonElement).disabled).toBe(true)
     const fileInput = wrapper.find('input[type="file"]')

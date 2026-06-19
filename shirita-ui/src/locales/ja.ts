@@ -17,6 +17,7 @@ const ja: MessageSchema = {
     saving: '保存中…',
     tokensEstimate: '~{tokens} トークン',
     avatarPickHint: 'ライブラリから選択するか、新しい画像をアップロードします。',
+    avatarCropHint: 'アバターを正方形に切り抜きます。',
     imageDeleteConfirm: 'この画像をライブラリから削除しますか？',
     imageNone: '画像なし',
     imageName: '画像名',

@@ -31,7 +31,7 @@ function onSelect(path: string) {
     <!-- inline shared media library, expands below -->
     <div v-if="isOpen" class="w-full mt-4 bg-card border border-line rounded-xl p-3.5">
       <p class="text-[12px] text-muted mb-3">{{ $t('common.avatarPickHint') }}</p>
-      <AssetPicker :model-value="selectedPath" shape="circle" @update:model-value="onSelect" />
+      <AssetPicker :model-value="selectedPath" shape="circle" kind="avatar" @update:model-value="onSelect" />
     </div>
   </div>
 </template>

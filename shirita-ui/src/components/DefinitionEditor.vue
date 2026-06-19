@@ -192,6 +192,7 @@ function startNew() {
       <label class="text-[12px] text-muted block mb-1.5">{{ $t('definition.avatar') }}</label>
       <AssetPicker
         shape="circle"
+        kind="avatar"
         :model-value="(definition.meta as any).avatar || ''"
         @update:model-value="emit('update:meta', { ...definition.meta, avatar: $event })"
       />
