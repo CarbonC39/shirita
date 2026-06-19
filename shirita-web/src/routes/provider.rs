@@ -6,14 +6,12 @@ use futures::StreamExt;
 
 use shirita_core::{ChatMessage, ChatRequest, Role};
 
-use crate::provider_select::{build_provider, default_base_url, models_request, normalize_models_response};
+use crate::provider_select::{build_provider, models_request, normalize_models_response, resolve_provider_config};
 use crate::AppState;
 
 pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
-    let source = state.storage.get_setting("provider_source").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "openai".into());
-    let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
-    let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
-    let model = state.storage.get_setting("provider_model").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "gpt-4o".into());
+    let (source, base_url, api_key, model) = resolve_provider_config(state.storage.as_ref()).await;
+    let model = if model.is_empty() { "gpt-4o".to_string() } else { model };
     // 与真实生成同源的 builder（anthropic/ollama/openai 兼容皆对），复用共享 client。
     let provider = build_provider(state.http_client.clone(), &source, &base_url, &api_key);
     let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into(), ..Default::default() }], summary: None, max_tokens: Some(16) };
@@ -30,9 +28,7 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
 }
 
 pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
-    let source = state.storage.get_setting("provider_source").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| "openai".into());
-    let base_url = state.storage.get_setting("provider_base_url").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_else(|| default_base_url(&source).into());
-    let api_key = state.storage.get_setting("provider_api_key").await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|v| v.as_str().map(|s| s.to_string())).unwrap_or_default();
+    let (source, base_url, api_key, _model) = resolve_provider_config(state.storage.as_ref()).await;
     let client = state.http_client.clone();
     // Each vendor has its own auth scheme and response shape for listing
     // models; build the right request and normalize the result so the
