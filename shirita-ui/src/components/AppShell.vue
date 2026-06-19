@@ -6,6 +6,9 @@ import { useUiStore } from '../stores/ui'
 
 const ui = useUiStore()
 const route = useRoute()
+const bgStyle = computed(() =>
+  ui.background ? { backgroundImage: `url(/assets/${ui.background})` } : { backgroundColor: 'var(--color-surface, #f8f7f6)' },
+)
 const section = computed(() => {
   if (route.path.startsWith('/book')) return 'book'
   if (route.path.startsWith('/settings')) return 'settings'
@@ -32,11 +35,9 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 
 <template>
   <div data-app="shell" class="h-full flex flex-col">
-    <!-- app-wide background image + readability scrim -->
-    <template v-if="ui.background">
-      <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="{ backgroundImage: `url(/assets/${ui.background})` }" />
-      <div class="fixed inset-0 -z-10 bg-surface/30" />
-    </template>
+    <!-- app-wide background (image + scrim always present, even without custom image) -->
+    <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="bgStyle" />
+    <div class="fixed inset-0 -z-10 bg-surface/30" />
     <header>
       <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
         <div class="flex items-center gap-2 min-w-[120px]">

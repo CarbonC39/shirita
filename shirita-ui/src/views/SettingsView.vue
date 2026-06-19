@@ -393,7 +393,7 @@ async function handleTestConnection() {
 </script>
 
 <template>
-    <div class="max-w-[520px] mx-auto px-5 pt-8 pb-12">
+    <div class="max-w-[520px] mx-auto px-5 pt-8 pb-12 bg-surface/85">
         <p v-if="loading" class="text-muted text-sm text-center pt-12">
             {{ $t("common.loading") }}
         </p>
