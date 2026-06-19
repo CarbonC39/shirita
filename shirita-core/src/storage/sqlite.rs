@@ -456,30 +456,33 @@ impl Storage for SqliteStorage {
 
     // --- prompt nodes ---
     async fn list_nodes(&self, owner_kind: &OwnerKind, owner_id: &str) -> Result<Vec<PromptNode>> {
-        let rows = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at FROM prompt_nodes WHERE owner_kind = ? AND owner_id = ? ORDER BY sort_order ASC, id ASC")
+        let rows = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta FROM prompt_nodes WHERE owner_kind = ? AND owner_id = ? ORDER BY sort_order ASC, id ASC")
             .bind(owner_kind.as_str()).bind(owner_id).fetch_all(&self.pool).await?;
         rows.iter().map(row_to_prompt_node).collect()
     }
 
     async fn create_node(&self, node: &PromptNode) -> Result<()> {
-        sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        let meta = serde_json::to_string(&node.meta)?;
+        sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
             .bind(&node.id).bind(node.owner_kind.as_str()).bind(&node.owner_id)
             .bind(&node.parent_id).bind(node.sort_order).bind(node.kind.as_str())
             .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64).bind(&node.created_at)
+            .bind(meta)
             .execute(&self.pool).await?;
         Ok(())
     }
 
     async fn get_node(&self, id: &str) -> Result<Option<PromptNode>> {
-        let row = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at FROM prompt_nodes WHERE id = ?")
+        let row = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta FROM prompt_nodes WHERE id = ?")
             .bind(id).fetch_optional(&self.pool).await?;
         match row { Some(r) => Ok(Some(row_to_prompt_node(&r)?)), None => Ok(None) }
     }
 
     async fn update_node(&self, node: &PromptNode) -> Result<()> {
-        sqlx::query("UPDATE prompt_nodes SET parent_id = ?, sort_order = ?, kind = ?, tag = ?, definition_id = ?, enabled = ? WHERE id = ?")
+        let meta = serde_json::to_string(&node.meta)?;
+        sqlx::query("UPDATE prompt_nodes SET parent_id = ?, sort_order = ?, kind = ?, tag = ?, definition_id = ?, enabled = ?, meta = ? WHERE id = ?")
             .bind(&node.parent_id).bind(node.sort_order).bind(node.kind.as_str())
-            .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64).bind(&node.id)
+            .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64).bind(meta).bind(&node.id)
             .execute(&self.pool).await?;
         Ok(())
     }
@@ -512,6 +515,7 @@ impl Storage for SqliteStorage {
                 parent_id: new_parent_id, sort_order: node.sort_order, kind: node.kind.clone(),
                 tag: node.tag.clone(), definition_id: node.definition_id.clone(),
                 enabled: node.enabled, created_at: chrono::Utc::now().to_rfc3339(),
+                meta: node.meta.clone(),
             };
             self.create_node(&copy).await?;
             id_map.insert(node.id.clone(), new_id);
@@ -740,12 +744,14 @@ fn row_to_prompt_node(row: &SqliteRow) -> Result<PromptNode> {
     let owner_kind_str: String = row.try_get("owner_kind")?;
     let kind_str: String = row.try_get("kind")?;
     let enabled: i64 = row.try_get("enabled")?;
+    let meta_str: String = row.try_get("meta")?;
     Ok(PromptNode {
         id: row.try_get("id")?, owner_kind: OwnerKind::from_db(&owner_kind_str)?,
         owner_id: row.try_get("owner_id")?, parent_id: row.try_get("parent_id")?,
         sort_order: row.try_get("sort_order")?, kind: NodeKind::from_db(&kind_str)?,
         tag: row.try_get("tag")?, definition_id: row.try_get("definition_id")?,
         enabled: enabled != 0, created_at: row.try_get("created_at")?,
+        meta: serde_json::from_str(&meta_str)?,
     })
 }
 

@@ -316,7 +316,7 @@ export async function createNode(ownerKind: string, ownerId: string, body: { par
   return res.json()
 }
 
-export async function updateNode(nodeId: string, body: { parent_id?: string | null; sort_order?: number; tag?: string; definition_id?: string; enabled?: boolean }): Promise<PromptNode> {
+export async function updateNode(nodeId: string, body: { parent_id?: string | null; sort_order?: number; tag?: string; definition_id?: string; enabled?: boolean; meta?: Record<string, unknown> }): Promise<PromptNode> {
   const res = await fetch(`${BASE}/api/nodes/${nodeId}`, {
     method: 'PUT',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },

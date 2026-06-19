@@ -64,6 +64,12 @@ pub struct PromptNode {
     pub definition_id: Option<String>,
     pub enabled: bool,
     pub created_at: String,
+    /// Per-use override patch for this node's referenced definition (e.g.
+    /// `{"wrap_in_tag": true}`), mirroring the session-level
+    /// `local_definitions` override pattern but scoped to this one template
+    /// placement instead of every place the definition is used.
+    #[serde(default)]
+    pub meta: serde_json::Value,
 }
 
 impl PromptNode {
@@ -85,6 +91,7 @@ impl PromptNode {
             definition_id: None,
             enabled: true,
             created_at: chrono::Utc::now().to_rfc3339(),
+            meta: serde_json::json!({}),
         }
     }
 
@@ -106,6 +113,7 @@ impl PromptNode {
             definition_id: Some(definition_id.into()),
             enabled: true,
             created_at: chrono::Utc::now().to_rfc3339(),
+            meta: serde_json::json!({}),
         }
     }
 }

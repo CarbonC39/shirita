@@ -1,0 +1,1 @@
+ALTER TABLE prompt_nodes ADD COLUMN meta TEXT NOT NULL DEFAULT '{}';

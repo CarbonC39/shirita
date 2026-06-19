@@ -94,6 +94,7 @@ pub fn export_template(
             "def_local_id": def_local,
             "enabled": n.enabled,
             "sort_order": n.sort_order,
+            "meta": n.meta,
         }));
     }
 
@@ -116,6 +117,7 @@ pub struct PortableNode {
     pub def_local_id: Option<String>,
     pub enabled: bool,
     pub sort_order: i64,
+    pub meta: Value,
 }
 
 /// 解析后的可移植定义（带 local_id）。
@@ -175,6 +177,7 @@ pub fn parse_portable(v: &Value) -> Result<PortableDoc> {
                         def_local_id: n.get("def_local_id").and_then(|x| x.as_str()).map(|x| x.to_string()),
                         enabled: n.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
                         sort_order: n.get("sort_order").and_then(|x| x.as_i64()).unwrap_or(0),
+                        meta: n.get("meta").cloned().unwrap_or_else(|| json!({})),
                     })
                 })
                 .collect();

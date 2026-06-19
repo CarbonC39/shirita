@@ -30,6 +30,7 @@ pub struct UpdateNodeBody {
     #[serde(default, deserialize_with = "double_option")]
     pub definition_id: Option<Option<String>>,
     pub enabled: Option<bool>,
+    pub meta: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -89,6 +90,7 @@ pub async fn update_node(State(state): State<AppState>, Path(node_id): Path<Stri
         tag: body.tag.unwrap_or(existing.tag),
         definition_id: body.definition_id.unwrap_or(existing.definition_id),
         enabled: body.enabled.unwrap_or(existing.enabled),
+        meta: body.meta.unwrap_or(existing.meta),
         ..existing
     };
     enforce_two_level(&updated.kind, &updated.parent_id, &owner_nodes)?;
