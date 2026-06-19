@@ -488,7 +488,11 @@ pub fn assemble_from_nodes(
                     .filter(|n| n.parent_id.as_deref() == Some(root.id.as_str()))
                     .collect();
                 children.sort_by_key(|n| n.sort_order);
-                let bodies: Vec<String> = children.iter().filter_map(|c| resolve(c)).collect();
+                let bodies: Vec<String> = children
+                    .iter()
+                    .filter_map(|c| resolve(c))
+                    .filter(|b| !b.trim().is_empty())
+                    .collect();
                 if bodies.is_empty() {
                     continue;
                 }
@@ -500,6 +504,9 @@ pub fn assemble_from_nodes(
             }
             NodeKind::Ref => {
                 if let Some(content) = resolve(root) {
+                    if content.trim().is_empty() {
+                        continue;
+                    }
                     segments.push(PromptSegment {
                         placement,
                         content,
@@ -908,6 +915,21 @@ mod tests {
             &nodes, &defs, &json!({}), &json!({}), &["hi".into()], &mut || 0.0,
         );
         assert!(plan.segments.is_empty());
+    }
+
+    #[test]
+    fn empty_active_child_does_not_emit_empty_tag() {
+        let empty = def("char", "Anchor", ""); // identity anchor, empty content
+        let body = def("char", "Bio", "real body");
+        let f = folder_node("t", 0, "char");
+        let r1 = child_ref("t", &f.id, 0, &empty.id);
+        let r2 = child_ref("t", &f.id, 1, &body.id);
+        let mut defs = std::collections::HashMap::new();
+        defs.insert(empty.id.clone(), empty);
+        defs.insert(body.id.clone(), body);
+        let plan = assemble_from_nodes(&[f, r1, r2], &defs, &json!({}), &json!({}), &[], &mut || 0.0);
+        assert_eq!(plan.segments.len(), 1);
+        assert_eq!(plan.segments[0].content, "<char>\nreal body\n</char>");
     }
 
     use crate::model::ChatMessage;

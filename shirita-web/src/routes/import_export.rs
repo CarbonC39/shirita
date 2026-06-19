@@ -60,6 +60,16 @@ async fn persist_defs(
 ) -> Result<(), StatusCode> {
     let existing = state.storage.list_definitions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     for mut d in defs {
+        // Skip empty content-bearing defs (cleanliness), but never drop identity
+        // anchors (char/persona with a name or avatar) or meta-only types whose
+        // payload lives in meta (regex_rule/first_message).
+        let meta_only = matches!(d.def_type.as_str(), "regex_rule" | "first_message");
+        let is_anchor = matches!(d.def_type.as_str(), "char" | "persona")
+            && (!d.name.trim().is_empty()
+                || d.meta.get("avatar").and_then(|v| v.as_str()).map(|s| !s.is_empty()).unwrap_or(false));
+        if d.content.trim().is_empty() && !meta_only && !is_anchor {
+            continue;
+        }
         let dup = existing.iter().find(|e| e.name == d.name && e.def_type == d.def_type).cloned();
         match (dup, oc) {
             (Some(ex), OnConflict::Skip) => summary.skipped.push(item("definition", &ex.id, &ex.name)),
