@@ -130,6 +130,14 @@ const zhHans: MessageSchema = {
     deleteTemplateConfirm: '删除此模板？',
     deleteTemplateOrphans: '此模板是唯一引用这 {count} 个定义的地方。是否一并删除？',
   },
+  pack: {
+    identity: '身份',
+    displayName: '显示名',
+    displayNamePlaceholder: '聊天中显示的名称…',
+    avatar: '头像',
+    contentTree: '内容',
+    variables: '变量',
+  },
   definition: {
     heading: '定义',
     avatar: '头像',

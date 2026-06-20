@@ -140,6 +140,14 @@ const en = {
     deleteTemplateOrphans:
       'This template is the only thing using {count} definition. Delete it too? | This template is the only thing using {count} definitions. Delete them too?',
   },
+  pack: {
+    identity: 'Identity',
+    displayName: 'Display name',
+    displayNamePlaceholder: 'Name shown in chat…',
+    avatar: 'Avatar',
+    contentTree: 'Content',
+    variables: 'Variables',
+  },
   definition: {
     heading: 'Definition',
     avatar: 'Avatar',
