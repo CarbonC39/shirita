@@ -159,3 +159,46 @@ async fn identity_is_null_without_a_template() {
     assert_eq!(st, StatusCode::OK);
     assert!(serde_json::from_str::<serde_json::Value>(&out).unwrap()["assistant"]["name"].is_null());
 }
+
+#[tokio::test]
+async fn identity_prefers_mounted_pack_binding() {
+    let state = test_state().await;
+    // A char definition lives inside a pack; the pack binds a display name + avatar.
+    let (_, c) = send(&state, "POST", "/api/definitions", Some(r#"{"type":"char","name":"Alice","content":"desc"}"#)).await;
+    let cid = serde_json::from_str::<serde_json::Value>(&c).unwrap()["id"].as_str().unwrap().to_string();
+    let (_, p) = send(&state, "POST", "/api/packs",
+        Some(r#"{"name":"AlicePack","identity":{"display_name":"Alice the Bound","avatar":"pack.png"}}"#)).await;
+    let pid = serde_json::from_str::<serde_json::Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+    let body = format!(r#"{{"kind":"ref","definition_id":"{cid}"}}"#);
+    send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"), Some(&body)).await;
+    // Session with no template-bound char — only the mounted pack + a session avatar.
+    let (_, s) = send(&state, "POST", "/api/sessions",
+        Some(&format!(r#"{{"name":"chat","avatar":"face.png","pack_ids":["{pid}"]}}"#))).await;
+    let sid = serde_json::from_str::<serde_json::Value>(&s).unwrap()["id"].as_str().unwrap().to_string();
+
+    let (st, out) = send(&state, "GET", &format!("/api/sessions/{sid}/identity"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["assistant"]["name"], "Alice the Bound"); // pack display_name wins
+    assert_eq!(v["assistant"]["avatar"], "pack.png");       // pack avatar over session avatar
+}
+
+#[tokio::test]
+async fn identity_pack_without_display_name_falls_back_to_char_def() {
+    let state = test_state().await;
+    let (_, c) = send(&state, "POST", "/api/definitions", Some(r#"{"type":"char","name":"Bob","content":"d"}"#)).await;
+    let cid = serde_json::from_str::<serde_json::Value>(&c).unwrap()["id"].as_str().unwrap().to_string();
+    let (_, p) = send(&state, "POST", "/api/packs", Some(r#"{"name":"BobPack"}"#)).await; // no identity
+    let pid = serde_json::from_str::<serde_json::Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+    let body = format!(r#"{{"kind":"ref","definition_id":"{cid}"}}"#);
+    send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"), Some(&body)).await;
+    let (_, s) = send(&state, "POST", "/api/sessions",
+        Some(&format!(r#"{{"name":"chat","avatar":"face.png","pack_ids":["{pid}"]}}"#))).await;
+    let sid = serde_json::from_str::<serde_json::Value>(&s).unwrap()["id"].as_str().unwrap().to_string();
+
+    let (st, out) = send(&state, "GET", &format!("/api/sessions/{sid}/identity"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(v["assistant"]["name"], "Bob");          // falls back to the pack's char def name
+    assert_eq!(v["assistant"]["avatar"], "face.png");    // falls back to the session avatar
+}
