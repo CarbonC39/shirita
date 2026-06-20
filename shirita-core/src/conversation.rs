@@ -13,7 +13,7 @@ use crate::budget::trim_history;
 use crate::models::session::Session;
 use crate::models::summary::Summary;
 use crate::state::{
-    apply_updates, effective_state, parse_state_updates, resolve_schema, strip_state_tags, VarDecl,
+    apply_updates, effective_state, parse_state_updates, strip_state_tags, VarDecl,
 };
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
