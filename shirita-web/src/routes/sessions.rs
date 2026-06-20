@@ -248,6 +248,31 @@ pub async fn list_messages(
 }
 
 #[derive(Deserialize)]
+pub struct SetPacks {
+    pub pack_ids: Vec<String>,
+}
+
+pub async fn set_packs(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<SetPacks>,
+) -> Result<StatusCode, StatusCode> {
+    if state.storage.get_session(&session_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    state.storage.set_mounted_packs(&session_id, &body.pack_ids).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
+
+pub async fn get_packs(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    let s = state.storage.get_session(&session_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    Ok(Json(s.mounted_packs))
+}
+
+#[derive(Deserialize)]
 pub struct SetMounts {
     pub definition_ids: Vec<String>,
 }
