@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronRight, Folder, FileText, History, Check, Maximize2, Trash2, Plus, GripVertical } from 'lucide-vue-next'
+import { ChevronRight, Folder, FileText, History, Package, Check, Maximize2, Trash2, Plus, GripVertical } from 'lucide-vue-next'
 import type { Definition, PromptNode, Trigger } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -28,6 +28,7 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
 const isHistory = computed(() => props.node.kind === 'history')
+const isContent = computed(() => props.node.kind === 'content')
 
 const def = computed<Definition | null>(() =>
   props.node.definition_id ? props.definitions[props.node.definition_id] ?? null : null,
@@ -35,6 +36,7 @@ const def = computed<Definition | null>(() =>
 
 const label = computed(() => {
   if (isHistory.value) return t('prompt.chatHistory')
+  if (isContent.value) return t('prompt.contentMount')
   if (isFolder.value) return props.node.tag || t('prompt.folderFallback')
   return def.value ? def.value.name : t('prompt.missing')
 })
@@ -100,6 +102,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
 
       <!-- type icon -->
       <History v-if="isHistory" :size="16" class="text-primary shrink-0" :stroke-width="1.8" />
+      <Package v-else-if="isContent" :size="16" class="text-primary shrink-0" :stroke-width="1.8" />
       <Folder v-else-if="isFolder" :size="17" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
       <FileText v-else :size="16" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
 
@@ -114,9 +117,9 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         @click.stop="emit('add')"
       ><Plus :size="15" /></button>
 
-      <!-- delete (history rows render none) -->
+      <!-- delete (history + content rows render none) -->
       <button
-        v-if="!isHistory"
+        v-if="!isHistory && !isContent"
         data-test="node-delete"
         class="text-muted/0 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
         :title="$t('common.delete')"
@@ -124,14 +127,14 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       ><Trash2 :size="15" /></button>
 
       <!-- trailing expand chevron: folders expand children, refs expand content -->
-      <button data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click="emit('toggleExpand')">
+      <button v-if="!isHistory && !isContent" data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click="emit('toggleExpand')">
         <ChevronRight :size="16" :class="isExpanded ? 'rotate-90' : ''" class="transition-transform" />
       </button>
     </div>
 
     <!-- inline content editor for ref nodes -->
     <transition name="expand">
-    <div v-if="!isFolder && !isHistory && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
+    <div v-if="!isFolder && !isHistory && !isContent && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
       <div class="relative">
         <textarea
           v-model="draft"

@@ -68,6 +68,7 @@ const ja: MessageSchema = {
     noMatching: '一致する定義がありません',
     otherType: '他のタイプ',
     chatHistory: 'チャット履歴',
+    contentMount: 'マウント済みパック',
     folderFallback: '(フォルダー)',
     missing: '(欠落)',
     addToContainer: 'コンテナに追加',
