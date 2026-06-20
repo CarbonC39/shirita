@@ -24,7 +24,9 @@ Relationship: **Definitions are atoms; a Pack bundles atoms + gives them a face 
 
 ## 3. Book view (Plan 6)
 
-One scrolling column. The existing "this-chat overrides" section stays at the very top when inside a chat (unchanged). Below it, three stacked sections in this order:
+One scrolling column. The existing "this-chat overrides" section stays at the very top when inside a chat (unchanged). Below it, three stacked sections in this order.
+
+**Section color-coding (required):** each of the three sections carries a distinct accent (its heading label + a thin left rule), drawn from the existing palette so the eye can tell them apart while scrolling: **Template = `primary` (teal)**, **Pack = `mauve`**, **Definitions = `muted` (neutral)**. The accent is section chrome only (heading + rule); it must not tint the tree contents, so it never collides with the per-type icon tints inside the trees (`char=sky`, `persona=coral`, `world=mauve`, …).
 
 ### 3.1 TEMPLATE (top — the essential frame)
 
@@ -47,9 +49,12 @@ Template is the one thing you cannot chat without (a "Default" is auto-seeded), 
 
 - The existing `DefinitionEditor` (its own search picker + fields + create/delete/duplicate/import/export/type management). Unchanged except for being relabeled/positioned as the bottom section.
 
-### 3.4 Folder `select=one` mutual exclusion (deferred from Plan 5)
+### 3.4 Folder `select=one` — visual + behavior (deferred from Plan 5)
 
-In a `select=one` folder, enabling a child disables its currently-enabled siblings (radio-style; deselect is allowed). This is wired at the Book/handler level (the layer that owns `toggleEnabled` persistence and the node list), applied to both the template and pack trees. The backend already renders only the first enabled child for `select=one`; this just makes the UI single-select intent explicit and deterministic.
+Two parts, both applied to the template and pack trees:
+
+- **Visual (required, component level).** The direct children of a `select=one` folder render their enable control as a **radio button** (round, single-select look), not the default rounded-square checkbox. NodeRow only knows its own node, so `PromptTree` passes a `singleSelect` prop to the child rows it renders under a `select=one` folder; NodeRow switches the enable control's shape on that prop. Children of an `all` folder and root rows keep the square checkbox.
+- **Behavior.** Enabling a child in a `select=one` folder disables its currently-enabled siblings (radio-style; deselect is allowed). Wired at the Book/handler level (the layer that owns `toggleEnabled` persistence and the node list). The backend already renders only the first enabled child for `select=one`; this makes the UI single-select intent explicit and deterministic.
 
 ## 4. New chat (Plan 7)
 
@@ -65,7 +70,7 @@ New chat
 ```
 
 - **Template**: search-box picker (required-ish; pre-selected to the first template since one is always seeded).
-- **Mount packs**: a search-add control that appends chosen packs to an ordered chip list (mount order matters — it drives identity precedence and assembly order). Chips are removable. "+ New pack" in this picker routes to the Book's Pack editor (no inline pack authoring).
+- **Mount packs**: a search-add control that appends chosen packs to an ordered chip list. **Mount order is meaningful** — it drives identity precedence (first character pack wins) and assembly order — so chips are both **removable** and **reorderable** (drag, reusing the same native drag-handle pattern as PromptTree rows). "+ New pack" in this picker routes to the Book's Pack editor (no inline pack authoring).
 - **Identity/avatar**: the assistant face comes from the first mounted character pack (Plan 4 `resolve_identity_with_packs`). Show a resolved avatar preview; allow an optional per-chat avatar override (`AvatarPicker`) that becomes the session avatar (the Plan-4 fallback).
 - **No inline tree editing** — authoring lives in the Book.
 - Create → `createSession(name, templateId, avatar, pack_ids)` → navigate `/chat/:id`.
@@ -86,11 +91,12 @@ New chat
 
 ## 7. Testing
 
-- **Component**: search-box pickers (filter/select/create-new emits); Pack identity editor (avatar + name → `updatePack`); Pack tree wiring (add/toggle/delete/reorder against `owner_kind=pack`); `select=one` mutual exclusion (enabling one emits disables for enabled siblings); new-chat (template select + mount-pack chips add/remove; Create posts `pack_ids`).
+- **Component**: search-box pickers (filter/select/create-new emits); Pack identity editor (avatar + name → `updatePack`); Pack tree wiring (add/toggle/delete/reorder against `owner_kind=pack`); `select=one` children render the radio-style enable control (square for `all`/root); `select=one` mutual exclusion (enabling one emits disables for enabled siblings); new-chat (template select + mount-pack chips add/remove/**reorder**; Create posts `pack_ids` in chip order).
+- **Visual-only (no unit test)**: the three Book sections' accent color-coding — verified by build + eyeball, not asserted in tests.
 - **i18n**: all new keys in `en/zh-Hans/zh-Hant/ja`; `parity.test.ts` green.
 - **Typecheck/build**: `vue-tsc` clean.
 
 ## 8. Plan split
 
-- **Plan 6** — Book editor split + plumbing: api/client pack functions + `library.packs`/`loadPacks`; Book PACK section (identity + pack tree + variables); reorder Template above Pack and swap both pickers to search-box; `select=one` mutual exclusion.
-- **Plan 7** — Single-screen new-chat: collapse the two views into one (template search-pick + mount-pack chips + optional avatar override), wire `createSession` with `pack_ids`, route to chat.
+- **Plan 6** — Book editor split + plumbing: api/client pack functions + `library.packs`/`loadPacks`; Book PACK section (identity + pack tree + variables); reorder Template above Pack and swap both pickers to search-box; section color-coding; `select=one` radio-style child controls (NodeRow/PromptTree) + mutual exclusion (Book handlers).
+- **Plan 7** — Single-screen new-chat: collapse the two views into one (template search-pick + mount-pack chips that are removable + reorderable + optional avatar override), wire `createSession` with `pack_ids` in chip order, route to chat.
