@@ -181,12 +181,26 @@ fn merge_decls(out: &mut Vec<VarDecl>, decls: Vec<VarDecl>) {
     }
 }
 
-/// 解析会话的有效 schema：系统 ∪ 模板 `meta.variables` ∪ 会话 `override_config.local_variables`。
-pub fn resolve_schema(template_meta: Option<&Value>, override_config: &Value) -> Vec<VarDecl> {
+/// Resolve a session's effective schema: system ∪ template `meta.variables` ∪
+/// each mounted pack's `meta.variables` ∪ session `override_config.local_variables`.
+/// Later sources win on name collision (local is authoritative).
+pub fn resolve_schema_with_packs(
+    template_meta: Option<&Value>,
+    pack_metas: &[Value],
+    override_config: &Value,
+) -> Vec<VarDecl> {
     let mut out = system_variables();
     merge_decls(&mut out, parse_decls(template_meta.and_then(|m| m.get("variables")), "template"));
+    for pm in pack_metas {
+        merge_decls(&mut out, parse_decls(pm.get("variables"), "pack"));
+    }
     merge_decls(&mut out, parse_decls(override_config.get("local_variables"), "local"));
     out
+}
+
+/// Back-compat: resolve a schema with no mounted packs.
+pub fn resolve_schema(template_meta: Option<&Value>, override_config: &Value) -> Vec<VarDecl> {
+    resolve_schema_with_packs(template_meta, &[], override_config)
 }
 
 fn num_value(n: f64) -> Value {
@@ -261,6 +275,25 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn pack_variables_merge_between_template_and_local() {
+        let tmeta = serde_json::json!({ "variables": [ { "name": "tone", "type": "string", "initial": "calm" } ] });
+        let pmeta = serde_json::json!({ "variables": [ { "name": "affection", "type": "number", "initial": "0" } ] });
+        let cfg = serde_json::json!({});
+        let schema = resolve_schema_with_packs(Some(&tmeta), std::slice::from_ref(&pmeta), &cfg);
+        assert!(schema.iter().any(|d| d.name == "tone"));
+        assert!(schema.iter().any(|d| d.name == "affection"), "pack variable is in the schema");
+    }
+
+    #[test]
+    fn local_overrides_pack_variable() {
+        let pmeta = serde_json::json!({ "variables": [ { "name": "affection", "type": "number", "initial": "0" } ] });
+        let cfg = serde_json::json!({ "local_variables": [ { "name": "affection", "type": "string", "initial": "x" } ] });
+        let schema = resolve_schema_with_packs(None, std::slice::from_ref(&pmeta), &cfg);
+        let d = schema.iter().find(|d| d.name == "affection").unwrap();
+        assert_eq!(d.var_type, VarType::String, "local declaration wins over pack");
+    }
 
     fn schema() -> Vec<VarDecl> {
         vec![

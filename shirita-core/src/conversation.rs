@@ -18,13 +18,19 @@ use crate::state::{
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
 
-/// 解析会话的有效变量 schema（系统 ∪ 模板 meta ∪ 会话 local）。
+/// 解析会话的有效变量 schema（系统 ∪ 模板 meta ∪ 挂载 packs meta ∪ 会话 local）。
 async fn session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl> {
     let template_meta = match &session.template_id {
         Some(tid) => storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
         None => None,
     };
-    resolve_schema(template_meta.as_ref(), &session.override_config)
+    let mut pack_metas = Vec::new();
+    for pid in &session.mounted_packs {
+        if let Ok(Some(p)) = storage.get_pack(pid).await {
+            pack_metas.push(p.meta);
+        }
+    }
+    crate::state::resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config)
 }
 
 /// 读上下文窗口（settings `context.window`，默认 200000）。
