@@ -88,6 +88,21 @@ async fn pack_nodes_crud_via_reused_endpoints() {
 }
 
 #[tokio::test]
+async fn session_pack_mounts_roundtrip() {
+    let state = test_state().await;
+    let (_, b) = send(&state, "POST", "/api/sessions", Some(json!({ "name": "Chat" }))).await;
+    let sid = body_json(&b)["id"].as_str().unwrap().to_string();
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({ "name": "Alice" }))).await;
+    let pid = body_json(&b)["id"].as_str().unwrap().to_string();
+
+    let (st, _) = send(&state, "PUT", &format!("/api/sessions/{sid}/packs"), Some(json!({ "pack_ids": [pid] }))).await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, b) = send(&state, "GET", &format!("/api/sessions/{sid}/packs"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body_json(&b), json!([pid]));
+}
+
+#[tokio::test]
 async fn pack_crud_roundtrip() {
     let state = test_state().await;
     let (st, b) = send(&state, "POST", "/api/packs", Some(json!({
