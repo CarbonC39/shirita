@@ -61,6 +61,7 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
     let override_config: String = row.try_get("override_config")?;
     let current_state: String = row.try_get("current_state")?;
     let mounted: String = row.try_get("mounted_definitions")?;
+    let mounted_packs: String = row.try_get("mounted_packs")?;
     Ok(Session {
         id: row.try_get("id")?,
         name: row.try_get("name")?,
@@ -69,6 +70,7 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
         override_config: serde_json::from_str(&override_config)?,
         current_state: serde_json::from_str(&current_state)?,
         mounted_definitions: serde_json::from_str(&mounted)?,
+        mounted_packs: serde_json::from_str(&mounted_packs)?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         sort_order: row.try_get("sort_order")?,
@@ -207,9 +209,10 @@ impl Storage for SqliteStorage {
         let override_config = serde_json::to_string(&session.override_config)?;
         let current_state = serde_json::to_string(&session.current_state)?;
         let mounted = serde_json::to_string(&session.mounted_definitions)?;
+        let mounted_packs = serde_json::to_string(&session.mounted_packs)?;
         sqlx::query(
-            "INSERT INTO chat_sessions (id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO chat_sessions (id, name, avatar, template_id, override_config, current_state, mounted_definitions, mounted_packs, created_at, updated_at, sort_order) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&session.id)
         .bind(&session.name)
@@ -218,6 +221,7 @@ impl Storage for SqliteStorage {
         .bind(override_config)
         .bind(current_state)
         .bind(mounted)
+        .bind(mounted_packs)
         .bind(&session.created_at)
         .bind(&session.updated_at)
         .bind(session.sort_order)
@@ -228,7 +232,7 @@ impl Storage for SqliteStorage {
 
     async fn get_session(&self, id: &str) -> Result<Option<Session>> {
         let row = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, active_leaf_id FROM chat_sessions WHERE id = ?",
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, mounted_packs, created_at, updated_at, sort_order, active_leaf_id FROM chat_sessions WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -243,7 +247,7 @@ impl Storage for SqliteStorage {
         // Correlated subquery grabs the latest visible message per session so the
         // home cards can show a recent-activity snippet without an N+1 round-trip.
         let rows = sqlx::query(
-            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, created_at, updated_at, sort_order, active_leaf_id, \
+            "SELECT id, name, avatar, template_id, override_config, current_state, mounted_definitions, mounted_packs, created_at, updated_at, sort_order, active_leaf_id, \
              (SELECT COALESCE(display_content, raw_content) FROM messages \
                 WHERE session_id = chat_sessions.id AND is_hidden = 0 \
                 ORDER BY created_at DESC LIMIT 1) AS preview \
@@ -272,6 +276,16 @@ impl Storage for SqliteStorage {
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()> {
         let json = serde_json::to_string(ids)?;
         sqlx::query("UPDATE chat_sessions SET mounted_definitions = ? WHERE id = ?")
+            .bind(json)
+            .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn set_mounted_packs(&self, session_id: &str, ids: &[String]) -> Result<()> {
+        let json = serde_json::to_string(ids)?;
+        sqlx::query("UPDATE chat_sessions SET mounted_packs = ? WHERE id = ?")
             .bind(json)
             .bind(session_id)
             .execute(&self.pool)
@@ -1108,6 +1122,18 @@ mod tests {
         assert_eq!(storage.list_assets(Some("background")).await.unwrap().len(), 1);
         assert_eq!(storage.list_assets(None).await.unwrap().len(), 2);
         assert_eq!(storage.get_asset(&av.id).await.unwrap().unwrap().kind, "avatar");
+    }
+
+    #[tokio::test]
+    async fn session_mounted_packs_roundtrip() {
+        let s = temp_storage().await;
+        let sess = Session::new("Chat");
+        s.create_session(&sess).await.unwrap();
+        assert!(s.get_session(&sess.id).await.unwrap().unwrap().mounted_packs.is_empty());
+
+        s.set_mounted_packs(&sess.id, &["p1".into(), "p2".into()]).await.unwrap();
+        let got = s.get_session(&sess.id).await.unwrap().unwrap();
+        assert_eq!(got.mounted_packs, vec!["p1".to_string(), "p2".to_string()]);
     }
 
     #[tokio::test]

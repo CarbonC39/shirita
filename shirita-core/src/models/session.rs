@@ -15,6 +15,8 @@ pub struct Session {
     pub current_state: serde_json::Value,
     #[serde(default)]
     pub mounted_definitions: Vec<String>,
+    #[serde(default)]
+    pub mounted_packs: Vec<String>,
     /// RFC3339 creation / last-activity timestamps (for display).
     #[serde(default)]
     pub created_at: String,
@@ -45,6 +47,7 @@ impl Session {
             override_config: serde_json::json!({}),
             current_state: serde_json::json!({}),
             mounted_definitions: Vec::new(),
+            mounted_packs: Vec::new(),
             created_at: now.to_rfc3339(),
             updated_at: now.to_rfc3339(),
             sort_order: now.timestamp_millis(),
