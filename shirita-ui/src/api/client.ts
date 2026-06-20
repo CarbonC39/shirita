@@ -5,6 +5,8 @@ import type {
   ImportSummary,
   Message,
   OnConflict,
+  Pack,
+  PackIdentity,
   PromptNode,
   Session,
   SessionState,
@@ -185,11 +187,16 @@ export async function* regenerateMessage(
 }
 
 // --- Sessions ---
-export async function createSession(name: string, templateId?: string | null, avatar?: string | null): Promise<Session> {
+export async function createSession(
+  name: string,
+  templateId?: string | null,
+  avatar?: string | null,
+  packIds: string[] = [],
+): Promise<Session> {
   const res = await fetch(`${BASE}/api/sessions`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, template_id: templateId || undefined, avatar: avatar || undefined }),
+    body: JSON.stringify({ name, template_id: templateId || undefined, avatar: avatar || undefined, pack_ids: packIds }),
   })
   if (!res.ok) throw new Error(`Create session failed: ${res.status}`)
   return res.json()
@@ -453,4 +460,49 @@ export function exportDefinitionPath(id: string): string {
 
 export function exportTemplatePath(id: string): string {
   return `/templates/${id}/export`
+}
+
+// --- Packs ---
+export function listPacks(): Promise<Pack[]> { return apiGet<Pack[]>('/packs') }
+
+export function getPack(id: string): Promise<Pack> { return apiGet<Pack>(`/packs/${id}`) }
+
+export async function createPack(body: { name: string; identity?: PackIdentity; meta?: Record<string, unknown> }): Promise<Pack> {
+  const res = await fetch(`${BASE}/api/packs`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Create pack failed: ${res.status}`)
+  return res.json()
+}
+
+export async function updatePack(id: string, body: { name: string; identity?: PackIdentity; meta?: Record<string, unknown> }): Promise<Pack> {
+  const res = await fetch(`${BASE}/api/packs/${id}`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`Update pack failed: ${res.status}`)
+  return res.json()
+}
+
+export async function deletePack(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/packs/${id}`, { method: 'DELETE', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Delete pack failed: ${res.status}`)
+}
+
+export async function duplicatePack(id: string): Promise<Pack> {
+  const res = await fetch(`${BASE}/api/packs/${id}/duplicate`, { method: 'POST', headers: authHeaders() })
+  if (!res.ok) throw new Error(`Duplicate pack failed: ${res.status}`)
+  return res.json()
+}
+
+export async function setSessionPacks(sessionId: string, packIds: string[]): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/packs`, {
+    method: 'PUT',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pack_ids: packIds }),
+  })
+  if (!res.ok) throw new Error(`Set session packs failed: ${res.status}`)
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity } from './client'
+import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -190,5 +190,48 @@ describe('runtime config injection', () => {
     const body = { assistant: { name: 'Neo', avatar: 'a.png' }, user: { name: 'Me', avatar: null } }
     vi.stubGlobal('fetch', mockFetch(200, body))
     await expect(getSessionIdentity('s1')).resolves.toEqual(body)
+  })
+})
+
+import { listPacks, createPack, setSessionPacks, createSession } from './client'
+
+describe('packs client', () => {
+  beforeEach(() => { vi.restoreAllMocks() })
+
+  it('listPacks GETs /api/packs', async () => {
+    const data = [{ id: 'p1', name: 'Alice', identity: { display_name: null, avatar: null }, meta: {}, created_at: '', updated_at: '' }]
+    const fm = mockFetch(200, data)
+    vi.stubGlobal('fetch', fm)
+    await expect(listPacks()).resolves.toEqual(data)
+    expect(fm).toHaveBeenCalledWith('/api/packs', { headers: { Authorization: 'Bearer test-token' } })
+  })
+
+  it('createPack POSTs name + identity', async () => {
+    const fm = mockFetch(200, { id: 'p1' })
+    vi.stubGlobal('fetch', fm)
+    await createPack({ name: 'Alice', identity: { display_name: 'Alice', avatar: 'a.png' } })
+    const [url, opts] = fm.mock.calls[0]
+    expect(url).toContain('/api/packs')
+    expect(opts.method).toBe('POST')
+    expect(JSON.parse(opts.body)).toEqual({ name: 'Alice', identity: { display_name: 'Alice', avatar: 'a.png' } })
+  })
+
+  it('setSessionPacks PUTs the pack id list', async () => {
+    const fm = mockFetch(200, {})
+    vi.stubGlobal('fetch', fm)
+    await setSessionPacks('s1', ['p1', 'p2'])
+    const [url, opts] = fm.mock.calls[0]
+    expect(url).toContain('/api/sessions/s1/packs')
+    expect(opts.method).toBe('PUT')
+    expect(JSON.parse(opts.body)).toEqual({ pack_ids: ['p1', 'p2'] })
+  })
+
+  it('createSession includes pack_ids in the body', async () => {
+    const fm = mockFetch(200, { id: 's1' })
+    vi.stubGlobal('fetch', fm)
+    await createSession('Chat', 't1', null, ['p1'])
+    const body = JSON.parse(fm.mock.calls[0][1].body)
+    expect(body.pack_ids).toEqual(['p1'])
+    expect(body.template_id).toBe('t1')
   })
 })
