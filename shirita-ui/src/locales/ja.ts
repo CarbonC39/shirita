@@ -130,6 +130,14 @@ const ja: MessageSchema = {
     deleteTemplateConfirm: 'このテンプレートを削除しますか？',
     deleteTemplateOrphans: 'このテンプレートだけが {count} 件の定義を使用しています。一緒に削除しますか？',
   },
+  pack: {
+    identity: 'アイデンティティ',
+    displayName: '表示名',
+    displayNamePlaceholder: 'チャットに表示される名前…',
+    avatar: 'アバター',
+    contentTree: '内容',
+    variables: '変数',
+  },
   definition: {
     heading: '定義',
     avatar: 'アバター',

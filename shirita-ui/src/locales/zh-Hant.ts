@@ -130,6 +130,14 @@ const zhHant: MessageSchema = {
     deleteTemplateConfirm: '刪除此範本？',
     deleteTemplateOrphans: '此範本是唯一引用這 {count} 個定義的地方。是否一併刪除？',
   },
+  pack: {
+    identity: '身分',
+    displayName: '顯示名稱',
+    displayNamePlaceholder: '聊天中顯示的名稱…',
+    avatar: '頭像',
+    contentTree: '內容',
+    variables: '變數',
+  },
   definition: {
     heading: '定義',
     avatar: '頭像',
