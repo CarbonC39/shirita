@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use shirita_core::state::{effective_state, resolve_schema};
+use shirita_core::state::{effective_state, resolve_schema_with_packs};
 use shirita_core::tree::active_path;
 
 use crate::AppState;
@@ -21,7 +21,13 @@ pub async fn get_state(
         Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
         None => None,
     };
-    let schema = resolve_schema(template_meta.as_ref(), &session.override_config);
+    let mut pack_metas = Vec::new();
+    for pid in &session.mounted_packs {
+        if let Ok(Some(p)) = state.storage.get_pack(pid).await {
+            pack_metas.push(p.meta);
+        }
+    }
+    let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
     let all = state.storage.list_messages(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let leaf = active_path(&all, session.active_leaf_id.as_deref())
         .last()

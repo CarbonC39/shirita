@@ -80,6 +80,27 @@ async fn get_state_merges_schema_seed_and_leaf() {
 }
 
 #[tokio::test]
+async fn state_schema_includes_mounted_pack_variables() {
+    let state = test_state().await;
+    let tid = create_template(&state, "T", "{}").await;
+    // A pack declaring its own variable.
+    let (_, p) = send(&state, "POST", "/api/packs",
+        Some(r#"{"name":"P","meta":{"variables":[{"name":"affection","type":"number","initial":5}]}}"#)).await;
+    let pid = json(&p)["id"].as_str().unwrap().to_string();
+    let (_, sout) = send(&state, "POST", "/api/sessions",
+        Some(&format!(r#"{{"name":"Chat","template_id":"{tid}","pack_ids":["{pid}"]}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    let (st, state_out) = send(&state, "GET", &format!("/api/sessions/{sid}/state"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let body = json(&state_out);
+    let names: Vec<&str> = body["schema"].as_array().unwrap()
+        .iter().map(|d| d["name"].as_str().unwrap()).collect();
+    assert!(names.contains(&"affection"), "pack variable present in display schema");
+    assert_eq!(body["values"]["affection"], 5);
+}
+
+#[tokio::test]
 async fn set_local_variables_adds_to_the_schema() {
     let state = test_state().await;
     let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
