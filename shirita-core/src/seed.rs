@@ -38,10 +38,49 @@ pub async fn ensure_default_template<S: Storage + ?Sized>(storage: &S) -> Result
     }
     let t = Template::new("Default");
     storage.create_template(&t).await?;
-    let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "history");
+    let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+    content.kind = NodeKind::Content;
+    content.tag = None;
+    storage.create_node(&content).await?;
+    let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
     hist.kind = NodeKind::History;
     hist.tag = None;
     storage.create_node(&hist).await?;
+    Ok(())
+}
+
+/// Backfill: every template must own exactly one `content` mount node. For each
+/// template lacking one, insert it and reorder so it sits just before the
+/// history node (or last if there is none). Idempotent. Plan 3 calls this at
+/// startup alongside `ensure_default_template`.
+pub async fn ensure_templates_have_content_node<S: Storage + ?Sized>(storage: &S) -> Result<()> {
+    for t in storage.list_templates().await? {
+        let nodes = storage.list_nodes(&OwnerKind::Template, &t.id).await?;
+        if nodes.iter().any(|n| n.kind == NodeKind::Content) {
+            continue;
+        }
+        let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        content.kind = NodeKind::Content;
+        content.tag = None;
+        storage.create_node(&content).await?;
+        // reorder root nodes so content lands right before history (else last).
+        let mut root: Vec<&PromptNode> =
+            nodes.iter().filter(|n| n.parent_id.is_none()).collect();
+        root.sort_by_key(|n| n.sort_order);
+        let mut ordered: Vec<String> = Vec::new();
+        for n in &root {
+            if n.kind == NodeKind::History {
+                ordered.push(content.id.clone());
+            }
+            ordered.push(n.id.clone());
+        }
+        if !ordered.contains(&content.id) {
+            ordered.push(content.id.clone());
+        }
+        storage
+            .reorder_nodes(&OwnerKind::Template, &t.id, &ordered)
+            .await?;
+    }
     Ok(())
 }
 
@@ -106,6 +145,38 @@ mod tests {
             .await
             .unwrap();
         assert!(nodes.iter().any(|n| n.kind == NodeKind::History));
+    }
+
+    #[tokio::test]
+    async fn default_template_has_content_before_history() {
+        let storage = mem_storage().await;
+        ensure_default_template(&storage).await.unwrap();
+        let t = &storage.list_templates().await.unwrap()[0];
+        let nodes = storage.list_nodes(&OwnerKind::Template, &t.id).await.unwrap();
+        let content = nodes.iter().find(|n| n.kind == NodeKind::Content).expect("content node");
+        let history = nodes.iter().find(|n| n.kind == NodeKind::History).expect("history node");
+        assert!(content.sort_order < history.sort_order, "content sorts before history");
+    }
+
+    #[tokio::test]
+    async fn backfill_adds_one_content_node_idempotently() {
+        let storage = mem_storage().await;
+        // a template with only a history node (legacy shape)
+        let t = Template::new("Legacy");
+        storage.create_template(&t).await.unwrap();
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "history");
+        hist.kind = NodeKind::History;
+        hist.tag = None;
+        storage.create_node(&hist).await.unwrap();
+
+        ensure_templates_have_content_node(&storage).await.unwrap();
+        ensure_templates_have_content_node(&storage).await.unwrap(); // idempotent
+
+        let nodes = storage.list_nodes(&OwnerKind::Template, &t.id).await.unwrap();
+        let contents: Vec<_> = nodes.iter().filter(|n| n.kind == NodeKind::Content).collect();
+        assert_eq!(contents.len(), 1, "exactly one content node");
+        let history = nodes.iter().find(|n| n.kind == NodeKind::History).unwrap();
+        assert!(contents[0].sort_order < history.sort_order, "content backfilled before history");
     }
 
     #[tokio::test]
