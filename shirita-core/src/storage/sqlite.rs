@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::models::asset::Asset;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
+use crate::models::pack::Pack;
 use crate::models::message::{Message, Role};
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
@@ -454,6 +455,44 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    // --- packs ---
+    async fn create_pack(&self, pack: &Pack) -> Result<()> {
+        let identity = serde_json::to_string(&pack.identity)?;
+        let meta = serde_json::to_string(&pack.meta)?;
+        sqlx::query("INSERT INTO packs (id, name, identity_json, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(&pack.id).bind(&pack.name).bind(identity).bind(meta)
+            .bind(&pack.created_at).bind(&pack.updated_at)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn get_pack(&self, id: &str) -> Result<Option<Pack>> {
+        let row = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs WHERE id = ?")
+            .bind(id).fetch_optional(&self.pool).await?;
+        match row { Some(r) => Ok(Some(row_to_pack(&r)?)), None => Ok(None) }
+    }
+
+    async fn list_packs(&self) -> Result<Vec<Pack>> {
+        let rows = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs ORDER BY name")
+            .fetch_all(&self.pool).await?;
+        rows.iter().map(row_to_pack).collect()
+    }
+
+    async fn update_pack(&self, pack: &Pack) -> Result<()> {
+        let identity = serde_json::to_string(&pack.identity)?;
+        let meta = serde_json::to_string(&pack.meta)?;
+        sqlx::query("UPDATE packs SET name = ?, identity_json = ?, meta = ?, updated_at = ? WHERE id = ?")
+            .bind(&pack.name).bind(identity).bind(meta).bind(&pack.updated_at).bind(&pack.id)
+            .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn delete_pack(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'pack' AND owner_id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM packs WHERE id = ?").bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
     // --- prompt nodes ---
     async fn list_nodes(&self, owner_kind: &OwnerKind, owner_id: &str) -> Result<Vec<PromptNode>> {
         let rows = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta FROM prompt_nodes WHERE owner_kind = ? AND owner_id = ? ORDER BY sort_order ASC, id ASC")
@@ -741,6 +780,19 @@ impl Storage for SqliteStorage {
 }
 
 // --- Row mappers ---
+fn row_to_pack(row: &SqliteRow) -> Result<Pack> {
+    let identity_str: String = row.try_get("identity_json")?;
+    let meta_str: String = row.try_get("meta")?;
+    Ok(Pack {
+        id: row.try_get("id")?,
+        name: row.try_get("name")?,
+        identity: serde_json::from_str(&identity_str)?,
+        meta: serde_json::from_str(&meta_str)?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
 fn row_to_template(row: &SqliteRow) -> Result<Template> {
     let meta_str: String = row.try_get("meta")?;
     Ok(Template {
@@ -1056,6 +1108,29 @@ mod tests {
         assert_eq!(storage.list_assets(Some("background")).await.unwrap().len(), 1);
         assert_eq!(storage.list_assets(None).await.unwrap().len(), 2);
         assert_eq!(storage.get_asset(&av.id).await.unwrap().unwrap().kind, "avatar");
+    }
+
+    #[tokio::test]
+    async fn pack_crud_and_delete_cascades_nodes() {
+        let s = temp_storage().await;
+        let mut p = crate::models::pack::Pack::new("Alice");
+        p.identity.display_name = Some("Alice".into());
+        p.identity.avatar = Some("a.png".into());
+        s.create_pack(&p).await.unwrap();
+
+        let got = s.get_pack(&p.id).await.unwrap().unwrap();
+        assert_eq!(got.name, "Alice");
+        assert_eq!(got.identity.display_name.as_deref(), Some("Alice"));
+        assert_eq!(s.list_packs().await.unwrap().len(), 1);
+
+        let def = Definition::new("char", "Alice", "hi");
+        s.create_definition(&def).await.unwrap();
+        let node = PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &def.id);
+        s.create_node(&node).await.unwrap();
+
+        s.delete_pack(&p.id).await.unwrap();
+        assert!(s.get_pack(&p.id).await.unwrap().is_none());
+        assert!(s.list_nodes(&OwnerKind::Pack, &p.id).await.unwrap().is_empty());
     }
 
     #[tokio::test]
