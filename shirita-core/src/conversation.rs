@@ -121,6 +121,19 @@ pub async fn effective_regex_rules(
             }
         }
     }
+    // Mounted packs' scoped regex rules, in mount order then pack node order —
+    // extends the deterministic pipeline after the template/session tree's rules.
+    for pid in &session.mounted_packs {
+        for n in storage.list_nodes(&crate::models::prompt_node::OwnerKind::Pack, pid).await? {
+            if n.kind == crate::models::prompt_node::NodeKind::Ref && n.enabled {
+                if let Some(d) = n.definition_id.as_deref().and_then(|id| by_id.get(id)) {
+                    if d.def_type == "regex_rule" {
+                        rules.push((*d).clone());
+                    }
+                }
+            }
+        }
+    }
     Ok(rules)
 }
 
@@ -846,6 +859,32 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         assert!(!req.messages.iter().any(|m| m.content.contains("<state_update")), "no state protocol without user vars");
+    }
+
+    #[tokio::test]
+    async fn effective_regex_includes_mounted_pack_rules_in_order() {
+        let storage: Arc<dyn Storage> = Arc::new(temp_storage().await);
+        // a global orphan rule (referenced by nothing)
+        let mut global = Definition::new("regex_rule", "global", "");
+        global.id = "r_global".into();
+        global.meta = serde_json::json!({ "pattern": "a", "replacement": "b" });
+        storage.create_definition(&global).await.unwrap();
+        // a pack with a scoped regex rule
+        let p = crate::models::pack::Pack::new("FX");
+        storage.create_pack(&p).await.unwrap();
+        let mut scoped = Definition::new("regex_rule", "scoped", "");
+        scoped.id = "r_scoped".into();
+        scoped.meta = serde_json::json!({ "pattern": "x", "replacement": "y" });
+        storage.create_definition(&scoped).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &scoped.id)).await.unwrap();
+
+        let mut session = Session::new("Chat");
+        session.mounted_packs = vec![p.id.clone()];
+        storage.create_session(&session).await.unwrap();
+
+        let rules = super::effective_regex_rules(storage.as_ref(), &session).await.unwrap();
+        let ids: Vec<&str> = rules.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, vec!["r_global", "r_scoped"], "global first, then mounted-pack scoped");
     }
 
     #[tokio::test]
