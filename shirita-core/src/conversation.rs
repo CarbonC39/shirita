@@ -81,6 +81,21 @@ pub async fn effective_nodes(
     Ok(Vec::new())
 }
 
+/// The node trees of the session's mounted packs, in mount order (empty trees skipped).
+pub async fn mounted_pack_trees(
+    storage: &dyn Storage,
+    session: &Session,
+) -> crate::Result<Vec<Vec<PromptNode>>> {
+    let mut trees = Vec::new();
+    for pid in &session.mounted_packs {
+        let nodes = storage.list_nodes(&OwnerKind::Pack, pid).await?;
+        if !nodes.is_empty() {
+            trees.push(nodes);
+        }
+    }
+    Ok(trees)
+}
+
 /// 本会话生效的 regex 规则：全局 orphan 规则（不被任何节点引用，处处生效）+ 本会话
 /// effective 树里被启用 ref 引用的 scoped 规则。两集合互斥；global 在前。
 pub async fn effective_regex_rules(
@@ -131,6 +146,19 @@ async fn assemble_request(
             }
         }
     }
+    // Load mounted-pack node trees and their definitions.
+    let pack_trees = mounted_pack_trees(storage, session).await?;
+    for tree in &pack_trees {
+        for n in tree {
+            if let Some(did) = &n.definition_id {
+                if !defs.contains_key(did) {
+                    if let Ok(Some(d)) = storage.get_definition(did).await {
+                        defs.insert(did.clone(), d);
+                    }
+                }
+            }
+        }
+    }
     let local = session
         .override_config
         .get("local_definitions")
@@ -146,8 +174,9 @@ async fn assemble_request(
 
     // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
     let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
-    let mut plan = crate::assembly::assemble_from_nodes(
+    let mut plan = crate::assembly::assemble_from_nodes_with_packs(
         &nodes,
+        &pack_trees,
         &defs,
         &local,
         state,
@@ -735,6 +764,44 @@ mod tests {
         assert!(display.starts_with("<!DOCTYPE html>"), "display is the full reconstructed doc");
         assert!(display.contains("<p>HP: 80</p>"));
         assert!(!display.contains("HP: 100"));
+    }
+
+    #[tokio::test]
+    async fn mounted_pack_content_reaches_the_prompt() {
+        let storage: Arc<dyn Storage> = Arc::new(temp_storage().await);
+        // template: content + history
+        let t = crate::models::template::Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        content.kind = NodeKind::Content; content.tag = None;
+        storage.create_node(&content).await.unwrap();
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        hist.kind = NodeKind::History; hist.tag = None;
+        storage.create_node(&hist).await.unwrap();
+        // pack with a char def
+        let p = crate::models::pack::Pack::new("Alice");
+        storage.create_pack(&p).await.unwrap();
+        let mut def = Definition::new("char", "Alice", "Alice is brave.");
+        def.id = "d_alice".into();
+        storage.create_definition(&def).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &def.id)).await.unwrap();
+        // session mounting template + pack
+        let mut session = Session::new("Chat");
+        session.template_id = Some(t.id.clone());
+        session.mounted_packs = vec![p.id.clone()];
+        storage.create_session(&session).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().expect("a request was sent");
+        let system_blob: String = req.messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("\n");
+        assert!(system_blob.contains("<char>") && system_blob.contains("Alice is brave."),
+            "mounted pack char content appears in the assembled prompt");
     }
 
     #[tokio::test]
