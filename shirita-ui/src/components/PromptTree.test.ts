@@ -74,6 +74,16 @@ describe('PromptTree drag reorder', () => {
     expect(w.emitted('reorder')![0]).toEqual([['b', 'a']])
   })
 
+  it('passes single-select to the children of a select=one folder', async () => {
+    const nodes = [
+      n({ id: 'f', kind: 'folder', tag: 'style', definition_id: null, meta: { select: 'one' } }),
+      n({ id: 'c', kind: 'ref', parent_id: 'f', definition_id: 'c1' }),
+    ]
+    const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
+    await w.find('[data-test="expand-btn"]').trigger('click')
+    expect(w.find('[data-test="enable-radio"]').exists()).toBe(true)
+  })
+
   it('ignores a drag that did not start on the grip handle', async () => {
     const nodes = [
       n({ id: 'a', kind: 'folder', tag: 'char', definition_id: null, sort_order: 0 }),

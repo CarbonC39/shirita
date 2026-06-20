@@ -160,6 +160,7 @@ function onDrop(targetId: string) {
             :definitions="defMap"
             :depth="1"
             :is-expanded="isExpanded(child.id)"
+            :single-select="(node.meta as Record<string, unknown>).select === 'one'"
             @toggle-enabled="emit('toggleEnabled', child.id)"
             @toggle-expand="toggleExpand(child.id)"
             @update-content="(c) => child.definition_id && emit('updateContent', child.definition_id, c)"

@@ -13,6 +13,7 @@ const props = defineProps<{
   definitions: Record<string, Definition>
   depth: number
   isExpanded: boolean
+  singleSelect?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -65,6 +66,9 @@ function updateWrap(v: boolean) {
   emit('updateNodeMeta', { ...(props.node.meta as Record<string, unknown>), wrap_in_tag: v })
 }
 
+// A ref inside a select=one folder shows a radio instead of a checkbox.
+const enableAsRadio = computed(() => props.singleSelect === true && props.node.kind === 'ref')
+
 // Folder selection policy: 'all' (default) renders every enabled child; 'one'
 // renders only the first (a single-select hub). Stored in node.meta.select;
 // the backend (assembly.rs pack_pairs) honors it.
@@ -100,8 +104,19 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         :title="$t('chat.dragReorder')"
       ><GripVertical :size="15" /></span>
 
-      <!-- enable checkbox: rounded square, teal when on -->
+      <!-- enable control: radio for select=one children, else a rounded-square checkbox -->
       <button
+        v-if="enableAsRadio"
+        data-test="enable-radio"
+        :aria-pressed="node.enabled"
+        :class="['w-[18px] h-[18px] rounded-full grid place-items-center shrink-0 border transition-colors',
+                 node.enabled ? 'border-primary' : 'border-[#d4d6da] bg-card']"
+        @click="emit('toggleEnabled')"
+      >
+        <span v-if="node.enabled" class="w-[10px] h-[10px] rounded-full bg-primary" />
+      </button>
+      <button
+        v-else
         data-test="enable-checkbox"
         :aria-pressed="node.enabled"
         :class="['w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 transition-colors',
