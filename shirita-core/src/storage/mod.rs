@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use crate::models::asset::Asset;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
+use crate::models::pack::Pack;
 use crate::models::message::Message;
 use crate::models::prompt_node::{OwnerKind, PromptNode};
 use crate::models::session::Session;
@@ -90,6 +91,14 @@ pub trait Storage: Send + Sync {
     async fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()>;
     async fn list_settings(&self) -> Result<Vec<(String, serde_json::Value)>>;
     async fn delete_setting(&self, key: &str) -> Result<()>;
+
+    // --- packs ---
+    async fn create_pack(&self, pack: &Pack) -> Result<()>;
+    async fn get_pack(&self, id: &str) -> Result<Option<Pack>>;
+    async fn list_packs(&self) -> Result<Vec<Pack>>;
+    async fn update_pack(&self, pack: &Pack) -> Result<()>;
+    /// Delete a pack and its node tree (`owner_kind='pack'`).
+    async fn delete_pack(&self, id: &str) -> Result<()>;
 
     // --- def types (container type registry) ---
     /// 列出容器类型（按 sort 升序）。
