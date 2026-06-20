@@ -1,4 +1,4 @@
-import type { Message } from '../api/types'
+import type { Message, PromptNode } from '../api/types'
 
 function newest(messages: Message[]): Message | null {
   if (messages.length === 0) return null
@@ -17,6 +17,20 @@ export function activePath(messages: Message[], activeLeafId: string | null): Me
     cur = cur.parent_id ? byId.get(cur.parent_id) ?? null : null
   }
   return path.reverse()
+}
+
+/** When `nodeId` (a ref) is about to be enabled inside a `select=one` folder,
+ *  the ids of its currently-enabled ref siblings that should be turned off.
+ *  Empty unless the parent is a folder with `meta.select === 'one'`. */
+export function selectOneSiblingsToDisable(nodes: PromptNode[], nodeId: string): string[] {
+  const node = nodes.find((n) => n.id === nodeId)
+  if (!node || !node.parent_id) return []
+  const parent = nodes.find((n) => n.id === node.parent_id)
+  if (!parent || parent.kind !== 'folder') return []
+  if ((parent.meta as Record<string, unknown>).select !== 'one') return []
+  return nodes
+    .filter((n) => n.parent_id === parent.id && n.id !== nodeId && n.kind === 'ref' && n.enabled)
+    .map((n) => n.id)
 }
 
 /** Same-parent siblings of `msg`, ordered created_at asc then id (swipe order). */
