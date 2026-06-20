@@ -35,6 +35,8 @@ pub trait Storage: Send + Sync {
     async fn delete_session(&self, id: &str) -> Result<()>;
     /// 整体替换会话的挂载定义 ID 列表。
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()>;
+    /// Replace the session's ordered mounted-pack id list wholesale.
+    async fn set_mounted_packs(&self, session_id: &str, ids: &[String]) -> Result<()>;
     /// Update a session's editable profile (title + avatar).
     async fn update_session_profile(&self, session_id: &str, name: &str, avatar: Option<&str>) -> Result<()>;
     /// 按给定顺序（首项置顶）持久化会话的手动排序。
