@@ -68,6 +68,7 @@ const zhHans: MessageSchema = {
     noMatching: '没有匹配的定义',
     otherType: '其他类型',
     chatHistory: '聊天记录',
+    contentMount: '挂载的包',
     folderFallback: '(文件夹)',
     missing: '(缺失)',
     addToContainer: '添加到容器',

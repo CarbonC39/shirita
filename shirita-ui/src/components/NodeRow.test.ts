@@ -39,6 +39,15 @@ describe('NodeRow', () => {
     expect(w.find('[data-test="node-delete"]').exists()).toBe(false)
   })
 
+  it('content row shows the mounted-packs label, an enable toggle, and no delete/add', () => {
+    const c = node({ kind: 'content', definition_id: null, tag: null })
+    const w = mount(NodeRow, { props: { node: c, definitions: defs, depth: 0, isExpanded: false } })
+    expect(w.text()).toContain('Mounted packs')
+    expect(w.find('[data-test="enable-checkbox"]').exists()).toBe(true)
+    expect(w.find('[data-test="node-delete"]').exists()).toBe(false)
+    expect(w.find('[data-test="node-add"]').exists()).toBe(false)
+  })
+
   it('shows the trigger editor in an expanded container ref', () => {
     const worldDefs = { d1: { id: 'd1', type: 'world', name: 'Zion', content: 'b', meta: { trigger: { mode: 'keyword', keys: ['zion'], probability: 100 } } } }
     const ref = node({ kind: 'ref', definition_id: 'd1' })

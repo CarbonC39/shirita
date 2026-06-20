@@ -75,6 +75,7 @@ const en = {
     noMatching: 'No matching definitions',
     otherType: 'Other type',
     chatHistory: 'Chat history',
+    contentMount: 'Mounted packs',
     folderFallback: '(folder)',
     missing: '(missing)',
     addToContainer: 'Add to container',

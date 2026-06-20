@@ -65,16 +65,32 @@ export interface SessionState {
 
 export interface PromptNode {
   id: string
-  owner_kind: 'template' | 'session'
+  owner_kind: 'template' | 'session' | 'pack'
   owner_id: string
   parent_id: string | null
   sort_order: number
-  kind: 'folder' | 'ref' | 'history'
+  kind: 'folder' | 'ref' | 'history' | 'content'
   tag: string | null
   definition_id: string | null
   enabled: boolean
   created_at: string
   meta: Record<string, unknown>
+}
+
+/** A pack's bound display identity (mirrors core PackIdentity; empty == unset). */
+export interface PackIdentity {
+  display_name: string | null
+  avatar: string | null
+}
+
+/** A content bundle: its own node tree plus an optional bound identity. */
+export interface Pack {
+  id: string
+  name: string
+  identity: PackIdentity
+  meta: Record<string, unknown>
+  created_at: string
+  updated_at: string
 }
 
 export interface DefType {

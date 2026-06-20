@@ -68,6 +68,7 @@ const zhHant: MessageSchema = {
     noMatching: '沒有相符的定義',
     otherType: '其他類型',
     chatHistory: '聊天記錄',
+    contentMount: '掛載的包',
     folderFallback: '(資料夾)',
     missing: '(遺失)',
     addToContainer: '新增至容器',
