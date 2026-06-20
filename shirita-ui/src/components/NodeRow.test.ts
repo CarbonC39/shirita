@@ -39,6 +39,27 @@ describe('NodeRow', () => {
     expect(w.find('[data-test="node-delete"]').exists()).toBe(false)
   })
 
+  it('ref rows have no select-mode switch', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 0, isExpanded: false } })
+    expect(w.find('[data-test="select-mode"]').exists()).toBe(false)
+  })
+
+  it('folder select-mode defaults to All and toggles to one via updateNodeMeta', async () => {
+    const folder = node({ kind: 'folder', tag: 'style', definition_id: null, meta: {} })
+    const w = mount(NodeRow, { props: { node: folder, definitions: defs, depth: 0, isExpanded: false } })
+    const btn = w.find('[data-test="select-mode"]')
+    expect(btn.exists()).toBe(true)
+    expect(btn.text()).toBe('All')
+    await btn.trigger('click')
+    expect(w.emitted('updateNodeMeta')![0]).toEqual([{ select: 'one' }])
+  })
+
+  it('folder select-mode reads an existing meta.select=one as Single', () => {
+    const folder = node({ kind: 'folder', tag: 'style', definition_id: null, meta: { select: 'one' } })
+    const w = mount(NodeRow, { props: { node: folder, definitions: defs, depth: 0, isExpanded: false } })
+    expect(w.find('[data-test="select-mode"]').text()).toBe('Single')
+  })
+
   it('content row shows the mounted-packs label, an enable toggle, and no delete/add', () => {
     const c = node({ kind: 'content', definition_id: null, tag: null })
     const w = mount(NodeRow, { props: { node: c, definitions: defs, depth: 0, isExpanded: false } })

@@ -65,6 +65,17 @@ function updateWrap(v: boolean) {
   emit('updateNodeMeta', { ...(props.node.meta as Record<string, unknown>), wrap_in_tag: v })
 }
 
+// Folder selection policy: 'all' (default) renders every enabled child; 'one'
+// renders only the first (a single-select hub). Stored in node.meta.select;
+// the backend (assembly.rs pack_pairs) honors it.
+const selectMode = computed(() =>
+  ((props.node.meta as Record<string, unknown>).select === 'one' ? 'one' : 'all'),
+)
+function toggleSelectMode() {
+  const next = selectMode.value === 'one' ? 'all' : 'one'
+  emit('updateNodeMeta', { ...(props.node.meta as Record<string, unknown>), select: next })
+}
+
 // Local editable copy of the referenced definition's content; persisted on blur.
 const draft = ref(def.value?.content ?? '')
 watch(def, (d) => { draft.value = d?.content ?? '' })
@@ -107,6 +118,15 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       <FileText v-else :size="16" :class="iconColor" class="shrink-0" :stroke-width="1.8" />
 
       <span :class="['truncate flex-1', isFolder ? 'font-semibold' : '', node.enabled ? 'text-ink' : 'text-muted']">{{ label }}</span>
+
+      <!-- folder selection policy: all vs single-select -->
+      <button
+        v-if="isFolder"
+        data-test="select-mode"
+        class="shrink-0 text-[11px] px-1.5 py-0.5 rounded-md border border-line text-muted hover:text-ink transition-colors"
+        :title="$t('prompt.selectModeHint')"
+        @click.stop="toggleSelectMode"
+      >{{ selectMode === 'one' ? $t('prompt.selectOne') : $t('prompt.selectAll') }}</button>
 
       <!-- add-to-container: lives beside delete, no extra row (containers only) -->
       <button
