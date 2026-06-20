@@ -7,10 +7,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use shirita_core::models::message::{Message, Role};
-use shirita_core::models::prompt_node::{NodeKind, OwnerKind};
+use shirita_core::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use shirita_core::models::session::Session;
 use shirita_core::render_vars;
-use shirita_core::state::{resolve_schema, schema_initials};
+use shirita_core::state::{resolve_schema_with_packs, schema_initials};
 
 use crate::AppState;
 
@@ -37,6 +37,8 @@ pub struct CreateSession {
     pub template_id: Option<String>,
     #[serde(default)]
     pub avatar: Option<String>,
+    #[serde(default)]
+    pub pack_ids: Vec<String>,
 }
 
 pub async fn create_session(
@@ -47,12 +49,18 @@ pub async fn create_session(
     // 会话引用模板，不再深拷贝节点；组装时按 effective_nodes 解析（自有优先，否则引用模板）。
     session.template_id = body.template_id.clone();
     session.avatar = body.avatar.clone();
-    // 用声明变量的初值播种 current_state（seed 层；后续快照在其上演化）。
+    session.mounted_packs = body.pack_ids.clone();
     let template_meta = match &session.template_id {
         Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
         None => None,
     };
-    let schema = resolve_schema(template_meta.as_ref(), &session.override_config);
+    let mut pack_metas = Vec::new();
+    for pid in &session.mounted_packs {
+        if let Ok(Some(p)) = state.storage.get_pack(pid).await {
+            pack_metas.push(p.meta);
+        }
+    }
+    let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
     session.current_state = Value::Object(schema_initials(&schema));
     state.storage.create_session(&session).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -65,28 +73,38 @@ pub async fn create_session(
     Ok(Json(session))
 }
 
-/// Find a first_message ref in the session's template and seed the opening
-/// assistant turn(s) plus a leading anchor user message.
+/// Find a first_message ref in the session's mounted packs (mount order) or
+/// template, and seed the opening assistant turn(s) plus a leading anchor user.
 async fn seed_first_message(state: &AppState, session: &Session) -> Result<(), StatusCode> {
-    let Some(tid) = session.template_id.as_deref() else { return Ok(()) };
-    let nodes = state
-        .storage
-        .list_nodes(&OwnerKind::Template, tid)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Candidate trees: mounted packs (in mount order), then the template.
+    let mut groups: Vec<Vec<PromptNode>> = Vec::new();
+    for pid in &session.mounted_packs {
+        groups.push(
+            state.storage.list_nodes(&OwnerKind::Pack, pid).await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        );
+    }
+    if let Some(tid) = session.template_id.as_deref() {
+        groups.push(
+            state.storage.list_nodes(&OwnerKind::Template, tid).await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        );
+    }
     let mut greeting: Option<(String, Vec<String>)> = None;
-    for n in nodes.iter().filter(|n| n.kind == NodeKind::Ref) {
-        if let Some(did) = &n.definition_id {
-            if let Ok(Some(def)) = state.storage.get_definition(did).await {
-                if def.def_type == "first_message" {
-                    let alts = def
-                        .meta
-                        .get("alternate_greetings")
-                        .and_then(|v| v.as_array())
-                        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
-                        .unwrap_or_default();
-                    greeting = Some((def.content.clone(), alts));
-                    break;
+    'outer: for nodes in &groups {
+        for n in nodes.iter().filter(|n| n.kind == NodeKind::Ref) {
+            if let Some(did) = &n.definition_id {
+                if let Ok(Some(def)) = state.storage.get_definition(did).await {
+                    if def.def_type == "first_message" {
+                        let alts = def
+                            .meta
+                            .get("alternate_greetings")
+                            .and_then(|v| v.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                            .unwrap_or_default();
+                        greeting = Some((def.content.clone(), alts));
+                        break 'outer;
+                    }
                 }
             }
         }
@@ -334,6 +352,7 @@ pub async fn duplicate_session(
     dup.override_config = src.override_config.clone();
     dup.current_state = src.current_state.clone();
     dup.mounted_definitions = src.mounted_definitions.clone();
+    dup.mounted_packs = src.mounted_packs.clone();
     state.storage.create_session(&dup).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     // copy any session-owned (forked) node tree; no-op for reference-only sessions
     let _ = state.storage.copy_nodes(&OwnerKind::Session, &id, &OwnerKind::Session, &dup.id).await;
@@ -371,6 +390,7 @@ pub async fn import_session(
     s.override_config = body.session.override_config.clone();
     s.current_state = body.session.current_state.clone();
     s.mounted_definitions = body.session.mounted_definitions.clone();
+    s.mounted_packs = body.session.mounted_packs.clone();
     state.storage.create_session(&s).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     clone_messages(&state, &body.messages, &s.id).await?;
     Ok(Json(s))

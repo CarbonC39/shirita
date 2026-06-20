@@ -103,6 +103,42 @@ async fn session_pack_mounts_roundtrip() {
 }
 
 #[tokio::test]
+async fn create_session_mounts_packs_and_seeds_pack_variables() {
+    let state = test_state().await;
+    // a pack declaring a variable + carrying a greeting
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({
+        "name": "Alice",
+        "meta": { "variables": [ { "name": "affection", "type": "number", "initial": "5" } ] }
+    }))).await;
+    let pid = body_json(&b)["id"].as_str().unwrap().to_string();
+    let (_, b) = send(&state, "POST", "/api/definitions", Some(json!({
+        "type": "first_message", "name": "hello", "content": "Hi, I'm Alice."
+    }))).await;
+    let gid = body_json(&b)["id"].as_str().unwrap().to_string();
+    send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"),
+        Some(json!({ "kind": "ref", "definition_id": gid }))).await;
+    // a template (gets content+history)
+    let (_, b) = send(&state, "POST", "/api/templates", Some(json!({ "name": "T" }))).await;
+    let tid = body_json(&b)["id"].as_str().unwrap().to_string();
+
+    let (st, b) = send(&state, "POST", "/api/sessions", Some(json!({
+        "name": "Chat", "template_id": tid, "pack_ids": [pid]
+    }))).await;
+    assert_eq!(st, StatusCode::OK);
+    let s = body_json(&b);
+    assert_eq!(s["mounted_packs"], json!([pid]));
+    assert_eq!(s["current_state"]["affection"], "5", "pack variable initial seeded");
+    let sid = s["id"].as_str().unwrap().to_string();
+
+    // greeting from the pack's first_message was seeded
+    let (st, b) = send(&state, "GET", &format!("/api/sessions/{sid}/messages"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let msgs = body_json(&b);
+    assert!(msgs.as_array().unwrap().iter().any(|m| m["raw_content"].as_str().unwrap_or("").contains("I'm Alice")),
+        "pack greeting seeded as a message");
+}
+
+#[tokio::test]
 async fn pack_crud_roundtrip() {
     let state = test_state().await;
     let (st, b) = send(&state, "POST", "/api/packs", Some(json!({
