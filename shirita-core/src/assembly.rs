@@ -409,12 +409,26 @@ fn maybe_wrap(def: &Definition, node: &PromptNode, content: String) -> String {
     format!("<{tag}>\n{content}\n</{tag}>")
 }
 
+/// Back-compat: assemble a single owner tree with no mounted packs.
+pub fn assemble_from_nodes(
+    nodes: &[PromptNode],
+    definitions: &HashMap<String, Definition>,
+    overrides: &serde_json::Value,
+    state: &serde_json::Value,
+    recent_msgs: &[String],
+    roll: &mut impl FnMut() -> f64,
+) -> AssembledPlan {
+    assemble_from_nodes_with_packs(nodes, &[], definitions, overrides, state, recent_msgs, roll)
+}
+
 /// 树驱动组装：遍历节点树，按触发激活筛选 ref，容器封包，history 节点切分前后。
+/// 接受可选的挂载包树集合（pack_trees），在 content 节点按类型分组注入包内容。
 ///
 /// - 仅启用 + 激活的 ref 进入结果；空容器被省略。
 /// - history 节点（启用）把后续段落落点切到 `AfterHistory` 并置 `history_enabled`。
-pub fn assemble_from_nodes(
+pub fn assemble_from_nodes_with_packs(
     nodes: &[PromptNode],
+    pack_trees: &[Vec<PromptNode>],
     definitions: &HashMap<String, Definition>,
     overrides: &serde_json::Value,
     state: &serde_json::Value,
@@ -443,6 +457,30 @@ pub fn assemble_from_nodes(
         });
     }
 
+    // Pack refs share the single activation pass (spec §8): same scan buffer and
+    // recursion budget as the template/session tree.
+    for pack in pack_trees {
+        for n in pack {
+            if n.kind != NodeKind::Ref {
+                continue;
+            }
+            let Some(def) = n.definition_id.as_ref().and_then(|id| definitions.get(id)) else {
+                continue;
+            };
+            if is_non_rendering(&def.def_type) {
+                continue;
+            }
+            let (scan_depth, recursive) = effective_scan(def, overrides);
+            entries.push(Entry {
+                id: def.id.clone(),
+                trigger: effective_trigger(def, overrides),
+                content: render_vars(&strip_comments(&effective_def_content(def, overrides)), state),
+                scan_depth,
+                recursive,
+            });
+        }
+    }
+
     // 2) 计算激活集（每条目按自己的 scan_depth/recursive）。
     let active = activate(&entries, recent_msgs, roll);
 
@@ -462,6 +500,62 @@ pub fn assemble_from_nodes(
         Some(maybe_wrap(def, n, body))
     };
 
+    // Renders a pack ref's body WITHOUT a per-node tag wrap (the type grouping at
+    // the content node owns the wrapping). Returns (def_type, body) when enabled,
+    // world-info-active, rendering, and non-empty.
+    let render_pack_body = |n: &PromptNode| -> Option<(String, String)> {
+        if !n.enabled || n.kind != NodeKind::Ref {
+            return None;
+        }
+        let def = n.definition_id.as_ref().and_then(|id| definitions.get(id))?;
+        if is_non_rendering(&def.def_type) || !active.contains(&def.id) {
+            return None;
+        }
+        let body = render_vars(&strip_comments(&effective_def_content(def, overrides)), state);
+        (!body.trim().is_empty()).then(|| (def.def_type.clone(), body))
+    };
+
+    // Walks one pack tree (root refs + one level of folders), honoring select=one,
+    // yielding (def_type, body) pairs in walk order. Pack folder tags are ignored
+    // here — the content node groups by type. (Nested folder-tag wrapping in packs
+    // is out of scope for this plan.)
+    let pack_pairs = |pack: &[PromptNode]| -> Vec<(String, String)> {
+        let mut roots: Vec<&PromptNode> = pack.iter().filter(|n| n.parent_id.is_none()).collect();
+        roots.sort_by_key(|n| n.sort_order);
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for root in roots {
+            match root.kind {
+                NodeKind::Ref => {
+                    if let Some(p) = render_pack_body(root) {
+                        pairs.push(p);
+                    }
+                }
+                NodeKind::Folder => {
+                    if !root.enabled {
+                        continue;
+                    }
+                    let select_one =
+                        root.meta.get("select").and_then(|v| v.as_str()) == Some("one");
+                    let mut kids: Vec<&PromptNode> = pack
+                        .iter()
+                        .filter(|n| n.parent_id.as_deref() == Some(root.id.as_str()))
+                        .collect();
+                    kids.sort_by_key(|n| n.sort_order);
+                    for k in kids {
+                        if let Some(p) = render_pack_body(k) {
+                            pairs.push(p);
+                            if select_one {
+                                break;
+                            }
+                        }
+                    }
+                }
+                _ => {} // packs hold no history/content nodes
+            }
+        }
+        pairs
+    };
+
     // 3) 按 sort_order 遍历根节点；history 切换落点。
     let mut roots: Vec<&PromptNode> = nodes.iter().filter(|n| n.parent_id.is_none()).collect();
     roots.sort_by_key(|n| n.sort_order);
@@ -479,11 +573,30 @@ pub fn assemble_from_nodes(
                 }
             }
             NodeKind::Content => {
-                // TODO(plan-2): inject mounted-pack content here, sorting
-                // before history. For now a no-op that prevents breaking
-                // changed when old templates gain a content node.
-                if root.enabled {
-                    // content node is recognised; packs are assembled in plan 2.
+                if !root.enabled {
+                    continue;
+                }
+                // Gather (type, body) from all packs (mount order), group by type
+                // preserving first-appearance order, emit one <type>…</type> segment.
+                let mut grouped: Vec<(String, Vec<String>)> = Vec::new();
+                for pack in pack_trees {
+                    for (ty, body) in pack_pairs(pack) {
+                        match grouped.iter_mut().find(|(t, _)| *t == ty) {
+                            Some((_, bodies)) => bodies.push(body),
+                            None => grouped.push((ty, vec![body])),
+                        }
+                    }
+                }
+                for (ty, bodies) in grouped {
+                    let mut tag = sanitize_tag(&ty);
+                    if tag.is_empty() {
+                        tag = "content".to_string();
+                    }
+                    segments.push(PromptSegment {
+                        placement,
+                        content: format!("<{tag}>\n{}\n</{tag}>", bodies.join("\n")),
+                        source: format!("pack:{ty}"),
+                    });
                 }
             }
             NodeKind::Folder => {
@@ -620,6 +733,60 @@ mod tests {
     use super::*;
     use crate::models::definition::Definition;
     use serde_json::json;
+
+    #[test]
+    fn content_node_injects_packs_grouped_by_type_with_select_one() {
+        use std::collections::HashMap;
+        // template: content node (sort 0) then history (sort 1)
+        let mut content = PromptNode::new_folder(OwnerKind::Template, "t", None, 0, "content");
+        content.kind = NodeKind::Content;
+        content.tag = None;
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, "t", None, 1, "history");
+        hist.kind = NodeKind::History;
+        hist.tag = None;
+        let tmpl = vec![content, hist];
+
+        // pack: ref char "Alice profile" + a select=one folder of two char variants
+        let mut alice = PromptNode::new_ref(OwnerKind::Pack, "p", None, 0, "d_alice");
+        let mut mood = PromptNode::new_folder(OwnerKind::Pack, "p", None, 1, "mood");
+        mood.tag = None;
+        mood.meta = serde_json::json!({ "select": "one" });
+        let happy = PromptNode::new_ref(OwnerKind::Pack, "p", Some(mood.id.clone()), 0, "d_happy");
+        let angry = PromptNode::new_ref(OwnerKind::Pack, "p", Some(mood.id.clone()), 1, "d_angry");
+        let pack = vec![alice.clone(), mood, happy, angry];
+
+        let mut defs: HashMap<String, Definition> = HashMap::new();
+        for (id, body) in [("d_alice", "Alice profile"), ("d_happy", "Happy Alice"), ("d_angry", "Angry Alice")] {
+            let mut d = Definition::new("char", id, body);
+            d.id = id.to_string();
+            defs.insert(d.id.clone(), d);
+        }
+        let _ = &mut alice;
+
+        let plan = assemble_from_nodes_with_packs(
+            &tmpl, std::slice::from_ref(&pack), &defs,
+            &serde_json::json!({}), &serde_json::json!({}), &[], &mut || 0.0,
+        );
+        let char_seg = plan.segments.iter().find(|s| s.source == "pack:char").expect("a char content segment");
+        assert_eq!(char_seg.placement, Placement::BeforeHistory);
+        assert!(char_seg.content.starts_with("<char>") && char_seg.content.ends_with("</char>"));
+        assert!(char_seg.content.contains("Alice profile"));
+        assert!(char_seg.content.contains("Happy Alice"));
+        assert!(!char_seg.content.contains("Angry Alice"), "select=one keeps only the first child");
+    }
+
+    #[test]
+    fn empty_pack_trees_render_no_content_segments() {
+        use std::collections::HashMap;
+        let mut content = PromptNode::new_folder(OwnerKind::Template, "t", None, 0, "content");
+        content.kind = NodeKind::Content;
+        content.tag = None;
+        let plan = assemble_from_nodes_with_packs(
+            &[content], &[], &HashMap::new(),
+            &serde_json::json!({}), &serde_json::json!({}), &[], &mut || 0.0,
+        );
+        assert!(plan.segments.iter().all(|s| !s.source.starts_with("pack:")));
+    }
 
     fn def(t: &str, name: &str, content: &str) -> Definition {
         Definition::new(t, name, content)
