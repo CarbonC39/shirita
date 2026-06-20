@@ -48,6 +48,9 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
     shirita_core::ensure_default_template(&storage)
         .await
         .map_err(|e| format!("初始化默认模板失败：{e}"))?;
+    shirita_core::ensure_templates_have_content_node(&storage)
+        .await
+        .map_err(|e| format!("迁移模板 content 节点失败：{e}"))?;
     let pool = storage.pool().clone();
 
     let http_client = shirita_web::new_http_client();
