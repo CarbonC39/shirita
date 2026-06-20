@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use crate::models::definition::Definition;
+use crate::models::pack::PackIdentity;
 use crate::models::prompt_node::{NodeKind, PromptNode};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -45,28 +46,56 @@ fn pick<'a>(
 
 /// Resolve the assistant/user identity. `session_avatar` is the chat's avatar
 /// (the assistant/character avatar source); persona avatar comes from its
-/// definition's `meta.avatar`.
+/// definition's `meta.avatar`. No-pack wrapper over `resolve_identity_with_packs`.
 pub fn resolve_identity(
     nodes: &[PromptNode],
     defs: &HashMap<String, Definition>,
     template_name: Option<&str>,
     session_avatar: Option<&str>,
 ) -> Identity {
-    let assistant_name = pick(nodes, defs, "char", template_name).map(|d| d.name.clone());
-    let persona = pick(nodes, defs, "persona", template_name);
+    resolve_identity_with_packs(nodes, defs, template_name, session_avatar, None, None)
+}
+
+/// Resolve identity with optional pack-bound overrides. A mounted character
+/// pack's `PackIdentity` (display_name/avatar) takes priority over the char
+/// definition's name and the session avatar; a persona pack's identity takes
+/// priority over the persona definition. Empty-string fields count as "unset"
+/// and fall through to the next source.
+pub fn resolve_identity_with_packs(
+    nodes: &[PromptNode],
+    defs: &HashMap<String, Definition>,
+    template_name: Option<&str>,
+    session_avatar: Option<&str>,
+    assistant_pack: Option<&PackIdentity>,
+    user_pack: Option<&PackIdentity>,
+) -> Identity {
+    let char_def = pick(nodes, defs, "char", template_name);
+    let persona_def = pick(nodes, defs, "persona", template_name);
     Identity {
         assistant: SideIdentity {
-            name: assistant_name,
-            avatar: session_avatar.map(|s| s.to_string()),
+            name: pack_name(assistant_pack).or_else(|| char_def.map(|d| d.name.clone())),
+            avatar: pack_avatar(assistant_pack).or_else(|| session_avatar.map(|s| s.to_string())),
         },
         user: SideIdentity {
-            name: persona.map(|d| d.name.clone()),
-            avatar: persona
-                .and_then(|d| d.meta.get("avatar"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string()),
+            name: pack_name(user_pack).or_else(|| persona_def.map(|d| d.name.clone())),
+            avatar: pack_avatar(user_pack).or_else(|| {
+                persona_def
+                    .and_then(|d| d.meta.get("avatar"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            }),
         },
     }
+}
+
+/// A pack identity's non-empty display name (treats `Some("")` as unset).
+fn pack_name(p: Option<&PackIdentity>) -> Option<String> {
+    p.and_then(|p| p.display_name.clone()).filter(|s| !s.is_empty())
+}
+
+/// A pack identity's non-empty avatar (treats `Some("")` as unset).
+fn pack_avatar(p: Option<&PackIdentity>) -> Option<String> {
+    p.and_then(|p| p.avatar.clone()).filter(|s| !s.is_empty())
 }
 
 #[cfg(test)]
@@ -132,5 +161,51 @@ mod tests {
         let defs = map(vec![def("c", "char", "Ghost", None)]);
         let id = resolve_identity(&nodes, &defs, None, None);
         assert_eq!(id.assistant.name, None);
+    }
+
+    fn pack_id(display: Option<&str>, avatar: Option<&str>) -> PackIdentity {
+        PackIdentity {
+            display_name: display.map(String::from),
+            avatar: avatar.map(String::from),
+        }
+    }
+
+    #[test]
+    fn pack_identity_overrides_char_name_and_avatar() {
+        let nodes = vec![refn("c", 0, true)];
+        let defs = map(vec![def("c", "char", "Alice", None)]);
+        let ap = pack_id(Some("Alice the Bound"), Some("p.png"));
+        let id = resolve_identity_with_packs(&nodes, &defs, None, Some("s.png"), Some(&ap), None);
+        assert_eq!(id.assistant.name.as_deref(), Some("Alice the Bound"));
+        assert_eq!(id.assistant.avatar.as_deref(), Some("p.png"));
+    }
+
+    #[test]
+    fn empty_pack_identity_falls_back_to_def_and_session() {
+        let nodes = vec![refn("c", 0, true)];
+        let defs = map(vec![def("c", "char", "Alice", None)]);
+        let ap = pack_id(Some(""), Some("")); // empty string == unset
+        let id = resolve_identity_with_packs(&nodes, &defs, None, Some("s.png"), Some(&ap), None);
+        assert_eq!(id.assistant.name.as_deref(), Some("Alice"));
+        assert_eq!(id.assistant.avatar.as_deref(), Some("s.png"));
+    }
+
+    #[test]
+    fn user_pack_overrides_persona() {
+        let nodes = vec![refn("p", 0, true)];
+        let defs = map(vec![def("p", "persona", "Me", Some("u.png"))]);
+        let up = pack_id(Some("Hero"), Some("hero.png"));
+        let id = resolve_identity_with_packs(&nodes, &defs, None, None, None, Some(&up));
+        assert_eq!(id.user.name.as_deref(), Some("Hero"));
+        assert_eq!(id.user.avatar.as_deref(), Some("hero.png"));
+    }
+
+    #[test]
+    fn resolve_identity_matches_no_pack_call() {
+        let nodes = vec![refn("c", 0, true)];
+        let defs = map(vec![def("c", "char", "Alice", None)]);
+        let a = resolve_identity(&nodes, &defs, None, Some("s.png"));
+        let b = resolve_identity_with_packs(&nodes, &defs, None, Some("s.png"), None, None);
+        assert_eq!(a, b);
     }
 }
