@@ -193,8 +193,6 @@ describe('runtime config injection', () => {
   })
 })
 
-import { listPacks, createPack, setSessionPacks, createSession } from './client'
-
 describe('packs client', () => {
   beforeEach(() => { vi.restoreAllMocks() })
 
