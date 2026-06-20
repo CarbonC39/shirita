@@ -7,6 +7,7 @@ pub enum NodeKind {
     Folder,
     Ref,
     History,
+    Content,
 }
 
 impl NodeKind {
@@ -15,6 +16,7 @@ impl NodeKind {
             NodeKind::Folder => "folder",
             NodeKind::Ref => "ref",
             NodeKind::History => "history",
+            NodeKind::Content => "content",
         }
     }
 
@@ -23,6 +25,7 @@ impl NodeKind {
             "folder" => NodeKind::Folder,
             "ref" => NodeKind::Ref,
             "history" => NodeKind::History,
+            "content" => NodeKind::Content,
             other => return Err(crate::Error::InvalidDefinitionType(other.to_string())),
         })
     }
@@ -33,6 +36,7 @@ impl NodeKind {
 pub enum OwnerKind {
     Template,
     Session,
+    Pack,
 }
 
 impl OwnerKind {
@@ -40,6 +44,7 @@ impl OwnerKind {
         match self {
             OwnerKind::Template => "template",
             OwnerKind::Session => "session",
+            OwnerKind::Pack => "pack",
         }
     }
 
@@ -47,6 +52,7 @@ impl OwnerKind {
         Ok(match s {
             "template" => OwnerKind::Template,
             "session" => OwnerKind::Session,
+            "pack" => OwnerKind::Pack,
             other => return Err(crate::Error::InvalidDefinitionType(other.to_string())),
         })
     }
@@ -159,5 +165,17 @@ mod tests {
     fn node_kind_history_roundtrip() {
         assert_eq!(NodeKind::History.as_str(), "history");
         assert_eq!(NodeKind::from_db("history").unwrap(), NodeKind::History);
+    }
+
+    #[test]
+    fn content_kind_roundtrip() {
+        assert_eq!(NodeKind::Content.as_str(), "content");
+        assert_eq!(NodeKind::from_db("content").unwrap(), NodeKind::Content);
+    }
+
+    #[test]
+    fn owner_kind_pack_roundtrip() {
+        assert_eq!(OwnerKind::Pack.as_str(), "pack");
+        assert_eq!(OwnerKind::from_db("pack").unwrap(), OwnerKind::Pack);
     }
 }

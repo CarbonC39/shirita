@@ -478,6 +478,14 @@ pub fn assemble_from_nodes(
                     history_enabled = true;
                 }
             }
+            NodeKind::Content => {
+                // TODO(plan-2): inject mounted-pack content here, sorting
+                // before history. For now a no-op that prevents breaking
+                // changed when old templates gain a content node.
+                if root.enabled {
+                    // content node is recognised; packs are assembled in plan 2.
+                }
+            }
             NodeKind::Folder => {
                 if !root.enabled {
                     continue;
