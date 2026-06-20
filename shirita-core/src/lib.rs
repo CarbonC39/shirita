@@ -44,6 +44,7 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::summary::Summary;
 pub use models::template::Template;
+pub use models::pack::{Pack, PackIdentity};
 pub use pngcard::read_card_json;
 pub use portable::{
     export_definition, export_template, parse_portable, PortableDef, PortableDoc, PortableNode,

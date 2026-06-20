@@ -7,6 +7,7 @@ pub mod import_export;
 pub mod index;
 pub mod local_overrides;
 pub mod messages;
+pub mod packs;
 pub mod ping;
 pub mod prompt_nodes;
 pub mod provider;
