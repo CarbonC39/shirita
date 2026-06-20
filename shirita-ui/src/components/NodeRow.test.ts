@@ -69,6 +69,24 @@ describe('NodeRow', () => {
     expect(w.find('[data-test="node-add"]').exists()).toBe(false)
   })
 
+  it('renders a radio enable control for a ref when single-select is set', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 1, isExpanded: false, singleSelect: true } })
+    expect(w.find('[data-test="enable-radio"]').exists()).toBe(true)
+    expect(w.find('[data-test="enable-checkbox"]').exists()).toBe(false)
+  })
+
+  it('keeps the square checkbox when single-select is not set', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 1, isExpanded: false } })
+    expect(w.find('[data-test="enable-checkbox"]').exists()).toBe(true)
+    expect(w.find('[data-test="enable-radio"]').exists()).toBe(false)
+  })
+
+  it('radio still emits toggleEnabled on click', async () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 1, isExpanded: false, singleSelect: true } })
+    await w.find('[data-test="enable-radio"]').trigger('click')
+    expect(w.emitted('toggleEnabled')).toBeTruthy()
+  })
+
   it('shows the trigger editor in an expanded container ref', () => {
     const worldDefs = { d1: { id: 'd1', type: 'world', name: 'Zion', content: 'b', meta: { trigger: { mode: 'keyword', keys: ['zion'], probability: 100 } } } }
     const ref = node({ kind: 'ref', definition_id: 'd1' })
