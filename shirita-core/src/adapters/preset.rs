@@ -21,6 +21,7 @@ pub fn tree_to_preset(nodes: &[PromptNode], defs: &HashMap<String, Definition>) 
     for r in roots {
         match r.kind {
             NodeKind::History => items.push(serde_json::json!({ "kind": "history" })),
+            NodeKind::Content => items.push(serde_json::json!({ "kind": "content" })),
             NodeKind::Folder => {
                 let tag = r.tag.clone().unwrap_or_default();
                 let mut kids: Vec<&PromptNode> =

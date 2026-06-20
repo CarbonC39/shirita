@@ -43,7 +43,7 @@ pub struct NodesQuery { pub owner_kind: String }
 /// 同 owner 集合内一个 folder。违反返回 400。`owner_nodes` 为该 owner 的全部节点。
 fn enforce_two_level(kind: &NodeKind, parent_id: &Option<String>, owner_nodes: &[PromptNode]) -> Result<(), StatusCode> {
     match kind {
-        NodeKind::Folder | NodeKind::History => {
+        NodeKind::Folder | NodeKind::History | NodeKind::Content => {
             if parent_id.is_some() {
                 return Err(StatusCode::BAD_REQUEST);
             }
@@ -74,8 +74,8 @@ pub async fn create_node(State(state): State<AppState>, Path(owner_id): Path<Str
     let node = match kind {
         NodeKind::Folder => PromptNode::new_folder(owner_kind, &owner_id, body.parent_id, next_order, body.tag.unwrap_or_else(|| "unnamed".into())),
         NodeKind::Ref => PromptNode::new_ref(owner_kind, &owner_id, body.parent_id, next_order, body.definition_id.ok_or(StatusCode::BAD_REQUEST)?),
-        // history 是自动创建的魔法节点，不允许经此端点手动新建。
-        NodeKind::History => return Err(StatusCode::BAD_REQUEST),
+        // history 与 content 是自动创建的魔法节点，不允许经此端点手动新建。
+        NodeKind::History | NodeKind::Content => return Err(StatusCode::BAD_REQUEST),
     };
     state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(node))

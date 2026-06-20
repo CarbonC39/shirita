@@ -1059,6 +1059,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pack_owner_and_content_node_roundtrip() {
+        let s = temp_storage().await;
+        // a content node owned by a template
+        let t = crate::models::template::Template::new("T");
+        s.create_template(&t).await.unwrap();
+        let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        content.kind = NodeKind::Content;
+        content.tag = None;
+        s.create_node(&content).await.unwrap();
+        // a ref node owned by a pack (owner_kind='pack')
+        let def = Definition::new("char", "Alice", "hi");
+        s.create_definition(&def).await.unwrap();
+        let pref = PromptNode::new_ref(OwnerKind::Pack, "pack-1", None, 0, &def.id);
+        s.create_node(&pref).await.unwrap();
+
+        let got_content = s.get_node(&content.id).await.unwrap().unwrap();
+        assert_eq!(got_content.kind, NodeKind::Content);
+        let pack_nodes = s.list_nodes(&OwnerKind::Pack, "pack-1").await.unwrap();
+        assert_eq!(pack_nodes.len(), 1);
+        assert_eq!(pack_nodes[0].owner_kind, OwnerKind::Pack);
+        assert_eq!(pack_nodes[0].definition_id.as_deref(), Some(def.id.as_str()));
+    }
+
+    #[tokio::test]
     async fn override_config_atomic_json_ops() {
         let storage = temp_storage().await;
         let s = Sess::new("ov");
