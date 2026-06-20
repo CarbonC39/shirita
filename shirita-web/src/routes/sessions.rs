@@ -191,11 +191,33 @@ pub async fn get_session_identity(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    let nodes = shirita_core::conversation::effective_nodes(state.storage.as_ref(), &session)
+    let mut nodes = shirita_core::conversation::effective_nodes(state.storage.as_ref(), &session)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Load mounted packs (mount order) with their node trees.
+    let mut packs: Vec<(shirita_core::PackIdentity, Vec<PromptNode>)> = Vec::new();
+    for pid in &session.mounted_packs {
+        let Ok(Some(pack)) = state.storage.get_pack(pid).await else { continue };
+        let pnodes = state
+            .storage
+            .list_nodes(&OwnerKind::Pack, pid)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        packs.push((pack.identity, pnodes));
+    }
+
+    // Combined node pool: pack refs lead so a pack character/persona wins the
+    // name fallback over any stray template char.
+    let mut combined: Vec<PromptNode> = Vec::new();
+    for (_, pnodes) in &packs {
+        combined.extend(pnodes.iter().cloned());
+    }
+    combined.append(&mut nodes);
+
+    // One definition fetch per referenced id.
     let mut defs = HashMap::new();
-    for n in &nodes {
+    for n in &combined {
         if let Some(did) = &n.definition_id {
             if !defs.contains_key(did) {
                 if let Ok(Some(d)) = state.storage.get_definition(did).await {
@@ -204,15 +226,40 @@ pub async fn get_session_identity(
             }
         }
     }
+
+    // The first pack with an enabled char ref binds the assistant; the first
+    // with an enabled persona ref binds the user.
+    let mut assistant_pack: Option<&shirita_core::PackIdentity> = None;
+    let mut user_pack: Option<&shirita_core::PackIdentity> = None;
+    for (identity, pnodes) in &packs {
+        let mut has_char = false;
+        let mut has_persona = false;
+        for n in pnodes.iter().filter(|n| n.kind == NodeKind::Ref && n.enabled) {
+            match n.definition_id.as_ref().and_then(|d| defs.get(d)).map(|d| d.def_type.as_str()) {
+                Some("char") => has_char = true,
+                Some("persona") => has_persona = true,
+                _ => {}
+            }
+        }
+        if has_char && assistant_pack.is_none() {
+            assistant_pack = Some(identity);
+        }
+        if has_persona && user_pack.is_none() {
+            user_pack = Some(identity);
+        }
+    }
+
     let template_name = match &session.template_id {
         Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.name),
         None => None,
     };
-    let identity = shirita_core::identity::resolve_identity(
-        &nodes,
+    let identity = shirita_core::identity::resolve_identity_with_packs(
+        &combined,
         &defs,
         template_name.as_deref(),
         session.avatar.as_deref(),
+        assistant_pack,
+        user_pack,
     );
     Ok(Json(identity))
 }
