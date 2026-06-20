@@ -90,12 +90,12 @@ async fn materialize_copies_template_nodes_once() {
     assert_eq!(st, StatusCode::OK);
 
     let (_, after) = send(&state, "GET", &format!("/api/templates/{sid}/nodes?owner_kind=session"), None).await;
-    assert_eq!(json(&after).as_array().unwrap().len(), 1);
+    assert_eq!(json(&after).as_array().unwrap().len(), 2);
 
     // idempotent: a second call doesn't double the tree
     send(&state, "POST", &format!("/api/sessions/{sid}/materialize-nodes"), Some("{}")).await;
     let (_, after2) = send(&state, "GET", &format!("/api/templates/{sid}/nodes?owner_kind=session"), None).await;
-    assert_eq!(json(&after2).as_array().unwrap().len(), 1);
+    assert_eq!(json(&after2).as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]

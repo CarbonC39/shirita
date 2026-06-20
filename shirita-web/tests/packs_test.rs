@@ -56,6 +56,38 @@ fn body_json(bytes: &[u8]) -> Value {
 }
 
 #[tokio::test]
+async fn new_template_has_content_before_history() {
+    let state = test_state().await;
+    let (_, b) = send(&state, "POST", "/api/templates", Some(json!({ "name": "T" }))).await;
+    let tid = body_json(&b)["id"].as_str().unwrap().to_string();
+    let (st, b) = send(&state, "GET", &format!("/api/templates/{tid}/nodes?owner_kind=template"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let nodes = body_json(&b);
+    let arr = nodes.as_array().unwrap();
+    let content = arr.iter().find(|n| n["kind"] == "content").expect("content node");
+    let history = arr.iter().find(|n| n["kind"] == "history").expect("history node");
+    assert!(content["sort_order"].as_i64() < history["sort_order"].as_i64());
+}
+
+#[tokio::test]
+async fn pack_nodes_crud_via_reused_endpoints() {
+    let state = test_state().await;
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({ "name": "Alice" }))).await;
+    let pid = body_json(&b)["id"].as_str().unwrap().to_string();
+    let (_, b) = send(&state, "POST", "/api/definitions", Some(json!({ "type": "char", "name": "Alice", "content": "hi" }))).await;
+    let did = body_json(&b)["id"].as_str().unwrap().to_string();
+
+    let (st, b) = send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"),
+        Some(json!({ "kind": "ref", "definition_id": did }))).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body_json(&b)["owner_kind"], "pack");
+
+    let (st, b) = send(&state, "GET", &format!("/api/packs/{pid}/nodes?owner_kind=pack"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(body_json(&b).as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn pack_crud_roundtrip() {
     let state = test_state().await;
     let (st, b) = send(&state, "POST", "/api/packs", Some(json!({
