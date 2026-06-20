@@ -22,8 +22,13 @@ pub async fn create(State(state): State<AppState>, Json(body): Json<TemplateBody
     let mut t = Template::new(body.name);
     if !body.meta.is_null() { t.meta = body.meta; }
     state.storage.create_template(&t).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // 自动加一个不可删的「历史消息」魔法节点（默认启用）。
-    let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "history");
+    // Auto-add the undeletable magic nodes: <<content>> (pack mount point) then
+    // the chat-history node. Default enabled; content sorts before history.
+    let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+    content.kind = NodeKind::Content;
+    content.tag = None;
+    state.storage.create_node(&content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
     hist.kind = NodeKind::History;
     hist.tag = None;
     state.storage.create_node(&hist).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

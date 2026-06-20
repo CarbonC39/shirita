@@ -100,6 +100,8 @@ pub fn app(state: AppState) -> Router {
         .route("/packs", get(routes::packs::list).post(routes::packs::create))
         .route("/packs/{id}", get(routes::packs::get).put(routes::packs::update).delete(routes::packs::delete))
         .route("/packs/{id}/duplicate", post(routes::packs::duplicate))
+        .route("/packs/{id}/nodes", get(routes::prompt_nodes::list_nodes).post(routes::prompt_nodes::create_node))
+        .route("/packs/{id}/nodes/reorder", put(routes::prompt_nodes::reorder_nodes))
         .route("/types", get(routes::types::list).post(routes::types::create))
         .route("/types/{id}", delete(routes::types::delete))
         .route("/import/worldinfo", post(routes::import_export::import_worldinfo))
