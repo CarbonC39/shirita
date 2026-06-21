@@ -462,6 +462,19 @@ export function exportTemplatePath(id: string): string {
   return `/templates/${id}/export`
 }
 
+export async function applyStateUpdates(
+  sessionId: string,
+  updates: { action: string; key: string; value?: string | null }[],
+): Promise<{ values: Record<string, unknown> }> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/state-updates`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ updates }),
+  })
+  if (!res.ok) throw new Error(`State update failed: ${res.status}`)
+  return res.json()
+}
+
 // --- Packs ---
 export function listPacks(): Promise<Pack[]> { return apiGet<Pack[]>('/packs') }
 
