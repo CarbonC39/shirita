@@ -139,6 +139,9 @@ const en = {
     deleteTemplateConfirm: 'Delete this template?',
     deleteTemplateOrphans:
       'This template is the only thing using {count} definition. Delete it too? | This template is the only thing using {count} definitions. Delete them too?',
+    templateHeading: 'Template',
+    editTemplate: 'Edit template…',
+    createTemplate: 'New template',
     packHeading: 'Pack',
     editPack: 'Edit pack…',
     createPack: 'New pack',
