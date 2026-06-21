@@ -122,6 +122,23 @@ describe('ChatView', () => {
     expect(wrapper.text()).toContain('Neo')
   })
 
+  it('renders a panel for each mounted pack that has a panel', async () => {
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null, mounted_packs: ['p1'] } as never)
+    vi.spyOn(client, 'getPack').mockResolvedValue({
+      id: 'p1', name: 'Alice', identity: { display_name: null, avatar: null },
+      meta: { panel: { html: '<span data-bind="hp">x</span>', css: '', caps: {} } },
+      created_at: '', updated_at: '',
+    } as never)
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const w = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(w.find('[data-test="panel-stack"]').exists()).toBe(true)
+    expect(w.find('[data-test="panel-host"]').exists()).toBe(true)
+  })
+
   it('prefers $assistant_name and $avatar overrides over the resolved identity', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({

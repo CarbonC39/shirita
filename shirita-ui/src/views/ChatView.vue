@@ -6,11 +6,12 @@ import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
-import { getSessionState, getSessionIdentity } from '../api/client'
-import type { SessionState, Identity } from '../api/types'
+import { getSessionState, getSessionIdentity, getSession, getPack, applyStateUpdates } from '../api/client'
+import type { SessionState, Identity, Pack, Panel, PanelAction } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
+import PanelView from '../components/PanelView.vue'
 import { ArrowLeft } from 'lucide-vue-next'
 
 const { t } = useI18n()
@@ -43,6 +44,37 @@ async function loadIdentity() {
     /* keep fallback */
   }
 }
+// Mounted packs that ship a panel, in mount order.
+const panelPacks = ref<Pack[]>([])
+function panelOf(p: Pack): Panel {
+  return (p.meta as { panel: Panel }).panel
+}
+async function loadPanels() {
+  try {
+    const session = await getSession(sessionId)
+    const ids = session.mounted_packs ?? []
+    const packs = await Promise.all(ids.map((pid) => getPack(pid)))
+    panelPacks.value = packs.filter((p) => (p.meta as { panel?: Panel }).panel)
+  } catch {
+    panelPacks.value = []
+  }
+}
+
+async function onPanelAction(pack: Pack, action: PanelAction) {
+  const caps = panelOf(pack).caps || {}
+  if (action.kind === 'diff') {
+    if (!caps.write) return
+    try {
+      const res = await applyStateUpdates(sessionId, [{ action: action.op, key: action.key, value: action.value }])
+      sessionState.value = { ...sessionState.value, values: res.values }
+    } catch { /* stay on last good state */ }
+  } else if (action.kind === 'insert') {
+    if (caps.insert) composerRef.value?.setText(action.text)
+  } else if (action.kind === 'send') {
+    if (caps.send) await handleSend(action.text, [])
+  }
+}
+
 const effectiveIdentity = computed<Identity>(() => {
   const v = sessionState.value.values
   const dyn = (k: string) => (typeof v[k] === 'string' && v[k] ? (v[k] as string) : null)
@@ -69,6 +101,7 @@ onMounted(() => {
   chat.loadMessages(sessionId)
   loadState()
   loadIdentity()
+  loadPanels()
 })
 
 watch(
@@ -137,6 +170,15 @@ async function handleFork(id: string) {
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
+    </div>
+
+    <div v-if="panelPacks.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
+      <details v-for="p in panelPacks" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
+        <summary class="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-muted">{{ p.identity.display_name || p.name }}</summary>
+        <div class="px-2 pb-2">
+          <PanelView :html="panelOf(p).html" :css="panelOf(p).css" :values="sessionState.values" @action="onPanelAction(p, $event)" />
+        </div>
+      </details>
     </div>
 
     <p v-if="chat.error" class="text-coral text-sm py-4">{{ chat.error }}</p>
