@@ -454,6 +454,25 @@ export async function downloadExport(path: string, filename: string): Promise<vo
   URL.revokeObjectURL(url)
 }
 
+// Pack export's filename (.zip vs .json) is server-decided, so read it from
+// Content-Disposition rather than passing a fixed name; fall back to <name>.zip.
+export async function downloadPackExport(id: string, name: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/packs/${id}/export`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`export failed: ${res.status}`)
+  const cd = res.headers.get('content-disposition') ?? ''
+  const m = cd.match(/filename="?([^"]+)"?/)
+  const filename = m?.[1] ?? `${name || 'pack'}.zip`
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
 export function exportDefinitionPath(id: string): string {
   return `/definitions/${id}/export`
 }

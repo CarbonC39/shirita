@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates } from './client'
+import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -246,5 +246,43 @@ describe('packs client', () => {
     const body = JSON.parse(fm.mock.calls[0][1].body)
     expect(body.pack_ids).toEqual(['p1'])
     expect(body.template_id).toBe('t1')
+  })
+})
+
+describe('downloadPackExport', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
+  })
+
+  // Capture the anchor the helper creates; keep the real DOM otherwise.
+  function captureAnchor() {
+    const a = document.createElement('a')
+    vi.spyOn(document, 'createElement').mockReturnValue(a)
+    vi.spyOn(a, 'click').mockImplementation(() => {})
+    vi.stubGlobal('URL', { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} })
+    return a
+  }
+
+  it('names the download from Content-Disposition', async () => {
+    const a = captureAnchor()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: (k: string) => (k.toLowerCase() === 'content-disposition' ? 'attachment; filename="Alice.zip"' : null) },
+      blob: () => Promise.resolve(new Blob([new Uint8Array([0x50, 0x4b])])),
+    }))
+    await downloadPackExport('p1', 'Alice')
+    expect(a.download).toBe('Alice.zip')
+  })
+
+  it('falls back to <name>.zip when there is no Content-Disposition', async () => {
+    const a = captureAnchor()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => null },
+      blob: () => Promise.resolve(new Blob([])),
+    }))
+    await downloadPackExport('p9', 'Bob')
+    expect(a.download).toBe('Bob.zip')
   })
 })
