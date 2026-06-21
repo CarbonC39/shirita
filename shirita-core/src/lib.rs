@@ -7,6 +7,7 @@ pub mod budget;
 pub mod config;
 pub mod conversation;
 pub mod error;
+pub mod hashing;
 pub mod html_patch;
 pub mod identity;
 pub mod keyword;
@@ -44,6 +45,7 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::summary::Summary;
 pub use models::template::Template;
+pub use hashing::sha256_hex;
 pub use models::pack::{Pack, PackIdentity};
 pub use pngcard::read_card_json;
 pub use portable::{

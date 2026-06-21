@@ -10,6 +10,9 @@ pub struct Asset {
     pub path: String,
     /// Library this asset belongs to: `"avatar"` or `"background"`.
     pub kind: String,
+    /// sha256 hex of the file bytes; None until set on save / backfill.
+    #[serde(default)]
+    pub hash: Option<String>,
     pub created_at: String,
 }
 
@@ -22,6 +25,7 @@ impl Asset {
             name: name.into(),
             path: path.into(),
             kind: "background".into(),
+            hash: None,
             created_at: chrono::Utc::now().to_rfc3339(),
         }
     }
