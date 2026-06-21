@@ -84,6 +84,22 @@ pub async fn ensure_templates_have_content_node<S: Storage + ?Sized>(storage: &S
     Ok(())
 }
 
+/// Backfill the content hash of any asset whose file exists but whose hash is
+/// NULL (pre-`0020` rows). Idempotent; run at startup after migrations.
+pub async fn ensure_asset_hashes<S: Storage + ?Sized>(storage: &S, assets_dir: &str) -> Result<()> {
+    for asset in storage.list_assets(None).await? {
+        if asset.hash.is_some() {
+            continue;
+        }
+        let path = std::path::Path::new(assets_dir).join(&asset.path);
+        match tokio::fs::read(&path).await {
+            Ok(bytes) => storage.set_asset_hash(&asset.id, &crate::sha256_hex(&bytes)).await?,
+            Err(_) => tracing::warn!(asset = %asset.id, path = %asset.path, "ensure_asset_hashes: file missing, skipping"),
+        }
+    }
+    Ok(())
+}
+
 /// Seed the builtin `protocol` definitions (fixed ids, create-if-absent so it is
 /// idempotent and self-heals if one was deleted). Their content is the static
 /// protocol text the engine injects (see conversation::assemble_request).
@@ -185,5 +201,25 @@ mod tests {
         ensure_default_template(&storage).await.unwrap();
         ensure_default_template(&storage).await.unwrap();
         assert_eq!(storage.list_templates().await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn ensure_asset_hashes_backfills_missing() {
+        use crate::models::asset::Asset;
+        let dir = tempfile::tempdir().unwrap();
+        let assets_dir = dir.path().join("assets");
+        std::fs::create_dir_all(&assets_dir).unwrap();
+        std::fs::write(assets_dir.join("img.png"), b"hello-bytes").unwrap();
+
+        let storage = SqliteStorage::connect(dir.path().join("s.db").to_str().unwrap()).await.unwrap();
+        storage.run_migrations().await.unwrap();
+        let a = Asset::new("img", "img.png"); // hash None
+        storage.create_asset(&a).await.unwrap();
+
+        crate::ensure_asset_hashes(&storage, assets_dir.to_str().unwrap()).await.unwrap();
+        crate::ensure_asset_hashes(&storage, assets_dir.to_str().unwrap()).await.unwrap(); // idempotent
+
+        let got = storage.get_asset(&a.id).await.unwrap().unwrap();
+        assert_eq!(got.hash.as_deref(), Some(crate::sha256_hex(b"hello-bytes").as_str()));
     }
 }
