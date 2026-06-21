@@ -140,6 +140,7 @@ const ja: MessageSchema = {
     deleteTemplateConfirm: 'このテンプレートを削除しますか？',
     deleteTemplateOrphans: 'このテンプレートだけが {count} 件の定義を使用しています。一緒に削除しますか？',
     templateHeading: 'テンプレート',
+    definitionsHeading: '定義',
     editTemplate: 'テンプレートを編集…',
     createTemplate: 'テンプレートを新規作成',
     packHeading: 'パック',
