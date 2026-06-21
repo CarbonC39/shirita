@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, PromptNode};
+use crate::models::pack::{Pack, PackIdentity};
 use crate::models::template::Template;
 use crate::{Error, Result};
 
@@ -44,22 +45,20 @@ fn filter_enabled(nodes: &[PromptNode]) -> Vec<&PromptNode> {
         .collect()
 }
 
-/// 模板「启用部分」→ 原创信封：排除 disabled 子树；defs 只含被保留 ref 实际引用者（去重）；
-/// 悬空 definition_id 的 ref 节点跳过 + warn，保证产出引用完整。
-pub fn export_template(
-    template: &Template,
-    nodes: &[PromptNode],
+/// Pack a selected node list + the defs they reference into local_id-keyed
+/// `(nodes, definitions)` JSON arrays. Shared by template + pack export.
+/// Refs with a dangling `definition_id` are skipped (+ warn) for referential safety.
+fn inline_subtree(
+    kept: &[&PromptNode],
     defs: &HashMap<String, Definition>,
-) -> Value {
-    let kept = filter_enabled(nodes);
+) -> (Vec<Value>, Vec<Value>) {
     let node_lid: HashMap<&str, String> =
         kept.iter().enumerate().map(|(i, n)| (n.id.as_str(), format!("n{i}"))).collect();
-
     let mut def_lid: HashMap<String, String> = HashMap::new();
     let mut out_defs: Vec<Value> = Vec::new();
     let mut out_nodes: Vec<Value> = Vec::new();
 
-    for n in &kept {
+    for n in kept {
         let mut def_local: Option<String> = None;
         if n.kind == NodeKind::Ref {
             match n.definition_id.as_ref().and_then(|id| defs.get(id)) {
@@ -81,7 +80,7 @@ pub fn export_template(
                     def_local = Some(lid);
                 }
                 None => {
-                    tracing::warn!(node_id = %n.id, "export_template: ref has dangling definition_id, skipping");
+                    tracing::warn!(node_id = %n.id, "inline_subtree: ref has dangling definition_id, skipping");
                     continue;
                 }
             }
@@ -97,11 +96,45 @@ pub fn export_template(
             "meta": n.meta,
         }));
     }
+    (out_nodes, out_defs)
+}
 
+/// 模板「启用部分」→ 原创信封：排除 disabled 子树；defs 只含被保留 ref 实际引用者（去重）；
+/// 悬空 definition_id 的 ref 节点跳过 + warn，保证产出引用完整。
+pub fn export_template(
+    template: &Template,
+    nodes: &[PromptNode],
+    defs: &HashMap<String, Definition>,
+) -> Value {
+    let kept = filter_enabled(nodes);
+    let (out_nodes, out_defs) = inline_subtree(&kept, defs);
     json!({
         "format": "shirita.template",
         "version": 1,
         "template": { "name": template.name, "meta": template.meta },
+        "nodes": out_nodes,
+        "definitions": out_defs,
+    })
+}
+
+/// Pack → `shirita.pack` envelope: identity + variables/panel (`meta`) + the
+/// **full** content tree (no enabled-filter, so disabled `select=one`
+/// alternatives travel with the pack) + inlined definitions.
+pub fn export_pack(
+    pack: &Pack,
+    nodes: &[PromptNode],
+    defs: &HashMap<String, Definition>,
+) -> Value {
+    let kept: Vec<&PromptNode> = nodes.iter().collect();
+    let (out_nodes, out_defs) = inline_subtree(&kept, defs);
+    json!({
+        "format": "shirita.pack",
+        "version": 1,
+        "pack": {
+            "name": pack.name,
+            "identity": serde_json::to_value(&pack.identity).unwrap_or_else(|_| json!({})),
+            "meta": pack.meta,
+        },
         "nodes": out_nodes,
         "definitions": out_defs,
     })
@@ -130,15 +163,54 @@ pub struct PortableDef {
     pub meta: Value,
 }
 
-/// 解析结果：单定义或模板 bundle。
+/// 解析结果：单定义或模板 bundle 或 pack。
 #[derive(Debug, Clone, PartialEq)]
 pub enum PortableDoc {
     Definition(Definition),
     Template { name: String, meta: Value, nodes: Vec<PortableNode>, defs: Vec<PortableDef> },
+    Pack {
+        name: String,
+        identity: PackIdentity,
+        meta: Value,
+        nodes: Vec<PortableNode>,
+        defs: Vec<PortableDef>,
+    },
 }
 
 fn s(v: &Value, k: &str) -> String {
     v.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string()
+}
+
+/// Parse the `nodes` + `definitions` arrays shared by template/pack envelopes.
+fn parse_subtree(v: &Value) -> Result<(Vec<PortableNode>, Vec<PortableDef>)> {
+    let defs = v.get("definitions").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    let defs: Vec<PortableDef> = defs
+        .iter()
+        .map(|d| PortableDef {
+            local_id: s(d, "local_id"),
+            def_type: s(d, "type"),
+            name: s(d, "name"),
+            content: s(d, "content"),
+            meta: d.get("meta").cloned().unwrap_or_else(|| json!({})),
+        })
+        .collect();
+    let nodes = v.get("nodes").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+    let nodes: Result<Vec<PortableNode>> = nodes
+        .iter()
+        .map(|n| {
+            Ok(PortableNode {
+                local_id: s(n, "local_id"),
+                parent_local_id: n.get("parent_local_id").and_then(|x| x.as_str()).map(|x| x.to_string()),
+                kind: NodeKind::from_db(&s(n, "kind"))?,
+                tag: n.get("tag").and_then(|x| x.as_str()).map(|x| x.to_string()),
+                def_local_id: n.get("def_local_id").and_then(|x| x.as_str()).map(|x| x.to_string()),
+                enabled: n.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
+                sort_order: n.get("sort_order").and_then(|x| x.as_i64()).unwrap_or(0),
+                meta: n.get("meta").cloned().unwrap_or_else(|| json!({})),
+            })
+        })
+        .collect();
+    Ok((nodes?, defs))
 }
 
 /// 解析原创信封。`format` 不识别 → Err。
@@ -154,34 +226,17 @@ pub fn parse_portable(v: &Value) -> Result<PortableDoc> {
             let t = v.get("template").ok_or_else(|| Error::Config("missing template".into()))?;
             let name = s(t, "name");
             let meta = t.get("meta").cloned().unwrap_or_else(|| json!({}));
-            let defs = v.get("definitions").and_then(|x| x.as_array()).cloned().unwrap_or_default();
-            let defs: Vec<PortableDef> = defs
-                .iter()
-                .map(|d| PortableDef {
-                    local_id: s(d, "local_id"),
-                    def_type: s(d, "type"),
-                    name: s(d, "name"),
-                    content: s(d, "content"),
-                    meta: d.get("meta").cloned().unwrap_or_else(|| json!({})),
-                })
-                .collect();
-            let nodes = v.get("nodes").and_then(|x| x.as_array()).cloned().unwrap_or_default();
-            let nodes: Result<Vec<PortableNode>> = nodes
-                .iter()
-                .map(|n| {
-                    Ok(PortableNode {
-                        local_id: s(n, "local_id"),
-                        parent_local_id: n.get("parent_local_id").and_then(|x| x.as_str()).map(|x| x.to_string()),
-                        kind: NodeKind::from_db(&s(n, "kind"))?,
-                        tag: n.get("tag").and_then(|x| x.as_str()).map(|x| x.to_string()),
-                        def_local_id: n.get("def_local_id").and_then(|x| x.as_str()).map(|x| x.to_string()),
-                        enabled: n.get("enabled").and_then(|x| x.as_bool()).unwrap_or(true),
-                        sort_order: n.get("sort_order").and_then(|x| x.as_i64()).unwrap_or(0),
-                        meta: n.get("meta").cloned().unwrap_or_else(|| json!({})),
-                    })
-                })
-                .collect();
-            Ok(PortableDoc::Template { name, meta, nodes: nodes?, defs })
+            let (nodes, defs) = parse_subtree(v)?;
+            Ok(PortableDoc::Template { name, meta, nodes, defs })
+        }
+        Some("shirita.pack") => {
+            let p = v.get("pack").ok_or_else(|| Error::Config("missing pack".into()))?;
+            let name = s(p, "name");
+            let identity: PackIdentity =
+                serde_json::from_value(p.get("identity").cloned().unwrap_or_else(|| json!({}))).unwrap_or_default();
+            let meta = p.get("meta").cloned().unwrap_or_else(|| json!({}));
+            let (nodes, defs) = parse_subtree(v)?;
+            Ok(PortableDoc::Pack { name, identity, meta, nodes, defs })
         }
         _ => Err(Error::Config("unrecognized shirita format".into())),
     }
@@ -265,6 +320,45 @@ mod tests {
                 assert_eq!(defs[0].local_id, "d0");
             }
             _ => panic!("expected template"),
+        }
+    }
+
+    #[test]
+    fn pack_round_trip_keeps_identity_meta_and_full_tree() {
+        let mut pack = Pack::new("Alice");
+        pack.identity.avatar = Some("av.png".into());
+        pack.identity.display_name = Some("Alice".into());
+        pack.meta = json!({
+            "variables": [{ "name": "hp", "type": "number", "initial": 100 }],
+            "panel": { "html": "<b>{{hp}}</b>", "css": ".x{}", "caps": {} }
+        });
+
+        // folder > enabled ref A + DISABLED ref B; both must survive (no filter).
+        let f = PromptNode::new_folder(OwnerKind::Pack, &pack.id, None, 0, "char");
+        let a = Definition::new("char", "A", "aa");
+        let ra = PromptNode::new_ref(OwnerKind::Pack, &pack.id, Some(f.id.clone()), 0, &a.id);
+        let b = Definition::new("char", "B", "bb");
+        let mut rb = PromptNode::new_ref(OwnerKind::Pack, &pack.id, Some(f.id.clone()), 1, &b.id);
+        rb.enabled = false;
+        let mut defs = HashMap::new();
+        defs.insert(a.id.clone(), a.clone());
+        defs.insert(b.id.clone(), b.clone());
+
+        let v = export_pack(&pack, &[f, ra, rb], &defs);
+        assert_eq!(v["format"], "shirita.pack");
+        assert_eq!(v["pack"]["identity"]["avatar"], "av.png");
+        assert_eq!(v["nodes"].as_array().unwrap().len(), 3);        // full tree incl. disabled
+        assert_eq!(v["definitions"].as_array().unwrap().len(), 2);  // A + B both inlined
+
+        match parse_portable(&v).unwrap() {
+            PortableDoc::Pack { name, identity, meta, nodes, defs } => {
+                assert_eq!(name, "Alice");
+                assert_eq!(identity.avatar.as_deref(), Some("av.png"));
+                assert_eq!(meta["panel"]["html"], "<b>{{hp}}</b>");
+                assert_eq!(nodes.len(), 3);
+                assert_eq!(defs.len(), 2);
+            }
+            _ => panic!("expected pack"),
         }
     }
 
