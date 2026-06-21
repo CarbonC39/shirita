@@ -20,6 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shirita_core::ensure_builtin_definitions(&storage).await?;
     // Backfill: legacy templates gain the undeletable <<content>> mount node.
     shirita_core::ensure_templates_have_content_node(&storage).await?;
+    shirita_core::ensure_asset_hashes(&storage, &config.assets_dir).await?;
     tokio::fs::create_dir_all(&config.assets_dir).await.ok();
 
     // 共享 HTTP 客户端：env 兜底 provider 与运行期 settings provider 复用同一连接池。

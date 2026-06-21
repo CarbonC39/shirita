@@ -52,7 +52,8 @@ pub use portable::{
     export_definition, export_template, parse_portable, PortableDef, PortableDoc, PortableNode,
 };
 pub use seed::{
-    ensure_builtin_definitions, ensure_default_template, ensure_templates_have_content_node,
+    ensure_asset_hashes, ensure_builtin_definitions, ensure_default_template,
+    ensure_templates_have_content_node,
 };
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,
