@@ -43,16 +43,16 @@ No new tables — this rides on the existing `packs.meta` JSON column.
 
 A new component renders one panel:
 
-1. **Shadow root** attached to the host element. All author CSS and HTML live inside it → native style isolation (nothing leaks out; host styles don't leak in, so the author has full visual control).
+1. **Shadow root** attached to a host `<div>`. The host carries **forced inline styles** `position: relative; overflow: hidden; contain: content;` — so any `position:absolute` inside the panel is trapped to the host box, overflow is clipped, and layout/paint/style containment keeps the subtree from affecting the rest of the page (`content`, not `strict`, so the panel can still grow to its natural height). All author CSS and HTML live inside the shadow root → native style isolation (nothing leaks out; host styles don't leak in, so the author has full visual control).
 2. **Sanitize** the author HTML with a vetted library (DOMPurify — a new frontend dependency; today `MarkdownText` avoids HTML entirely, so this is the first place we render author HTML and must sanitize properly). Allowed: structural/text tags, `details`/`summary`, `span`/`div`/`p`/`ul`/`li`/headings/`table`, `class`/`style`/`data-*`, and local `<img src="/assets/…">`. Forbidden: `<script>`, `<iframe>`/`<object>`/`<embed>`, `<form>`, `<link>`/`<meta>`/`<base>`, any `on*` handler, and `javascript:` / non-image `data:` URLs.
 3. **Fence** the author CSS: reject/strip `@import`, `position: fixed|sticky`, external `url(http…)` (allow only `/assets/…`), `expression()`, and `behavior`. (Selector scoping itself is free via the shadow root — no prefixing needed.)
 4. **Bind** reactively from the session variable state. The frontend already exposes `{ schema, values }` via `GET /api/sessions/{id}/state`. Supported bindings:
    - `{{var}}` — text interpolation.
    - `data-bind="var"` — element `textContent`.
    - `data-show="var"` — element rendered only when the var is truthy.
-   On every state change (an LLM turn's diff, or a panel action), the panel re-renders from the sanitized template with the new values; action listeners are (re)bound via event delegation on the shadow root, so re-rendering never drops them.
+   On every state change (an LLM turn's diff, or a panel action), the host interpolates a fresh target tree from the sanitized template + new `values`, then **morphs** the live shadow DOM toward it with **morphdom** (a new, tiny frontend dependency) — never `innerHTML` replacement. A full destroy/rebuild would slam shut a `<details>` the user just opened, drop an active text selection or caret, and interrupt CSS transitions; morphing touches only the nodes that actually changed. An `onBeforeElUpdated` guard preserves user-interaction state the variables don't own (a `<details open>` toggled in the live DOM, focus, scroll). Action handlers are attached once via **event delegation on the shadow root**, so morphing never drops them.
 5. **Actions** (event-delegated on the shadow root):
-   - `data-diff="key OP value"`, `OP ∈ { =, +=, -=, toggle, append, remove }` → one `Update` → applied through the existing `apply_updates` pipeline (typed-validated, scoped to the pack's declared vars). Requires `caps.write`.
+   - `data-diff-key="location"` + `data-diff-op="set"` + `data-diff-value="The Dark Forest"` → one `Update` → applied through the existing `apply_updates` pipeline (typed-validated, scoped to the pack's declared vars). `op ∈ { set, add, sub, toggle, append, remove }` (`toggle` omits the value). **Three separate attributes, not a space-delimited string**: values are arbitrary text (multi-word locations, enum names), so a `split(" ")` micro-syntax would truncate `"The Dark Forest"` to `"The"`. Requires `caps.write`.
    - `data-insert="text"` (interpolated) → set/append the chat composer input. Requires `caps.insert`.
    - `data-send="text"` (optional; interpolated) → submit a message. Requires `caps.send`.
 
@@ -60,11 +60,16 @@ The same `<PanelView>` powers the **live preview** in the Pack editor (WYSIWYG).
 
 ## 5. Applying a panel diff (backend)
 
-Panel `data-diff` / `data-send` changes happen mid-conversation, outside an LLM turn, so v1 adds one endpoint:
+Panel `data-diff` / `data-send` changes happen mid-conversation, outside an LLM turn, so the change needs somewhere to live on the **message tree** (the source of truth for branch state since M4/M5). v1 adds one endpoint:
 
-`POST /api/sessions/{id}/state-updates` — body `{ "updates": [ { "action", "key", "value" }, … ] }`. It applies them via `apply_updates` against `resolve_schema_with_packs` (typed validation; undeclared or type-mismatched keys are ignored), persists onto the active branch's state, and returns the new `{ values }`. The frontend then refetches state → both the panels and the existing read-only VariablesPanel update.
+`POST /api/sessions/{id}/state-updates` — body `{ "updates": [ { "action", "key", "value" }, … ] }`. It:
 
-*(Storage detail — whether it writes `current_state`, the active-leaf `snapshot_state`, or both — is left to the implementation plan. The contract: the resolved state the panel reads reflects the applied diff and persists on the branch.)*
+1. resolves the schema via `resolve_schema_with_packs` and applies the updates with `apply_updates` (typed validation; undeclared or type-mismatched keys ignored);
+2. **inserts a hidden system node** — a state-carrier message, child of the current `active_leaf_id`, `is_hidden`, role `system`, carrying the post-diff state in its `snapshot_state` and no prompt-visible content;
+3. **advances `active_leaf_id` to that node**;
+4. returns the new `{ values }`.
+
+The frontend then refetches state → both the panels and the read-only VariablesPanel update. Anchoring the change to a node (rather than mutating `current_state` out-of-band) keeps every transition on the branch: it survives regenerate/fork (copied and id-remapped like any node) and is reachable by branch navigation, and because it's hidden + content-less it never shows in the chat nor enters the prompt — the next assembly already reads the new state from the leaf's `snapshot_state`.
 
 ## 6. Placement (chat)
 
@@ -97,15 +102,16 @@ Saved through the existing `updatePack(id, { meta })`.
 
 - **Sanitizer / fence** (unit): `<script>` / `on*` / `javascript:` / remote `url()` / `@import` / `position:fixed` are stripped; safe markup and CSS pass through.
 - **Binding** (component): `{{var}}` / `data-bind` / `data-show` render correctly and update when the state changes.
-- **Actions** (component): `data-diff` produces the correct `Update`; `data-insert` sets the composer; `data-send` triggers a send; each is gated by its `cap`.
-- **Backend** (integration): `state-updates` applies typed diffs, ignores undeclared / type-mismatched keys, and persists on the branch.
+- **Morphing** (component): a state change while a `<details>` is open and text is selected preserves both (morphdom, not `innerHTML` replacement) — and a multi-word `data-diff-value` is applied whole.
+- **Actions** (component): `data-diff-key/op/value` produces the correct `Update`; `data-insert` sets the composer; `data-send` triggers a send; each is gated by its `cap`.
+- **Backend** (integration): `state-updates` applies typed diffs, ignores undeclared / type-mismatched keys, inserts a hidden system state-carrier node, and advances `active_leaf_id`.
 - **Authoring** (component): the Pack-editor Panel section round-trips `meta.panel`.
 - **Placement** (component): `ChatView` renders one panel per mounted Pack that has `meta.panel`, in mount order.
 
 ## 11. Decomposition (for writing-plans)
 
 Likely plan split:
-1. backend `state-updates` endpoint + `pack.meta.panel` typing;
-2. `<PanelView>` core — sanitize + CSS fence + shadow DOM + bindings;
-3. actions (diff / insert / send) + `ChatView` placement;
+1. backend `state-updates` endpoint (hidden state-carrier node + `active_leaf_id` advance) + `pack.meta.panel` typing;
+2. `<PanelView>` core — host containment + sanitize + CSS fence + shadow DOM + morphdom-based bindings;
+3. actions (`data-diff-key/op/value` / insert / send) + `ChatView` placement;
 4. Pack-editor Panel authoring section + live preview.
