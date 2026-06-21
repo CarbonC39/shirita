@@ -122,12 +122,21 @@ pub fn app(state: AppState) -> Router {
             auth::require_bearer,
         ));
 
-    Router::new()
-        .route("/", get(routes::index::index))
+    let router = Router::new()
         .route("/health", get(routes::health::health))
         .nest("/api", protected)
-        .nest_service("/assets", ServeDir::new(assets_dir))
-        .with_state(state)
+        .nest_service("/assets", ServeDir::new(assets_dir));
+
+    #[cfg(feature = "embed-ui")]
+    let router = router
+        .route("/", get(embed::serve_index))
+        .route("/static/{*path}", get(embed::serve_static))
+        .fallback(embed::spa_fallback);
+
+    #[cfg(not(feature = "embed-ui"))]
+    let router = router.route("/", get(routes::index::index));
+
+    router.with_state(state)
 }
 
 /// 桌面 webview 的 origin：

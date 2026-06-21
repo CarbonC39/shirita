@@ -19,6 +19,10 @@ futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 uuid.workspace = true
 zip = "2"
+rust-embed = { version = "8", optional = true }
+
+[features]
+embed-ui = ["dep:rust-embed"]
 
 [dev-dependencies]
 tempfile = "3"

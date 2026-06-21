@@ -32,6 +32,85 @@ pub(crate) fn is_reserved_prefix(path: &str) -> bool {
         || path == "/static" || path.starts_with("/static/")
 }
 
+#[cfg(feature = "embed-ui")]
+mod serving {
+    use super::{inject_runtime, is_reserved_prefix};
+    use crate::AppState;
+    use axum::extract::{Path, State};
+    use axum::http::{header, StatusCode, Uri};
+    use axum::response::{Html, IntoResponse, Response};
+
+    /// The built Vue app, embedded at compile time (release) / read from disk
+    /// (debug). Path is relative to `shirita-web/Cargo.toml`.
+    #[derive(rust_embed::RustEmbed)]
+    #[folder = "../shirita-ui/dist"]
+    struct Ui;
+
+    fn index_response(state: &AppState) -> Response {
+        match Ui::get("index.html") {
+            Some(f) => {
+                let html = String::from_utf8_lossy(&f.data);
+                Html(inject_runtime(&html, &state.config.token_secret)).into_response()
+            }
+            None => (StatusCode::INTERNAL_SERVER_ERROR, "embedded index.html missing").into_response(),
+        }
+    }
+
+    /// `GET /` — the SPA shell with the runtime token injected.
+    pub async fn serve_index(State(state): State<AppState>) -> Response {
+        index_response(&state)
+    }
+
+    /// Map a file extension to a MIME type for static chunk serving.
+    fn mime_for_ext(path: &str) -> &'static str {
+        let ext = path.rsplit('.').next().unwrap_or("");
+        match ext {
+            "js" => "application/javascript",
+            "css" => "text/css",
+            "html" => "text/html",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "svg" => "image/svg+xml",
+            "woff2" => "font/woff2",
+            "woff" => "font/woff",
+            "json" => "application/json",
+            "map" => "application/json",
+            _ => "application/octet-stream",
+        }
+    }
+
+    /// `GET /static/{*path}` — an embedded frontend chunk, content-typed by
+    /// extension, immutably cached (filenames are content-hashed).
+    pub async fn serve_static(Path(path): Path<String>) -> Response {
+        match Ui::get(&format!("static/{path}")) {
+            Some(f) => {
+                let mime = mime_for_ext(&path);
+                (
+                    [
+                        (header::CONTENT_TYPE, mime),
+                        (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
+                    ],
+                    f.data.into_owned(),
+                )
+                    .into_response()
+            }
+            None => StatusCode::NOT_FOUND.into_response(),
+        }
+    }
+
+    /// Router fallback — unknown app routes get the SPA shell (history-mode deep
+    /// links); reserved prefixes 404 so an unknown API path never returns HTML.
+    pub async fn spa_fallback(uri: Uri, State(state): State<AppState>) -> Response {
+        if is_reserved_prefix(uri.path()) {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        index_response(&state)
+    }
+}
+
+#[cfg(feature = "embed-ui")]
+pub use serving::{serve_index, serve_static, spa_fallback};
+
 #[cfg(test)]
 mod tests {
     use super::*;
