@@ -83,6 +83,7 @@ pub async fn upload(
             .to_string();
         let mut asset = Asset::new(display, stored);
         asset.kind = norm_kind(q.kind.as_deref());
+        asset.hash = Some(shirita_core::sha256_hex(data.as_ref()));
         state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         return Ok(Json(asset_json(&asset)));
     }
