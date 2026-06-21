@@ -213,6 +213,96 @@ fn parse_subtree(v: &Value) -> Result<(Vec<PortableNode>, Vec<PortableDef>)> {
     Ok((nodes?, defs))
 }
 
+/// Walk a `mut Value` down a key path, returning `None` if any segment is absent.
+fn field_mut<'a>(v: &'a mut Value, path: &[&str]) -> Option<&'a mut Value> {
+    let mut cur = v;
+    for k in path {
+        cur = cur.get_mut(*k)?;
+    }
+    Some(cur)
+}
+
+fn push_unique(out: &mut Vec<String>, p: &str) {
+    if !p.is_empty() && !out.iter().any(|x| x == p) {
+        out.push(p.to_string());
+    }
+}
+
+/// Distinct relative asset paths a `shirita.pack` manifest references, from
+/// **designated fields only** — identity.avatar, each inlined definition's
+/// `meta.avatar`, and panel `meta.panel.{html,css}` `/assets/<path>` occurrences.
+/// Arbitrary strings (e.g. a text variable valued `123.png`) are never scanned.
+pub fn collect_pack_assets(manifest: &Value) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if let Some(a) = manifest["pack"]["identity"]["avatar"].as_str() {
+        push_unique(&mut out, a);
+    }
+    if let Some(defs) = manifest["definitions"].as_array() {
+        for d in defs {
+            if let Some(a) = d["meta"]["avatar"].as_str() {
+                push_unique(&mut out, a);
+            }
+        }
+    }
+    let re = regex::Regex::new(r#"/assets/([^"'\s)]+)"#).unwrap();
+    for key in ["html", "css"] {
+        if let Some(text) = manifest["pack"]["meta"]["panel"][key].as_str() {
+            for cap in re.captures_iter(text) {
+                push_unique(&mut out, &cap[1]);
+            }
+        }
+    }
+    out
+}
+
+fn remap_field(field: &mut Value, map: &HashMap<String, String>) {
+    if let Some(old) = field.as_str() {
+        if old.is_empty() {
+            return;
+        }
+        *field = match map.get(old) {
+            Some(n) => Value::String(n.clone()),
+            None => Value::Null, // unmapped → blank (dead-link guard)
+        };
+    }
+}
+
+/// Rewrite a manifest's **designated** asset refs through `map` (old rel → new
+/// rel). A designated ref present but absent from the map is blanked — avatar
+/// fields to `null`, panel `/assets/…` occurrences stripped — so import never
+/// yields a dead link.
+pub fn rewrite_pack_assets(manifest: &Value, map: &HashMap<String, String>) -> Value {
+    let mut m = manifest.clone();
+    if let Some(f) = field_mut(&mut m, &["pack", "identity", "avatar"]) {
+        remap_field(f, map);
+    }
+    if let Some(defs) = m.get_mut("definitions").and_then(|d| d.as_array_mut()) {
+        for d in defs {
+            if let Some(f) = field_mut(d, &["meta", "avatar"]) {
+                remap_field(f, map);
+            }
+        }
+    }
+    let re = regex::Regex::new(r#"/assets/([^"'\s)]+)"#).unwrap();
+    for key in ["html", "css"] {
+        let cur = field_mut(&mut m, &["pack", "meta", "panel", key])
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        if let Some(text) = cur {
+            let rewritten = re
+                .replace_all(&text, |c: &regex::Captures| match map.get(&c[1]) {
+                    Some(n) => format!("/assets/{n}"),
+                    None => String::new(),
+                })
+                .into_owned();
+            if let Some(f) = field_mut(&mut m, &["pack", "meta", "panel", key]) {
+                *f = Value::String(rewritten);
+            }
+        }
+    }
+    m
+}
+
 /// 解析原创信封。`format` 不识别 → Err。
 pub fn parse_portable(v: &Value) -> Result<PortableDoc> {
     match v.get("format").and_then(|f| f.as_str()) {
@@ -360,6 +450,41 @@ mod tests {
             }
             _ => panic!("expected pack"),
         }
+    }
+
+    #[test]
+    fn collect_pack_assets_designated_only_ignores_lookalike_var() {
+        let m = json!({
+            "pack": { "identity": { "avatar": "a.png" },
+                      "meta": { "panel": { "css": ".x{background:url(/assets/c.png)}", "html": "" },
+                                "variables": [{ "name": "note", "type": "string", "initial": "d.png" }] } },
+            "definitions": [ { "meta": { "avatar": "b.png" } }, { "meta": {} } ]
+        });
+        let got = collect_pack_assets(&m);
+        assert!(got.contains(&"a.png".to_string()));
+        assert!(got.contains(&"b.png".to_string()));
+        assert!(got.contains(&"c.png".to_string()));
+        assert!(!got.contains(&"d.png".to_string()), "look-alike text variable must NOT be collected");
+        assert_eq!(got.len(), 3);
+    }
+
+    #[test]
+    fn rewrite_pack_assets_remaps_and_blanks_dead_links() {
+        let m = json!({
+            "pack": { "identity": { "avatar": "a.png" },
+                      "meta": { "panel": { "css": "url(/assets/c.png) url(/assets/gone.png)", "html": "" } } },
+            "definitions": [ { "meta": { "avatar": "b.png" } } ]
+        });
+        let mut map = HashMap::new();
+        map.insert("a.png".to_string(), "x.png".to_string());
+        map.insert("c.png".to_string(), "z.png".to_string());
+        // b.png and gone.png are intentionally absent from the map.
+        let out = rewrite_pack_assets(&m, &map);
+        assert_eq!(out["pack"]["identity"]["avatar"], "x.png");
+        assert!(out["definitions"][0]["meta"]["avatar"].is_null(), "unmapped avatar blanked");
+        let css = out["pack"]["meta"]["panel"]["css"].as_str().unwrap();
+        assert!(css.contains("/assets/z.png"));
+        assert!(!css.contains("gone.png"), "dead /assets link stripped");
     }
 
     #[test]
