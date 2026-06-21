@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::Read;
 
 use axum::extract::{Multipart, Query, State};
 use axum::http::StatusCode;
@@ -6,7 +7,10 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use shirita_core::{charcard_to_loreset, Definition, LoreSet, NodeKind, OwnerKind, PromptNode, Template};
+use shirita_core::{
+    charcard_to_loreset, collect_pack_assets, parse_portable, rewrite_pack_assets, Asset, Definition,
+    LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode, Template,
+};
 
 use crate::AppState;
 
@@ -49,6 +53,202 @@ pub struct ImportItem {
 
 fn item(kind: &str, id: &str, name: &str) -> ImportItem {
     ImportItem { kind: kind.into(), id: id.into(), name: name.into() }
+}
+
+const MAX_ZIP_ENTRIES: usize = 512;
+const MAX_ENTRY_BYTES: u64 = 32 * 1024 * 1024; // 32 MiB per file
+const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024; // 64 MiB total decompressed
+
+/// Safely unpack a `shirita.pack` zip into (manifest, `assets/<rel>` → bytes).
+/// Rejects unsafe paths (`..`/absolute via `enclosed_name`), nested `assets/`
+/// entries, and over-cap entry counts / per-entry / total decompressed sizes.
+fn unzip_pack(bytes: &[u8]) -> Result<(Value, HashMap<String, Vec<u8>>), StatusCode> {
+    let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| StatusCode::BAD_REQUEST)?;
+    if zip.len() > MAX_ZIP_ENTRIES {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut manifest: Option<Value> = None;
+    let mut assets: HashMap<String, Vec<u8>> = HashMap::new();
+    let mut total: u64 = 0;
+    for i in 0..zip.len() {
+        let entry = zip.by_index(i).map_err(|_| StatusCode::BAD_REQUEST)?;
+        // `enclosed_name` returns None for traversal/absolute paths.
+        let name = match entry.enclosed_name() {
+            Some(p) => p.to_string_lossy().replace('\\', "/"),
+            None => return Err(StatusCode::BAD_REQUEST),
+        };
+        let is_dir = entry.is_dir();
+        let declared = entry.size();
+        if is_dir {
+            continue;
+        }
+        if declared > MAX_ENTRY_BYTES {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        // Read with a hard cap — the declared size can lie.
+        let mut buf = Vec::new();
+        entry.take(MAX_ENTRY_BYTES + 1).read_to_end(&mut buf).map_err(|_| StatusCode::BAD_REQUEST)?;
+        if buf.len() as u64 > MAX_ENTRY_BYTES {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        total += buf.len() as u64;
+        if total > MAX_TOTAL_BYTES {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if name == "manifest.json" {
+            manifest = Some(serde_json::from_slice(&buf).map_err(|_| StatusCode::BAD_REQUEST)?);
+        } else if let Some(rel) = name.strip_prefix("assets/") {
+            // Flat names only — no nested directories under assets/.
+            if rel.is_empty() || rel.contains('/') {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            assets.insert(rel.to_string(), buf);
+        }
+        // Any other top-level entry is ignored.
+    }
+    let manifest = manifest.ok_or(StatusCode::BAD_REQUEST)?;
+    Ok((manifest, assets))
+}
+
+/// Restore a `shirita.pack` manifest + its bundled asset bytes: hash-dedup each
+/// referenced asset (reuse an existing/just-queued row by content hash, else
+/// write the file + register a new Asset), rewrite the manifest's designated
+/// asset fields to the stored names (blanking refs absent from the bundle), then
+/// atomically create the pack, its definitions and its nodes.
+async fn persist_pack_bundle(
+    state: &AppState,
+    manifest: &Value,
+    zip_assets: &HashMap<String, Vec<u8>>,
+    oc: OnConflict,
+    summary: &mut ImportSummary,
+) -> Result<(), StatusCode> {
+    use std::path::Path as FsPath;
+
+    // Skip an existing same-name pack (peek before the full parse/restore).
+    let name = manifest.get("pack").and_then(|p| p.get("name")).and_then(|v| v.as_str()).unwrap_or("Pack").to_string();
+    if matches!(oc, OnConflict::Skip) {
+        let packs = state.storage.list_packs().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(ex) = packs.iter().find(|p| p.name == name) {
+            summary.skipped.push(item("pack", &ex.id, &ex.name));
+            return Ok(());
+        }
+    }
+
+    // 1) Hash-dedup restore. Only assets BOTH designated AND present in the zip
+    //    are restored; the old→new map drives the rewrite (missing → blanked).
+    tokio::fs::create_dir_all(&state.config.assets_dir).await.ok();
+    let mut rename: HashMap<String, String> = HashMap::new();
+    let mut new_assets: Vec<Asset> = Vec::new();
+    let mut by_hash: HashMap<String, String> = HashMap::new(); // in-batch dedup
+    for rel in collect_pack_assets(manifest) {
+        let Some(bytes) = zip_assets.get(&rel) else { continue };
+        let hash = shirita_core::sha256_hex(bytes);
+        let stored = if let Some(p) = by_hash.get(&hash) {
+            p.clone()
+        } else if let Some(ex) =
+            state.storage.find_asset_by_hash(&hash).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        {
+            ex.path
+        } else {
+            let ext = FsPath::new(&rel).extension().and_then(|e| e.to_str()).unwrap_or("bin");
+            let stored = format!("{}.{}", uuid::Uuid::new_v4(), ext);
+            tokio::fs::write(FsPath::new(&state.config.assets_dir).join(&stored), bytes)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            let mut a = Asset::new(&rel, stored.clone());
+            a.kind = "avatar".into();
+            a.hash = Some(hash.clone());
+            new_assets.push(a);
+            stored
+        };
+        by_hash.insert(hash, stored.clone());
+        rename.insert(rel, stored);
+    }
+
+    // 2) Rewrite designated refs to stored names (unmapped → blanked).
+    let rewritten = rewrite_pack_assets(manifest, &rename);
+
+    // 3) Parse to a portable pack; build a fresh pack (new UUID) + entities.
+    let (pname, identity, meta, pnodes, pdefs) =
+        match parse_portable(&rewritten).map_err(|_| StatusCode::BAD_REQUEST)? {
+            PortableDoc::Pack { name, identity, meta, nodes, defs } => (name, identity, meta, nodes, defs),
+            _ => return Err(StatusCode::BAD_REQUEST),
+        };
+    let mut pack = Pack::new(&pname);
+    pack.identity = identity;
+    pack.meta = meta;
+
+    // Definitions: local_id → new id (bundle defs created fresh, like template import).
+    let mut def_map: HashMap<String, String> = HashMap::new();
+    let mut out_defs: Vec<Definition> = Vec::new();
+    for pd in &pdefs {
+        let mut d = Definition::new(&pd.def_type, &pd.name, &pd.content);
+        d.meta = pd.meta.clone();
+        def_map.insert(pd.local_id.clone(), d.id.clone());
+        out_defs.push(d);
+    }
+
+    // Nodes: pre-allocate new ids, then emit in parent-before-child order
+    // (mirrors import_template_bundle's topological layering).
+    let node_map: HashMap<String, String> =
+        pnodes.iter().map(|n| (n.local_id.clone(), uuid::Uuid::new_v4().to_string())).collect();
+    let mut out_nodes: Vec<PromptNode> = Vec::new();
+    let mut inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut remaining: Vec<&shirita_core::PortableNode> = pnodes.iter().collect();
+    loop {
+        let mut progressed = false;
+        let mut still: Vec<&shirita_core::PortableNode> = Vec::new();
+        for pn in remaining {
+            let parent_pending = match &pn.parent_local_id {
+                Some(p) => node_map.contains_key(p) && !inserted.contains(p),
+                None => false,
+            };
+            if parent_pending {
+                still.push(pn);
+                continue;
+            }
+            let definition_id = match (&pn.kind, &pn.def_local_id) {
+                (NodeKind::Ref, Some(dl)) => match def_map.get(dl) {
+                    Some(real) => Some(real.clone()),
+                    None => {
+                        tracing::warn!(local_id = %pn.local_id, "pack import: ref def_local_id missing, skipping node");
+                        inserted.insert(pn.local_id.clone());
+                        progressed = true;
+                        continue;
+                    }
+                },
+                _ => None,
+            };
+            out_nodes.push(PromptNode {
+                id: node_map[&pn.local_id].clone(),
+                owner_kind: OwnerKind::Pack,
+                owner_id: pack.id.clone(),
+                parent_id: pn.parent_local_id.as_ref().and_then(|p| node_map.get(p)).cloned(),
+                sort_order: pn.sort_order,
+                kind: pn.kind.clone(),
+                tag: pn.tag.clone(),
+                definition_id,
+                enabled: pn.enabled,
+                created_at: chrono::Utc::now().to_rfc3339(),
+                meta: pn.meta.clone(),
+            });
+            inserted.insert(pn.local_id.clone());
+            progressed = true;
+        }
+        remaining = still;
+        if remaining.is_empty() || !progressed {
+            break;
+        }
+    }
+
+    // 4) One transaction: assets + pack + defs + nodes (full rollback on any error).
+    state
+        .storage
+        .import_pack(&pack, &out_defs, &out_nodes, &new_assets)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    summary.created.push(item("pack", &pack.id, &pack.name));
+    Ok(())
 }
 
 /// 按 name+def_type 判重，依 `on_conflict` 落库定义；累加进 summary。
@@ -192,6 +392,13 @@ pub async fn import(
         return Ok(Json(summary));
     }
 
+    // 1b) Zip → shirita.pack bundle (manifest.json + assets/<file>).
+    if bytes.len() >= 4 && bytes[..4] == [0x50, 0x4B, 0x03, 0x04] {
+        let (manifest, zip_assets) = unzip_pack(&bytes)?;
+        persist_pack_bundle(&state, &manifest, &zip_assets, oc, &mut summary).await?;
+        return Ok(Json(summary));
+    }
+
     // 2) 否则按 JSON sniff。
     let v: Value = serde_json::from_slice(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
     match v.get("format").and_then(|f| f.as_str()) {
@@ -202,6 +409,9 @@ pub async fn import(
             }
         }
         Some("shirita.template") => import_template_bundle(&state, &v, oc, &mut summary).await?,
+        Some("shirita.pack") => {
+            persist_pack_bundle(&state, &v, &HashMap::new(), oc, &mut summary).await?;
+        }
         _ => {
             let is_card = v.get("spec").and_then(|s| s.as_str()).map(|s| s.contains("chara_card")).unwrap_or(false)
                 || v.get("data").and_then(|d| d.get("name")).is_some()
