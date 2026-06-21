@@ -101,6 +101,67 @@ async fn state_schema_includes_mounted_pack_variables() {
 }
 
 #[tokio::test]
+async fn state_updates_apply_typed_diff_and_persist() {
+    let state = test_state().await;
+    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    let (st, out) = send(&state, "POST", &format!("/api/sessions/{sid}/state-updates"),
+        Some(r#"{"updates":[{"action":"sub","key":"hp","value":"10"}]}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(json(&out)["values"]["hp"], 90);
+
+    // persisted on the branch
+    let (_, state_out) = send(&state, "GET", &format!("/api/sessions/{sid}/state"), None).await;
+    assert_eq!(json(&state_out)["values"]["hp"], 90);
+}
+
+#[tokio::test]
+async fn state_updates_keep_multiword_values_and_ignore_undeclared() {
+    let state = test_state().await;
+    let tid = create_template(&state, "RPG",
+        r#"{"variables":[{"name":"location","type":"string","initial":"Town"}]}"#).await;
+    let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    let (st, out) = send(&state, "POST", &format!("/api/sessions/{sid}/state-updates"),
+        Some(r#"{"updates":[{"action":"set","key":"location","value":"The Dark Forest"},{"action":"set","key":"bogus","value":"x"}]}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    let body = json(&out);
+    assert_eq!(body["values"]["location"], "The Dark Forest"); // whole multi-word value, not truncated
+    assert!(body["values"].get("bogus").is_none());            // undeclared key dropped
+}
+
+#[tokio::test]
+async fn state_updates_insert_hidden_system_node_and_advance_leaf() {
+    let state = test_state().await;
+    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
+    let sid = json(&sout)["id"].as_str().unwrap().to_string();
+
+    // before: no active leaf, no messages
+    let (_, s0) = send(&state, "GET", &format!("/api/sessions/{sid}"), None).await;
+    assert!(json(&s0)["active_leaf_id"].is_null());
+
+    let _ = send(&state, "POST", &format!("/api/sessions/{sid}/state-updates"),
+        Some(r#"{"updates":[{"action":"sub","key":"hp","value":"5"}]}"#)).await;
+
+    // after: leaf points at a hidden, role-system carrier node
+    let (_, s1) = send(&state, "GET", &format!("/api/sessions/{sid}"), None).await;
+    let leaf = json(&s1)["active_leaf_id"].as_str().unwrap().to_string();
+    assert!(!leaf.is_empty());
+
+    let (_, msgs_out) = send(&state, "GET", &format!("/api/sessions/{sid}/messages"), None).await;
+    let msgs = json(&msgs_out);
+    let arr = msgs.as_array().unwrap();
+    assert_eq!(arr.len(), 1);
+    assert_eq!(arr[0]["id"], leaf);
+    assert_eq!(arr[0]["role"], "system");
+    assert_eq!(arr[0]["is_hidden"], true);
+}
+
+#[tokio::test]
 async fn set_local_variables_adds_to_the_schema() {
     let state = test_state().await;
     let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
