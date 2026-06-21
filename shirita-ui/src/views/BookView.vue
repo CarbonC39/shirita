@@ -35,6 +35,7 @@ import {
     duplicatePack,
 } from "../api/client";
 import type { PromptNode, Definition, Trigger, Session, VarDecl, OnConflict, ImportSummary } from "../api/types";
+import { selectOneSiblingsToDisable } from "../utils/tree";
 import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 import VariablesEditor from "../components/VariablesEditor.vue";
@@ -357,9 +358,15 @@ async function localToggleEnabled(nodeId: string) {
     if (!sid) return;
     const node = localNodes.value.find((n) => n.id === nodeId);
     if (!node) return;
+    const enabling = !node.enabled;
     try {
         await ensureMaterialized();
-        await updateNode(nodeId, { enabled: !node.enabled });
+        await updateNode(nodeId, { enabled: enabling });
+        if (enabling) {
+            for (const sib of selectOneSiblingsToDisable(localNodes.value, nodeId)) {
+                await updateNode(sib, { enabled: false });
+            }
+        }
         await loadLocalNodes();
     } catch (e) {
         error.value = (e as Error).message;
@@ -621,15 +628,15 @@ async function createNewInContainer(parentId: string, typeId: string) {
 async function handleToggleEnabled(nodeId: string) {
     const node = nodes.value.find((n) => n.id === nodeId);
     if (!node) return;
+    const enabling = !node.enabled;
     try {
-        const updated = await updateNode(nodeId, { enabled: !node.enabled });
-        const i = nodes.value.findIndex((n) => n.id === nodeId);
-        if (i !== -1)
-            nodes.value = [
-                ...nodes.value.slice(0, i),
-                updated,
-                ...nodes.value.slice(i + 1),
-            ];
+        await updateNode(nodeId, { enabled: enabling });
+        if (enabling) {
+            for (const sib of selectOneSiblingsToDisable(nodes.value, nodeId)) {
+                await updateNode(sib, { enabled: false });
+            }
+        }
+        await reload();
     } catch (e) {
         error.value = (e as Error).message;
     }
