@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession } from './client'
+import { listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -31,6 +31,21 @@ describe('api client', () => {
     expect(fm).toHaveBeenCalledWith('/api/sessions', {
       headers: { Authorization: 'Bearer test-token' },
     })
+  })
+
+  it('applyStateUpdates POSTs /state-updates and returns the new values', async () => {
+    const fm = mockFetch(200, { values: { hp: 90 } })
+    vi.stubGlobal('fetch', fm)
+
+    const out = await applyStateUpdates('s1', [{ action: 'sub', key: 'hp', value: '10' }])
+
+    expect(fm).toHaveBeenCalledWith(
+      expect.stringContaining('/api/sessions/s1/state-updates'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(JSON.parse((fm.mock.calls[0][1] as RequestInit).body as string))
+      .toEqual({ updates: [{ action: 'sub', key: 'hp', value: '10' }] })
+    expect(out).toEqual({ values: { hp: 90 } })
   })
 
   it('throws on a non-ok response', async () => {
