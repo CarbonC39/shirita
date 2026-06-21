@@ -735,41 +735,61 @@ impl Storage for SqliteStorage {
 
     async fn list_assets(&self, kind: Option<&str>) -> Result<Vec<Asset>> {
         let rows = match kind {
-            Some(k) => sqlx::query_as::<_, (String, String, String, String, String)>(
-                "SELECT id, name, path, kind, created_at FROM assets WHERE kind = ? ORDER BY created_at DESC, id DESC",
+            Some(k) => sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+                "SELECT id, name, path, kind, created_at, hash FROM assets WHERE kind = ? ORDER BY created_at DESC, id DESC",
             )
             .bind(k)
             .fetch_all(&self.pool)
             .await?,
-            None => sqlx::query_as::<_, (String, String, String, String, String)>(
-                "SELECT id, name, path, kind, created_at FROM assets ORDER BY created_at DESC, id DESC",
+            None => sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+                "SELECT id, name, path, kind, created_at, hash FROM assets ORDER BY created_at DESC, id DESC",
             )
             .fetch_all(&self.pool)
             .await?,
         };
         Ok(rows
             .into_iter()
-            .map(|(id, name, path, kind, created_at)| Asset { id, name, path, kind, created_at })
+            .map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at })
             .collect())
     }
 
     async fn get_asset(&self, id: &str) -> Result<Option<Asset>> {
-        let row = sqlx::query_as::<_, (String, String, String, String, String)>(
-            "SELECT id, name, path, kind, created_at FROM assets WHERE id = ?",
+        let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+            "SELECT id, name, path, kind, created_at, hash FROM assets WHERE id = ?",
         )
         .bind(id)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(id, name, path, kind, created_at)| Asset { id, name, path, kind, created_at }))
+        Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
     }
 
     async fn create_asset(&self, asset: &Asset) -> Result<()> {
-        sqlx::query("INSERT INTO assets (id, name, path, kind, created_at) VALUES (?, ?, ?, ?, ?)")
+        sqlx::query("INSERT INTO assets (id, name, path, kind, created_at, hash) VALUES (?, ?, ?, ?, ?, ?)")
             .bind(&asset.id)
             .bind(&asset.name)
             .bind(&asset.path)
             .bind(&asset.kind)
             .bind(&asset.created_at)
+            .bind(&asset.hash)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn find_asset_by_hash(&self, hash: &str) -> Result<Option<Asset>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+            "SELECT id, name, path, kind, created_at, hash FROM assets WHERE hash = ? LIMIT 1",
+        )
+        .bind(hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
+    }
+
+    async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()> {
+        sqlx::query("UPDATE assets SET hash = ? WHERE id = ?")
+            .bind(hash)
+            .bind(id)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -1108,6 +1128,28 @@ mod tests {
         storage.delete_asset(&a.id).await.unwrap();
         assert!(storage.get_asset(&a.id).await.unwrap().is_none());
         assert!(storage.list_assets(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn asset_hash_create_lookup_and_set() {
+        use crate::models::asset::Asset;
+        let dir = tempfile::tempdir().unwrap();
+        let storage = SqliteStorage::connect(dir.path().join("h.db").to_str().unwrap()).await.unwrap();
+        storage.run_migrations().await.unwrap();
+
+        // created with a hash → findable by it
+        let mut a = Asset::new("face", "u1.png");
+        a.hash = Some("abc123".into());
+        storage.create_asset(&a).await.unwrap();
+        assert_eq!(storage.find_asset_by_hash("abc123").await.unwrap().unwrap().id, a.id);
+        assert!(storage.find_asset_by_hash("missing").await.unwrap().is_none());
+
+        // created without a hash → backfillable via set_asset_hash
+        let b = Asset::new("bg", "u2.png");
+        storage.create_asset(&b).await.unwrap();
+        assert!(storage.get_asset(&b.id).await.unwrap().unwrap().hash.is_none());
+        storage.set_asset_hash(&b.id, "def456").await.unwrap();
+        assert_eq!(storage.get_asset(&b.id).await.unwrap().unwrap().hash.as_deref(), Some("def456"));
     }
 
     #[tokio::test]

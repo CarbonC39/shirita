@@ -116,4 +116,8 @@ pub trait Storage: Send + Sync {
     /// 重命名资源（仅 name）。
     async fn rename_asset(&self, id: &str, name: &str) -> Result<()>;
     async fn delete_asset(&self, id: &str) -> Result<()>;
+    /// First asset whose content hash matches, if any (dedup lookup).
+    async fn find_asset_by_hash(&self, hash: &str) -> Result<Option<Asset>>;
+    /// Set/replace an asset's content hash (used by the startup backfill).
+    async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()>;
 }
