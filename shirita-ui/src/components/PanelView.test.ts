@@ -57,3 +57,30 @@ describe('PanelView', () => {
     expect(style).toContain('contain: content')
   })
 })
+
+describe('PanelView actions', () => {
+  it('emits a diff action when a data-diff element is clicked', async () => {
+    const w = mount(PanelView, {
+      props: { html: '<button data-diff-key="hp" data-diff-op="sub" data-diff-value="1">-</button>', css: '', values: {} },
+    })
+    await nextTick()
+    shadowOf(w).querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(w.emitted('action')!.at(-1)![0]).toEqual({ kind: 'diff', key: 'hp', op: 'sub', value: '1' })
+  })
+
+  it('emits an interpolated insert action', async () => {
+    const w = mount(PanelView, {
+      props: { html: '<button data-insert="Go to {{loc}}">go</button>', css: '', values: { loc: 'The Dark Forest' } },
+    })
+    await nextTick()
+    shadowOf(w).querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(w.emitted('action')!.at(-1)![0]).toEqual({ kind: 'insert', text: 'Go to The Dark Forest' })
+  })
+
+  it('emits a send action', async () => {
+    const w = mount(PanelView, { props: { html: '<button data-send="hi">x</button>', css: '', values: {} } })
+    await nextTick()
+    shadowOf(w).querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    expect(w.emitted('action')!.at(-1)![0]).toEqual({ kind: 'send', text: 'hi' })
+  })
+})

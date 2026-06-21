@@ -1,13 +1,37 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import morphdom from 'morphdom'
 import { sanitizePanelHtml, fenceCss } from '../utils/panel'
+import type { PanelAction } from '../api/types'
 
 const props = defineProps<{
   html: string
   css: string
   values: Record<string, unknown>
 }>()
+const emit = defineEmits<{ action: [PanelAction] }>()
+
+function interpolate(text: string): string {
+  return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => String(props.values[k] ?? ''))
+}
+
+function onClick(e: Event) {
+  const target = e.target as HTMLElement | null
+  const el = target?.closest?.('[data-diff-key],[data-insert],[data-send]') as HTMLElement | null
+  if (!el) return
+  if (el.hasAttribute('data-diff-key')) {
+    emit('action', {
+      kind: 'diff',
+      key: el.getAttribute('data-diff-key') || '',
+      op: el.getAttribute('data-diff-op') || 'set',
+      value: el.getAttribute('data-diff-value'),
+    })
+  } else if (el.hasAttribute('data-insert')) {
+    emit('action', { kind: 'insert', text: interpolate(el.getAttribute('data-insert') || '') })
+  } else if (el.hasAttribute('data-send')) {
+    emit('action', { kind: 'send', text: interpolate(el.getAttribute('data-send') || '') })
+  }
+}
 
 const host = ref<HTMLDivElement | null>(null)
 let shadow: ShadowRoot | null = null
@@ -72,10 +96,13 @@ onMounted(() => {
   shadow = host.value.attachShadow({ mode: 'open' })
   styleEl = document.createElement('style')
   shadow.appendChild(styleEl)
+  shadow.addEventListener('click', onClick)
   parseTemplate()
   applyCss()
   render()
 })
+
+onUnmounted(() => { shadow?.removeEventListener('click', onClick) })
 
 watch(() => props.html, () => { parseTemplate(); render() })
 watch(() => props.css, applyCss)
