@@ -1,0 +1,17 @@
+services:
+  shirita:
+    build: .                       # or: image: ghcr.io/carbonc39/shirita:latest
+    ports:
+      - "8787:8787"
+    environment:
+      # Required. Generate once: openssl rand -hex 32
+      TOKEN_SECRET: "${TOKEN_SECRET:?set TOKEN_SECRET (openssl rand -hex 32)}"
+      PROVIDER: "${PROVIDER:-openai}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      OPENAI_MODEL: "${OPENAI_MODEL:-gpt-4o-mini}"
+    volumes:
+      - shirita-data:/data
+    restart: unless-stopped
+
+volumes:
+  shirita-data:
