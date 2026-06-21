@@ -27,6 +27,7 @@ vi.mock('../api/client', () => ({
   updatePack: vi.fn().mockResolvedValue({}),
   deletePack: vi.fn().mockResolvedValue(undefined),
   duplicatePack: vi.fn().mockResolvedValue({ id: 'dp' }),
+  downloadPackExport: vi.fn().mockResolvedValue(undefined),
 }))
 
 vi.mock('../stores/library', () => ({

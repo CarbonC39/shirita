@@ -135,8 +135,9 @@ const en = {
     importConflictFound: '{skipped} item(s) already exist with the same name — kept the existing ones. Replace them instead?',
     conflictOverwrite: 'Overwrite',
     conflictDuplicate: 'Duplicate',
-    importTitle: 'Import card / world / template (.png, .json)',
+    importTitle: 'Import card / world / template / pack (.png, .json, .zip)',
     exportTemplateTitle: 'Export template (enabled part)',
+    exportPackTitle: 'Export pack (.zip / .json)',
     importSummary:
       'Imported: {created} created, {skipped} skipped, {overwritten} overwritten.',
     templateNamePlaceholder: 'Template name',
