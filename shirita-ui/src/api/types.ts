@@ -8,6 +8,7 @@ export interface Session {
   override_config: Record<string, unknown>
   current_state: Record<string, unknown>
   mounted_definitions: string[]
+  mounted_packs?: string[]
   created_at?: string
   updated_at?: string
   /** Leaf message of the active branch (set by the message-tree endpoints). */
