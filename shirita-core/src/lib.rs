@@ -49,7 +49,8 @@ pub use hashing::sha256_hex;
 pub use models::pack::{Pack, PackIdentity};
 pub use pngcard::read_card_json;
 pub use portable::{
-    export_definition, export_pack, export_template, parse_portable, PortableDef, PortableDoc, PortableNode,
+    collect_pack_assets, export_definition, export_pack, export_template, parse_portable,
+    rewrite_pack_assets, PortableDef, PortableDoc, PortableNode,
 };
 pub use seed::{
     ensure_asset_hashes, ensure_builtin_definitions, ensure_default_template,
