@@ -101,7 +101,7 @@ async function onImportFile(e: Event) {
             <p v-else-if="store.error" class="text-coral text-sm">
                 {{ store.error }}
             </p>
-            <p v-else-if="store.items.length === 0" class="text-muted text-sm">
+            <p v-else-if="store.items.length === 0" class="text-muted text-sm text-center">
                 {{ $t("home.empty") }}
             </p>
             <ChatCard
