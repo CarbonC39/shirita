@@ -27,6 +27,7 @@ import {
     setLocalVariables,
     importFile,
     downloadExport,
+    downloadPackExport,
     exportDefinitionPath,
     exportTemplatePath,
     createPack,
@@ -742,6 +743,12 @@ async function delPack() {
     try { await deletePack(selectedPackId.value); selectedPackId.value = null; await library.loadPacks(); }
     catch (e) { error.value = (e as Error).message; }
 }
+async function exportSelectedPack() {
+    if (!selectedPack.value) return;
+    try {
+        await downloadPackExport(selectedPack.value.id, selectedPack.value.name || "pack");
+    } catch (e) { error.value = (e as Error).message; }
+}
 
 // ── definition editor ──────────────────────────────────────
 function selectDefinition(id: string) {
@@ -930,7 +937,7 @@ async function duplicateDef() {
                     <input
                         ref="importInput"
                         type="file"
-                        accept=".png,.json,application/json,image/png"
+                        accept=".png,.json,.zip,application/json,image/png,application/zip"
                         class="hidden"
                         @change="onImportPicked"
                     />
@@ -1056,6 +1063,7 @@ async function duplicateDef() {
                     <div v-if="selectedPack" class="flex items-center">
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.rename')" @click="startRenamePack"><Pencil :size="15" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="dupPack"><Copy :size="16" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('book.exportPackTitle')" data-test="pack-export" @click="exportSelectedPack"><Download :size="16" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="delPack"><Trash2 :size="16" /></button>
                     </div>
                 </div>
