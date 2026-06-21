@@ -39,6 +39,46 @@ describe('NewChatView (single screen)', () => {
     expect(w.find('[data-test="create-chat"]').exists()).toBe(true)
   })
 
+  it('adds, removes, and reorders mount-pack chips and posts them in order', async () => {
+    const EntityPicker = (await import('../components/EntityPicker.vue')).default
+    const w = mount(NewChatView)
+    await flushPromises()
+
+    const packPicker = w
+      .findAllComponents(EntityPicker)
+      .find((p) => p.attributes('data-test') === 'pack-picker')!
+
+    // add Alice then Lorebook
+    packPicker.vm.$emit('select', 'p1')
+    packPicker.vm.$emit('select', 'p2')
+    await flushPromises()
+    let chips = w.findAll('[data-test="pack-chip"]')
+    expect(chips.map((c) => c.text())).toEqual(['Alice', 'Lorebook'])
+
+    // adding a duplicate is a no-op
+    packPicker.vm.$emit('select', 'p1')
+    await flushPromises()
+    expect(w.findAll('[data-test="pack-chip"]').length).toBe(2)
+
+    // reorder: drag Alice (first) onto Lorebook (second) → Lorebook, Alice
+    chips = w.findAll('[data-test="pack-chip"]')
+    await chips[0].find('[data-test="drag-handle"]').trigger('mousedown')
+    await chips[0].trigger('dragstart')
+    await chips[1].trigger('drop')
+    await flushPromises()
+    expect(w.findAll('[data-test="pack-chip"]').map((c) => c.text())).toEqual(['Lorebook', 'Alice'])
+
+    // remove the first chip (now Lorebook)
+    await w.findAll('[data-test="pack-chip-remove"]')[0].trigger('click')
+    await flushPromises()
+    expect(w.findAll('[data-test="pack-chip"]').map((c) => c.text())).toEqual(['Alice'])
+
+    // create posts the surviving pack id with blank name → falls back to pack name
+    await w.find('[data-test="create-chat"]').trigger('click')
+    await flushPromises()
+    expect(api.createSession).toHaveBeenCalledWith('Alice', 't1', null, ['p1'])
+  })
+
   it('defaults the template to the first one and creates a chat with no packs', async () => {
     const w = mount(NewChatView)
     await flushPromises()
