@@ -896,8 +896,9 @@ async function duplicateDef() {
             <div v-if="ui.activeChatId" class="h-px bg-line my-6" />
 
             <section data-test="book-global">
-            <!-- TEMPLATE section (teal accent) -->
-            <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
+            <!-- TEMPLATE section (mauve accent) -->
+            <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
+            <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
             <!-- template picker / ops -->
             <div class="flex items-center gap-2">
                 <EntityPicker
@@ -1026,8 +1027,11 @@ async function duplicateDef() {
                 <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variables") }}</h3>
                 <VariablesEditor :model-value="templateVars" @update:model-value="saveTemplateVars" />
             </div>
-            <!-- PACK section (mauve accent) -->
-            <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
+            </div>
+
+            <!-- PACK section (teal accent) -->
+            <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
+            <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
                 <div class="flex items-center gap-2 mb-3">
                     <input
@@ -1057,10 +1061,13 @@ async function duplicateDef() {
                 </div>
                 <PackEditor v-if="selectedPack" :pack="selectedPack" @changed="library.loadPacks()" />
             </div>
+            </div>
 
-            <div class="h-px bg-line my-6" />
-
+            <!-- DEFINITIONS section (neutral accent) -->
+            <div class="rounded-2xl bg-ink/[0.03] border border-line/60 p-4">
+            <h2 data-test="section-definitions" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/55 border-l-2 border-muted/50 pl-2 mb-3">{{ $t('book.definitionsHeading') }}</h2>
             <DefinitionEditor
+                hide-heading
                 :definition="editDef"
                 :all-definitions="library.definitions"
                 :types="library.containerTypes"
@@ -1078,6 +1085,7 @@ async function duplicateDef() {
                 @create-type="createTypeFromEditor"
                 @delete-type="deleteTypeFromEditor"
             />
+            </div>
 
             <p v-if="error" class="text-coral text-sm mt-4">{{ error }}</p>
             </section>

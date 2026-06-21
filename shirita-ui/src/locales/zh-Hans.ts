@@ -140,6 +140,7 @@ const zhHans: MessageSchema = {
     deleteTemplateConfirm: '删除此模板？',
     deleteTemplateOrphans: '此模板是唯一引用这 {count} 个定义的地方。是否一并删除？',
     templateHeading: '模板',
+    definitionsHeading: '定义',
     editTemplate: '编辑模板…',
     createTemplate: '新建模板',
     packHeading: '包',

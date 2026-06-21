@@ -10,8 +10,8 @@ import ToggleSwitch from './ToggleSwitch.vue'
 import AssetPicker from './AssetPicker.vue'
 
 const props = withDefaults(
-  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean }>(),
-  { types: () => [], active: false, headerActions: true },
+  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean }>(),
+  { types: () => [], active: false, headerActions: true, hideHeading: false },
 )
 const emit = defineEmits<{
   'select-definition': [id: string]
@@ -110,7 +110,7 @@ function startNew() {
 
 <template>
   <div>
-    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
+    <h3 v-if="!hideHeading" class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
 
     <!-- rename inline input: replaces the heading area when active -->
     <div v-if="renaming" class="flex items-center gap-2 mb-2.5 px-0.5">
