@@ -108,6 +108,12 @@ export interface Panel {
   caps: PanelCaps
 }
 
+/** A user interaction reported by a panel; the host decides whether to honor it. */
+export type PanelAction =
+  | { kind: 'diff'; key: string; op: string; value: string | null }
+  | { kind: 'insert'; text: string }
+  | { kind: 'send'; text: string }
+
 export interface DefType {
   id: string
   label: string
