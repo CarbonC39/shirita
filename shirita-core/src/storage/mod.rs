@@ -101,6 +101,16 @@ pub trait Storage: Send + Sync {
     async fn update_pack(&self, pack: &Pack) -> Result<()>;
     /// Delete a pack and its node tree (`owner_kind='pack'`).
     async fn delete_pack(&self, id: &str) -> Result<()>;
+    /// Atomically persist an imported pack bundle in a single transaction:
+    /// new asset rows, the pack, its definitions, then its nodes (which MUST be
+    /// pre-ordered parent-before-child). Any failure rolls the whole import back.
+    async fn import_pack(
+        &self,
+        pack: &Pack,
+        defs: &[Definition],
+        nodes: &[PromptNode],
+        assets: &[Asset],
+    ) -> Result<()>;
 
     // --- def types (container type registry) ---
     /// 列出容器类型（按 sort 升序）。

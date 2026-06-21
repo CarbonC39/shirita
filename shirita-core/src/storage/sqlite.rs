@@ -507,7 +507,44 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    // --- prompt nodes ---
+    async fn import_pack(
+        &self,
+        pack: &Pack,
+        defs: &[Definition],
+        nodes: &[PromptNode],
+        assets: &[Asset],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        // New asset rows (deduped/reused assets are not in this list).
+        for a in assets {
+            sqlx::query("INSERT INTO assets (id, name, path, kind, created_at, hash) VALUES (?, ?, ?, ?, ?, ?)")
+                .bind(&a.id).bind(&a.name).bind(&a.path).bind(&a.kind).bind(&a.created_at).bind(&a.hash)
+                .execute(&mut *tx).await?;
+        }
+        // Pack.
+        let identity = serde_json::to_string(&pack.identity)?;
+        let meta = serde_json::to_string(&pack.meta)?;
+        sqlx::query("INSERT INTO packs (id, name, identity_json, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(&pack.id).bind(&pack.name).bind(identity).bind(meta).bind(&pack.created_at).bind(&pack.updated_at)
+            .execute(&mut *tx).await?;
+        // Definitions.
+        for d in defs {
+            let dmeta = serde_json::to_string(&d.meta)?;
+            sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES (?, ?, ?, ?, ?)")
+                .bind(&d.id).bind(d.def_type.as_str()).bind(&d.name).bind(&d.content).bind(dmeta)
+                .execute(&mut *tx).await?;
+        }
+        // Nodes — caller guarantees parent-before-child order (self-referential FK).
+        for n in nodes {
+            let nmeta = serde_json::to_string(&n.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&n.id).bind(n.owner_kind.as_str()).bind(&n.owner_id).bind(&n.parent_id).bind(n.sort_order)
+                .bind(n.kind.as_str()).bind(&n.tag).bind(&n.definition_id).bind(n.enabled as i64).bind(&n.created_at).bind(nmeta)
+                .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
     async fn list_nodes(&self, owner_kind: &OwnerKind, owner_id: &str) -> Result<Vec<PromptNode>> {
         let rows = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta FROM prompt_nodes WHERE owner_kind = ? AND owner_id = ? ORDER BY sort_order ASC, id ASC")
             .bind(owner_kind.as_str()).bind(owner_id).fetch_all(&self.pool).await?;
@@ -1277,5 +1314,38 @@ mod tests {
             storage.get_session(&s.id).await.unwrap().unwrap().mounted_definitions,
             vec!["x"]
         );
+    }
+
+    #[tokio::test]
+    async fn import_pack_persists_all_in_one_shot() {
+        let s = temp_storage().await;
+        let pack = Pack::new("Whole");
+        let def = Definition::new("world", "D", "c");
+        let node = PromptNode::new_ref(OwnerKind::Pack, &pack.id, None, 0, &def.id);
+        let mut asset = Asset::new("a", "stored.png");
+        asset.hash = Some("deadbeef".into());
+        s.import_pack(&pack, &[def.clone()], std::slice::from_ref(&node), std::slice::from_ref(&asset))
+            .await
+            .unwrap();
+        assert!(s.get_pack(&pack.id).await.unwrap().is_some());
+        assert!(s.get_definition(&def.id).await.unwrap().is_some());
+        assert_eq!(s.list_nodes(&OwnerKind::Pack, &pack.id).await.unwrap().len(), 1);
+        assert!(s.find_asset_by_hash("deadbeef").await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn import_pack_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let pack = Pack::new("Atomic");
+        let def = Definition::new("world", "D", "c");
+        let n1 = PromptNode::new_ref(OwnerKind::Pack, &pack.id, None, 0, &def.id);
+        let mut n2 = PromptNode::new_ref(OwnerKind::Pack, &pack.id, None, 1, &def.id);
+        n2.id = n1.id.clone(); // duplicate primary key → mid-transaction failure
+        let res = s.import_pack(&pack, &[def.clone()], &[n1, n2], &[]).await;
+        assert!(res.is_err());
+        // Full rollback: pack, definition and nodes are all absent.
+        assert!(s.get_pack(&pack.id).await.unwrap().is_none());
+        assert!(s.get_definition(&def.id).await.unwrap().is_none());
+        assert!(s.list_nodes(&OwnerKind::Pack, &pack.id).await.unwrap().is_empty());
     }
 }
