@@ -79,6 +79,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route("/sessions/{id}/state", get(routes::variables::get_state))
         .route("/sessions/{id}/local-variables", put(routes::variables::set_local_variables))
+        .route("/sessions/{id}/state-updates", post(routes::variables::apply_state_updates))
         .route(
             "/definitions",
             get(routes::definitions::list).post(routes::definitions::create),

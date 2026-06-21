@@ -107,7 +107,7 @@ pub enum Action {
 }
 
 impl Action {
-    fn parse(s: &str) -> Option<Action> {
+    pub fn parse(s: &str) -> Option<Action> {
         match s.to_ascii_uppercase().as_str() {
             "SET" => Some(Action::Set),
             "ADD" => Some(Action::Add),
