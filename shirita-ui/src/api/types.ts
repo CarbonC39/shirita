@@ -93,6 +93,21 @@ export interface Pack {
   updated_at: string
 }
 
+/** The non-read capability tiers a panel declares it uses. v1: declared == granted. */
+export interface PanelCaps {
+  write?: boolean
+  insert?: boolean
+  send?: boolean
+}
+
+/** A Pack's status panel: author HTML + scoped CSS + declared capabilities.
+ *  Lives at `pack.meta.panel`; absent == the Pack has no panel. */
+export interface Panel {
+  html: string
+  css: string
+  caps: PanelCaps
+}
+
 export interface DefType {
   id: string
   label: string
