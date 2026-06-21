@@ -22,12 +22,18 @@ vi.mock('../api/client', () => ({
   promoteLocalDefinition: vi.fn().mockResolvedValue(undefined),
   materializeNodes: vi.fn().mockResolvedValue(undefined),
   setLocalVariables: vi.fn().mockResolvedValue(undefined),
+  listPacks: vi.fn().mockResolvedValue([]),
+  createPack: vi.fn().mockResolvedValue({ id: 'np' }),
+  updatePack: vi.fn().mockResolvedValue({}),
+  deletePack: vi.fn().mockResolvedValue(undefined),
+  duplicatePack: vi.fn().mockResolvedValue({ id: 'dp' }),
 }))
 
 vi.mock('../stores/library', () => ({
   useLibraryStore: () => ({
-    templates: [], definitions: [], containerTypes: [],
+    templates: [], definitions: [], containerTypes: [], packs: [],
     loadTemplates: vi.fn(), loadDefinitions: vi.fn(), loadTypes: vi.fn(),
+    loadPacks: vi.fn(),
     addType: vi.fn(), removeType: vi.fn(),
   }),
 }))
@@ -66,5 +72,14 @@ describe('BookView scopes', () => {
     const w = mount(BookView)
     await flushPromises()
     expect(w.find('[data-test="local-chips"]').exists()).toBe(true)
+  })
+
+  it('shows the Pack section (picker + heading) in the global view', async () => {
+    const ui = useUiStore(); ui.setActiveChatId(null)
+    const w = mount(BookView)
+    await flushPromises()
+    expect(w.find('[data-test="book-pack"]').exists()).toBe(true)
+    expect(w.find('[data-test="section-pack"]').exists()).toBe(true)
+    expect(w.find('[data-test="pack-picker"]').exists()).toBe(true)
   })
 })

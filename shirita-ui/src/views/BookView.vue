@@ -29,11 +29,17 @@ import {
     downloadExport,
     exportDefinitionPath,
     exportTemplatePath,
+    createPack,
+    updatePack,
+    deletePack,
+    duplicatePack,
 } from "../api/client";
 import type { PromptNode, Definition, Trigger, Session, VarDecl, OnConflict, ImportSummary } from "../api/types";
 import PromptTree from "../components/PromptTree.vue";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 import VariablesEditor from "../components/VariablesEditor.vue";
+import EntityPicker from "../components/EntityPicker.vue";
+import PackEditor from "../components/PackEditor.vue";
 
 // Aliased to `tr` because `t` is already used as a local binding throughout
 // this file (template lookups, arrow params). Template uses the global `$t`.
@@ -412,6 +418,7 @@ onMounted(async () => {
             library.loadTemplates(),
             library.loadDefinitions(),
             library.loadTypes(),
+            library.loadPacks(),
         ]);
         // Auto-select the first template as default when none is active
         if (!selectedTemplateId.value && library.templates.length > 0) {
@@ -702,6 +709,47 @@ async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
     } catch (e) {
         error.value = (e as Error).message;
     }
+}
+
+// ── packs ───────────────────────────────────────────────────
+const selectedPackId = ref<string | null>(null);
+const selectedPack = computed(() => library.packs.find((p) => p.id === selectedPackId.value) ?? null);
+const renamingPack = ref(false);
+const packNameDraft = ref("");
+
+function selectPack(id: string) { selectedPackId.value = id || null; }
+async function createPackNamed(name: string) {
+    try {
+        const p = await createPack({ name: name?.trim() || "New pack" });
+        await library.loadPacks();
+        selectedPackId.value = p.id;
+    } catch (e) { error.value = (e as Error).message; }
+}
+function startRenamePack() {
+    if (!selectedPack.value) return;
+    packNameDraft.value = selectedPack.value.name;
+    renamingPack.value = true;
+}
+async function renamePack() {
+    const p = selectedPack.value;
+    const n = packNameDraft.value.trim();
+    renamingPack.value = false;
+    if (!p || !n || n === p.name) return;
+    try {
+        await updatePack(p.id, { name: n, identity: p.identity, meta: p.meta as Record<string, unknown> });
+        await library.loadPacks();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function dupPack() {
+    if (!selectedPackId.value) return;
+    try { const p = await duplicatePack(selectedPackId.value); await library.loadPacks(); selectedPackId.value = p.id; }
+    catch (e) { error.value = (e as Error).message; }
+}
+async function delPack() {
+    if (!selectedPackId.value) return;
+    if (!confirm(tr("book.deletePackConfirm"))) return;
+    try { await deletePack(selectedPackId.value); selectedPackId.value = null; await library.loadPacks(); }
+    catch (e) { error.value = (e as Error).message; }
 }
 
 // ── definition editor ──────────────────────────────────────
@@ -1000,6 +1048,38 @@ async function duplicateDef() {
                 <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variables") }}</h3>
                 <VariablesEditor :model-value="templateVars" @update:model-value="saveTemplateVars" />
             </div>
+            <!-- PACK section (mauve accent) -->
+            <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
+            <div data-test="book-pack" class="mb-2">
+                <div class="flex items-center gap-2 mb-3">
+                    <input
+                        v-if="renamingPack"
+                        v-model="packNameDraft"
+                        type="text"
+                        class="field flex-1"
+                        :placeholder="$t('book.packNamePlaceholder')"
+                        @keydown.enter="renamePack"
+                        @blur="renamePack"
+                    />
+                    <EntityPicker
+                        v-else
+                        class="flex-1"
+                        data-test="pack-picker"
+                        :items="library.packs.map((p) => ({ id: p.id, name: p.name }))"
+                        :placeholder="$t('book.editPack')"
+                        :create-label="$t('book.createPack')"
+                        @select="selectPack"
+                        @create="createPackNamed"
+                    />
+                    <div v-if="selectedPack" class="flex items-center">
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.rename')" @click="startRenamePack"><Pencil :size="15" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="dupPack"><Copy :size="16" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="delPack"><Trash2 :size="16" /></button>
+                    </div>
+                </div>
+                <PackEditor v-if="selectedPack" :pack="selectedPack" @changed="library.loadPacks()" />
+            </div>
+
             <div class="h-px bg-line my-6" />
 
             <DefinitionEditor

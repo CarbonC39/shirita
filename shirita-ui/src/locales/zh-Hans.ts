@@ -129,6 +129,11 @@ const zhHans: MessageSchema = {
     deleteTypeInUse: '删除类型“{id}”？使用它的定义会保留该类型 id，但将无法再选择。',
     deleteTemplateConfirm: '删除此模板？',
     deleteTemplateOrphans: '此模板是唯一引用这 {count} 个定义的地方。是否一并删除？',
+    packHeading: '包',
+    editPack: '编辑包…',
+    createPack: '新建包',
+    packNamePlaceholder: '包名称',
+    deletePackConfirm: '删除这个包？',
   },
   pack: {
     identity: '身份',

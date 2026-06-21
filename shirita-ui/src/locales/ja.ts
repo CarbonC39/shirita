@@ -129,6 +129,11 @@ const ja: MessageSchema = {
     deleteTypeInUse: 'タイプ「{id}」を削除しますか？使用中の定義はタイプ id を保持しますが、選択できなくなります。',
     deleteTemplateConfirm: 'このテンプレートを削除しますか？',
     deleteTemplateOrphans: 'このテンプレートだけが {count} 件の定義を使用しています。一緒に削除しますか？',
+    packHeading: 'パック',
+    editPack: 'パックを編集…',
+    createPack: 'パックを新規作成',
+    packNamePlaceholder: 'パック名',
+    deletePackConfirm: 'このパックを削除しますか？',
   },
   pack: {
     identity: 'アイデンティティ',

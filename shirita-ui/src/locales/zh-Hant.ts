@@ -129,6 +129,11 @@ const zhHant: MessageSchema = {
     deleteTypeInUse: '刪除類型「{id}」？使用它的定義會保留該類型 id，但將無法再選擇。',
     deleteTemplateConfirm: '刪除此範本？',
     deleteTemplateOrphans: '此範本是唯一引用這 {count} 個定義的地方。是否一併刪除？',
+    packHeading: '包',
+    editPack: '編輯包…',
+    createPack: '新增包',
+    packNamePlaceholder: '包名稱',
+    deletePackConfirm: '刪除這個包？',
   },
   pack: {
     identity: '身分',
