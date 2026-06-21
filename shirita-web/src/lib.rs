@@ -1,6 +1,7 @@
 //! shirita-web: Axum 适配层（REST + SSE + 静态文件 + 鉴权）
 
 pub mod auth;
+pub mod embed;
 pub mod generations;
 pub mod provider_select;
 pub mod routes;
