@@ -77,19 +77,29 @@ pub fn inject_runtime(html: &str, token: &str) -> String {
 
 ## 6. Dockerfile, Runtime, Compose
 
-**Multi-stage `Dockerfile`** at repo root:
+**Multi-stage `Dockerfile`** at repo root. Stages are ordered so caches survive across builds — dependency compilation (Rust) and `npm ci` are isolated from app/source changes:
 
-1. **frontend** (`node:20-slim`): `npm ci` + `npm run build` in `shirita-ui/` → `dist/`.
-2. **builder** (`rust:1-bookworm`): copy the workspace + `COPY --from=frontend …/dist ./shirita-ui/dist`, then `cargo build --release -p shirita-web --features embed-ui` → `/app/target/release/shirita-web`.
-3. **runtime** (`debian:bookworm-slim`, `apt-get install -y ca-certificates curl`): copy only the binary. `ca-certificates` is required for outbound HTTPS to LLM providers (OpenAI/Anthropic); `curl` backs the `HEALTHCHECK` (slim ships neither curl nor wget).
+1. **frontend** (`node:20-slim`): `COPY shirita-ui/package*.json` → `npm ci` (cached layer, keyed on the lockfile) → `COPY shirita-ui/` → `npm run build` → `dist/`.
+2. **chef base** (`rust:1-bookworm` + `cargo install cargo-chef`): shared base for the next two stages.
+3. **planner**: `COPY` the workspace → `cargo chef prepare --recipe-path recipe.json` (a dependency manifest only).
+4. **builder**: `COPY --from=planner recipe.json` → `cargo chef cook --release -p shirita-web --features embed-ui` (compiles **only dependencies** — a layer invalidated solely by `Cargo.lock`, not by app-source edits) → then `COPY` the real workspace + `COPY --from=frontend …/dist ./shirita-ui/dist` → `cargo build --release -p shirita-web --features embed-ui` (recompiles only the app crates) → `/app/target/release/shirita-web`.
+   - **Why cargo-chef (not the dummy-`main.rs` trick):** Shirita is a multi-crate workspace (`shirita-core`/`-web`/`-tauri`); cargo-chef derives the dependency recipe across all members correctly, where the manual dummy-source trick is fragile across workspace crates. Combined with the CI layer cache (§7), warm builds skip the (slow) `cook` step entirely.
+5. **runtime** (`debian:bookworm-slim`, `apt-get install -y ca-certificates curl gosu`): copy only the binary + `entrypoint.sh`. `ca-certificates` → outbound HTTPS to LLM providers; `curl` → `HEALTHCHECK`; `gosu` → privilege drop (below). Slim ships none of these.
 
 Runtime image specifics:
-- **Non-root:** create + run as an unprivileged user (`appuser`); `/data` owned by it.
+- **Privilege drop via entrypoint (handles bind-mount ownership).** The image declares an `appuser`, but the **entrypoint runs as root** and execs `entrypoint.sh`:
+  ```sh
+  #!/bin/sh
+  set -e
+  chown -R appuser:appuser /data   # empty host bind-mounts land root:root
+  exec gosu appuser shirita-web "$@"
+  ```
+  Only the one-time `chown` runs as root; the server runs unprivileged as `appuser`. This is the canonical pattern (postgres/redis images) and fixes the failure mode where a fresh `-v ./host-dir:/data` empty bind-mount is `root:root`, so an unprivileged process can't create `shirita.db` → `Permission Denied` crash. A **named** volume inherits the image's `appuser`-owned `/data` and would work without this, but the entrypoint makes **bind mounts** work too. (If a user insists on `--user`, the chown is a no-op `|| true` and they own ownership themselves.)
 - **ENV defaults (container):** `BIND_ADDR=0.0.0.0:8787` (must be `0.0.0.0` to be reachable; host default stays `127.0.0.1:8787`), `DATABASE_PATH=/data/shirita.db`, `ASSETS_DIR=/data/assets`.
 - `EXPOSE 8787`; `VOLUME ["/data"]`.
 - **HEALTHCHECK:** `curl -fsS http://127.0.0.1:8787/health` (public, unauthenticated).
 - **`TOKEN_SECRET` is required** — `Config::from_env` already fails fast when unset. The container does **not** auto-generate one (explicit + predictable). Deploy docs show `openssl rand -hex 32`.
-- **Entrypoint:** the binary; on missing `TOKEN_SECRET` it exits non-zero with the existing clear error.
+- **ENTRYPOINT** `["/entrypoint.sh"]`; on missing `TOKEN_SECRET` the server still exits non-zero with the existing clear error.
 
 **`.dockerignore`** (keep build context small, avoid leaking host artifacts): `target/`, `**/node_modules/`, `shirita-ui/dist/`, `.git/`, `*.db`, `*.db-*`, `assets/`, `gen/`.
 
@@ -101,7 +111,8 @@ Runtime image specifics:
 
 New `.github/workflows/docker.yml`:
 - **Triggers:** `workflow_dispatch` + `push` tags `v*` (parity with `desktop.yml`).
-- **Job:** checkout → `docker/login-action` to `ghcr.io` using the built-in `GITHUB_TOKEN` (no extra secrets) → `docker/build-push-action` building the root `Dockerfile` → push `ghcr.io/<owner>/shirita:<tag>` + `:latest`.
+- **Job:** checkout → `docker/setup-buildx-action` (buildkit, for cache exports) → `docker/login-action` to `ghcr.io` using the built-in `GITHUB_TOKEN` (no extra secrets) → `docker/build-push-action` building the root `Dockerfile` → push `ghcr.io/<owner>/shirita:<tag>` + `:latest`.
+- **Layer cache:** `cache-from: type=gha` + `cache-to: type=gha,mode=max`. This persists the cargo-chef `cook` layer (and `npm ci`) across runs — Docker layer cache is otherwise discarded between Actions runs, so without this every `v*` tag recompiles all Rust deps cold (~15-20 min). Warm builds recompile only the app crates.
 - **Permissions:** `packages: write`, `contents: read`.
 
 Desktop stays on M8's `desktop.yml` (unchanged). A `v*` tag fires both → image on ghcr.io + installer artifacts.
@@ -132,6 +143,6 @@ Push/PR test-gate CI; login-screen auth / multi-user; TLS termination (delegated
 ## 12. Decomposition into Plans
 
 - **Plan 1 — Serve the UI from the binary (Rust + Vite).** `embed-ui` feature + `rust-embed`; `/static` route; index serving with `inject_runtime`; SPA fallback + prefix guard; Vite `assetsDir: 'static'`. Pure-function unit tests (always run) + feature-gated integration test.
-- **Plan 2 — Containerize + release CI + docs.** Multi-stage `Dockerfile`, `.dockerignore`, `docker-compose.yml` example, `docs/deploy.md`; `docker.yml` (build + push ghcr.io on `v*`). Docker smoke step.
+- **Plan 2 — Containerize + release CI + docs.** Multi-stage `Dockerfile` (cargo-chef dep layer + `--from=frontend` dist), `entrypoint.sh` (root chown `/data` → `gosu appuser`), `.dockerignore`, `docker-compose.yml` example, `docs/deploy.md`; `docker.yml` (buildx + `cache-to/from: type=gha` + push ghcr.io on `v*`). Docker smoke step (run with a `TOKEN_SECRET`, assert `/health` ok + `/` injects the runtime script + a bind-mounted empty dir doesn't crash).
 
 Two plans; Plan 2 depends on Plan 1 (the image builds the embedded binary).
