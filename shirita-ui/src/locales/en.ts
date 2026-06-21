@@ -150,6 +150,7 @@ const en = {
     deleteTemplateOrphans:
       'This template is the only thing using {count} definition. Delete it too? | This template is the only thing using {count} definitions. Delete them too?',
     templateHeading: 'Template',
+    definitionsHeading: 'Definitions',
     editTemplate: 'Edit template…',
     createTemplate: 'New template',
     packHeading: 'Pack',
