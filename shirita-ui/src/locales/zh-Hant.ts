@@ -140,6 +140,7 @@ const zhHant: MessageSchema = {
     deleteTemplateConfirm: '刪除此範本？',
     deleteTemplateOrphans: '此範本是唯一引用這 {count} 個定義的地方。是否一併刪除？',
     templateHeading: '範本',
+    definitionsHeading: '定義',
     editTemplate: '編輯範本…',
     createTemplate: '新增範本',
     packHeading: '包',
