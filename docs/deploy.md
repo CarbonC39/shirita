@@ -55,6 +55,8 @@ with its own authentication (and TLS) in front, or restrict access by network
 
 ## Releases
 
-Pushing a `v*` tag runs two workflows: `docker.yml` (publishes
-`ghcr.io/carbonc39/shirita:<tag>` + `:latest`) and `desktop.yml` (builds the
-unsigned AppImage/deb/dmg/msi desktop installers).
+Pushing a `v*` tag runs three workflows: `docker.yml` (publishes
+`ghcr.io/carbonc39/shirita:<tag>` + `:latest`), `web.yml` (builds the
+standalone embed-UI `shirita-web` binary for Linux static-musl / macOS /
+Windows as artifacts), and `desktop.yml` (builds the unsigned
+AppImage/deb/dmg/msi desktop installers).
