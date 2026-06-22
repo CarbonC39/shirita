@@ -83,4 +83,18 @@ describe('BookView scopes', () => {
     expect(w.find('[data-test="section-pack"]').exists()).toBe(true)
     expect(w.find('[data-test="pack-picker"]').exists()).toBe(true)
   })
+
+  it('renders a pack Import button that triggers the shared file input', async () => {
+    const ui = useUiStore(); ui.setActiveChatId(null)
+    const w = mount(BookView)
+    await flushPromises()
+    // Import lives in the Pack section even with no pack selected (it creates one).
+    const btn = w.find('[data-test="pack-import"]')
+    expect(btn.exists()).toBe(true)
+    // Clicking it opens the shared hidden file input.
+    const input = w.find('input[type="file"]').element as HTMLInputElement
+    const clickSpy = vi.spyOn(input, 'click').mockImplementation(() => {})
+    await btn.trigger('click')
+    expect(clickSpy).toHaveBeenCalled()
+  })
 })
