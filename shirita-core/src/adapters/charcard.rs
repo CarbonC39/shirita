@@ -258,6 +258,13 @@ pub fn loreset_to_pack(ls: LoreSet, avatar: Option<&str>) -> (Pack, Vec<Definiti
     pack.meta = template.meta;
     let nodes = nodes
         .into_iter()
+        // Packs hold no History/Content nodes (assembly::assemble_from_nodes_with_packs
+        // expects exactly one of each, owned by the mounting Template — which is also
+        // where the chat-history mount point itself lives). charcard_to_loreset always
+        // appends a History root since its `LoreSet` shape was originally Template-only;
+        // dropping it here keeps that single source of truth instead of every imported
+        // pack carrying a second, inert chatHistory node alongside the template's.
+        .filter(|n| !matches!(n.kind, NodeKind::History | NodeKind::Content))
         .map(|mut n| {
             n.owner_kind = OwnerKind::Pack;
             n.owner_id = pack.id.clone();
@@ -370,15 +377,21 @@ mod tests {
             }
         });
         let ls = charcard_to_loreset(&card);
-        let n_nodes = ls.nodes.len();
         let n_defs = ls.definitions.len();
+        let n_history = ls.nodes.iter().filter(|n| n.kind == NodeKind::History).count();
+        assert_eq!(n_history, 1, "charcard_to_loreset still appends its Template-shaped history node");
+        let n_non_history = ls.nodes.len() - n_history;
         let (pack, defs, nodes) = loreset_to_pack(ls, Some("neo.png"));
 
         assert_eq!(pack.name, "Neo");
         assert_eq!(pack.identity.display_name.as_deref(), Some("Neo"));
         assert_eq!(pack.identity.avatar.as_deref(), Some("neo.png"));
         assert_eq!(defs.len(), n_defs);
-        assert_eq!(nodes.len(), n_nodes);
+        assert_eq!(nodes.len(), n_non_history, "the History node is dropped — packs hold no history/content nodes");
+        assert!(
+            !nodes.iter().any(|n| matches!(n.kind, NodeKind::History | NodeKind::Content)),
+            "a pack must never carry its own history/content mount — that's the owning template's job"
+        );
         // every node now belongs to the pack, not a template.
         for n in &nodes {
             assert_eq!(n.owner_kind, OwnerKind::Pack);

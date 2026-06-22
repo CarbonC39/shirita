@@ -440,6 +440,11 @@ pub async fn import(
         let avatar = save_png_asset(&state, &bytes, name).await?;
         let ls = with_avatar(charcard_to_loreset(&card), Some(&avatar));
         persist_loreset_as_pack(&state, ls, Some(&avatar), oc, &mut summary).await?;
+        // The pack-name skip check inside persist_loreset_as_pack runs after the
+        // avatar is already saved/hash-deduped; if the pack import ended up
+        // skipped (e.g. a same-named pack already exists), this avatar has no
+        // reference at all — clean it up instead of leaving it in the library.
+        crate::routes::assets::gc_avatar_if_orphaned(&state, &avatar).await?;
         return Ok(Json(summary));
     }
 

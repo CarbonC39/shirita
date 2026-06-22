@@ -169,3 +169,65 @@ async fn pack_crud_roundtrip() {
     let (st, _) = send(&state, "GET", &format!("/api/packs/{id}"), None).await;
     assert_eq!(st, StatusCode::NOT_FOUND);
 }
+
+async fn make_avatar_asset(state: &AppState, path: &str) {
+    let mut a = shirita_core::Asset::new(path, path);
+    a.kind = "avatar".into();
+    state.storage.create_asset(&a).await.unwrap();
+}
+
+#[tokio::test]
+async fn deleting_a_pack_garbage_collects_its_now_unreferenced_avatar() {
+    // Bug: unreferenced avatars (e.g. one a charcard import saved) were never
+    // automatically cleaned up — only the pack itself was removed, leaving
+    // the Asset row (and file) behind forever with nothing pointing at it.
+    let state = test_state().await;
+    make_avatar_asset(&state, "orphan.png").await;
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({
+        "name": "Solo", "identity": { "avatar": "orphan.png" }
+    }))).await;
+    let id = body_json(&b)["id"].as_str().unwrap().to_string();
+
+    let (st, _) = send(&state, "DELETE", &format!("/api/packs/{id}"), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (_, assets) = send(&state, "GET", "/api/assets?kind=avatar", None).await;
+    assert!(body_json(&assets).as_array().unwrap().is_empty(), "the now-unreferenced avatar is cleaned up");
+}
+
+#[tokio::test]
+async fn deleting_a_pack_keeps_avatar_still_used_by_another_pack() {
+    let state = test_state().await;
+    make_avatar_asset(&state, "shared.png").await;
+    let (_, b1) = send(&state, "POST", "/api/packs", Some(json!({
+        "name": "One", "identity": { "avatar": "shared.png" }
+    }))).await;
+    let id1 = body_json(&b1)["id"].as_str().unwrap().to_string();
+    send(&state, "POST", "/api/packs", Some(json!({
+        "name": "Two", "identity": { "avatar": "shared.png" }
+    }))).await;
+
+    let (st, _) = send(&state, "DELETE", &format!("/api/packs/{id1}"), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    let (_, assets) = send(&state, "GET", "/api/assets?kind=avatar", None).await;
+    assert_eq!(body_json(&assets).as_array().unwrap().len(), 1, "still referenced by the other pack");
+}
+
+#[tokio::test]
+async fn changing_a_packs_avatar_garbage_collects_the_old_one() {
+    let state = test_state().await;
+    make_avatar_asset(&state, "old.png").await;
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({
+        "name": "Swap", "identity": { "avatar": "old.png" }
+    }))).await;
+    let id = body_json(&b)["id"].as_str().unwrap().to_string();
+
+    let (st, _) = send(&state, "PUT", &format!("/api/packs/{id}"), Some(json!({
+        "name": "Swap", "identity": { "avatar": "new.png" }
+    }))).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let (_, assets) = send(&state, "GET", "/api/assets?kind=avatar", None).await;
+    assert!(body_json(&assets).as_array().unwrap().is_empty(), "old.png is now unreferenced and gets cleaned up");
+}

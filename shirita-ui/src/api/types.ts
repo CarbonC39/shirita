@@ -166,7 +166,7 @@ export interface Identity {
 }
 
 export interface ImportItem {
-  kind: 'definition' | 'template'
+  kind: 'definition' | 'template' | 'pack'
   id: string
   name: string
 }
