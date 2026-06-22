@@ -17,11 +17,30 @@ pub struct HtmlPatch {
     pub replace: String,
 }
 
+/// If `s` opens with a markdown fence (``` optionally followed by a bare
+/// language tag, then a newline), return the text after that opening line;
+/// otherwise return `s` unchanged. A real-world ST "HTML card" greeting is
+/// commonly the whole document wrapped in a ```/```html fence rather than
+/// starting with the doctype literally — see `isHtmlDocument` in the
+/// frontend's markdown.ts, which already unwraps fences via full Markdown
+/// parsing before checking; this is the equivalent for raw message text.
+fn strip_leading_fence(s: &str) -> &str {
+    let Some(rest) = s.strip_prefix("```") else { return s };
+    let Some(nl) = rest.find('\n') else { return s };
+    let lang_line = rest[..nl].trim();
+    if lang_line.chars().all(|c| c.is_ascii_alphanumeric()) {
+        &rest[nl + 1..]
+    } else {
+        s
+    }
+}
+
 /// A reply is treated as a full HTML document when it (after trimming leading
-/// whitespace) starts with a doctype or an `<html>` tag — the same rule the UI
-/// uses to pick its sandboxed-iframe render path.
+/// whitespace, and unwrapping a leading ``` fence if present) starts with a
+/// doctype or an `<html>` tag — the same rule the UI uses to pick its
+/// sandboxed-iframe render path.
 pub fn is_html_document(text: &str) -> bool {
-    let s = text.trim_start().to_ascii_lowercase();
+    let s = strip_leading_fence(text.trim_start()).trim_start().to_ascii_lowercase();
     s.starts_with("<!doctype html") || s.starts_with("<html")
 }
 
@@ -147,6 +166,22 @@ mod tests {
         assert!(is_html_document("  \n<html>x</html>"));
         assert!(!is_html_document("just a normal reply"));
         assert!(!is_html_document("<p>not a full doc</p>"));
+    }
+
+    #[test]
+    fn detects_a_doctype_wrapped_in_a_markdown_fence() {
+        // The common real-world ST card greeting shape: the whole document
+        // fenced, sometimes with a bare ``` (no language tag) and CRLF line
+        // endings (Windows-authored cards).
+        assert!(is_html_document("```html\n<!DOCTYPE html><html></html>\n```"));
+        assert!(is_html_document("```\r\n<!DOCTYPE html>\r\n<html></html>\r\n```"));
+        assert!(is_html_document("```\n<html>x</html>\n```"));
+    }
+
+    #[test]
+    fn does_not_misdetect_an_unrelated_fenced_block_as_html() {
+        assert!(!is_html_document("```js\nconsole.log('<html>')\n```"));
+        assert!(!is_html_document("```\njust some code, no doctype\n```"));
     }
 
     #[test]
