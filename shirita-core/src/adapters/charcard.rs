@@ -128,6 +128,28 @@ fn substitute_dollar_refs(replace_string: &str, valid_ns: &[usize]) -> String {
         .into_owned()
 }
 
+/// Remove every `<tag ...>...</tag>` block from `html` (case-insensitive,
+/// content may span multiple lines), returning the html with those blocks
+/// cut out plus each block's inner content in order of appearance. Used to
+/// pull a card's `<style>` into `panel.css` and discard its `<script>`
+/// (Panel forbids `<script>` at render time regardless — this just does it
+/// explicitly, earlier).
+fn extract_tag_blocks(html: &str, tag: &str) -> (String, Vec<String>) {
+    let pattern = format!(r"(?is)<{tag}\b[^>]*>(.*?)</{tag}\s*>");
+    let re = regex::Regex::new(&pattern).expect("tag is always a static literal (\"style\"/\"script\")");
+    let mut blocks = Vec::new();
+    let mut out = String::new();
+    let mut last = 0;
+    for caps in re.captures_iter(html) {
+        let m = caps.get(0).unwrap();
+        out.push_str(&html[last..m.start()]);
+        blocks.push(caps.get(1).map(|g| g.as_str().to_string()).unwrap_or_default());
+        last = m.end();
+    }
+    out.push_str(&html[last..]);
+    (out, blocks)
+}
+
 /// Translate an ST character card (v1 top-level / v2/v3 under `data`) into a loreset.
 pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     let data = card.get("data").unwrap_or(card);
@@ -345,6 +367,38 @@ mod tests {
     fn substitute_dollar_refs_replaces_only_valid_refs() {
         let out = substitute_dollar_refs("a:$1 b:$10 c:$3", &[1, 3]);
         assert_eq!(out, "a:{{field1}} b:$10 c:{{field3}}");
+    }
+
+    #[test]
+    fn extract_tag_blocks_removes_style_and_returns_contents() {
+        let html = "<div>x</div><style>.a{color:red}</style><p>y</p>";
+        let (remaining, blocks) = extract_tag_blocks(html, "style");
+        assert_eq!(remaining, "<div>x</div><p>y</p>");
+        assert_eq!(blocks, vec![".a{color:red}".to_string()]);
+    }
+
+    #[test]
+    fn extract_tag_blocks_is_case_insensitive_and_dotall() {
+        let html = "<Style>\n.a{color:red}\n</STYLE>";
+        let (remaining, blocks) = extract_tag_blocks(html, "style");
+        assert_eq!(remaining, "");
+        assert_eq!(blocks, vec!["\n.a{color:red}\n".to_string()]);
+    }
+
+    #[test]
+    fn extract_tag_blocks_handles_multiple_blocks() {
+        let html = "<script>a()</script>mid<script>b()</script>";
+        let (remaining, blocks) = extract_tag_blocks(html, "script");
+        assert_eq!(remaining, "mid");
+        assert_eq!(blocks, vec!["a()".to_string(), "b()".to_string()]);
+    }
+
+    #[test]
+    fn extract_tag_blocks_no_match_returns_input_unchanged() {
+        let html = "<div>no blocks here</div>";
+        let (remaining, blocks) = extract_tag_blocks(html, "script");
+        assert_eq!(remaining, html);
+        assert!(blocks.is_empty());
     }
 
     #[test]
