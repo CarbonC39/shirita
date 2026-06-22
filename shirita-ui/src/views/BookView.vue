@@ -85,6 +85,17 @@ async function runImport(file: File, onConflict: OnConflict) {
         importSummary.value = await importFile(file, onConflict);
         pendingImportFile.value = importSummary.value.skipped.length > 0 ? file : null;
         await library.loadAll();
+        // Jump straight to the newly imported pack/template instead of leaving
+        // the editor on whatever was selected before — otherwise the import
+        // looks like it did nothing until the user manually finds it in the
+        // picker (the summary line alone doesn't make the new content visible).
+        const newPack = importSummary.value.created.find((c) => c.kind === "pack");
+        const newTemplate = importSummary.value.created.find((c) => c.kind === "template");
+        if (newPack) {
+            selectedPackId.value = newPack.id;
+        } else if (newTemplate) {
+            await selectTemplate(newTemplate.id);
+        }
     } catch (err) {
         importSummary.value = null;
         pendingImportFile.value = null;

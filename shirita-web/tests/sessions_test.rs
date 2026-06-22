@@ -202,3 +202,35 @@ async fn identity_pack_without_display_name_falls_back_to_char_def() {
     assert_eq!(v["assistant"]["name"], "Bob");          // falls back to the pack's char def name
     assert_eq!(v["assistant"]["avatar"], "face.png");    // falls back to the session avatar
 }
+
+#[tokio::test]
+async fn create_session_seeds_avatar_from_mounted_pack_when_not_given() {
+    // Bug: ChatCard.vue (the chat-list row) reads session.avatar directly,
+    // not the live /identity resolution that ChatView uses — so a session
+    // mounting a character pack (e.g. one just brought in by a charcard
+    // import) showed no avatar at all in the list unless the user also
+    // manually picked an avatar override in NewChatView.
+    let state = test_state().await;
+    let (_, p) = send(&state, "POST", "/api/packs",
+        Some(r#"{"name":"AvatarPack","identity":{"display_name":"Aria","avatar":"aria.png"}}"#)).await;
+    let pid = serde_json::from_str::<serde_json::Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+
+    // No `avatar` field in the request body at all.
+    let (st, s) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"chat","pack_ids":["{pid}"]}}"#))).await;
+    assert_eq!(st, StatusCode::OK);
+    let created: serde_json::Value = serde_json::from_str(&s).unwrap();
+    assert_eq!(created["avatar"], "aria.png", "session.avatar is backfilled from the mounted pack's identity");
+}
+
+#[tokio::test]
+async fn create_session_explicit_avatar_wins_over_mounted_pack() {
+    let state = test_state().await;
+    let (_, p) = send(&state, "POST", "/api/packs",
+        Some(r#"{"name":"AvatarPack","identity":{"avatar":"aria.png"}}"#)).await;
+    let pid = serde_json::from_str::<serde_json::Value>(&p).unwrap()["id"].as_str().unwrap().to_string();
+
+    let (_, s) = send(&state, "POST", "/api/sessions",
+        Some(&format!(r#"{{"name":"chat","avatar":"face.png","pack_ids":["{pid}"]}}"#))).await;
+    let created: serde_json::Value = serde_json::from_str(&s).unwrap();
+    assert_eq!(created["avatar"], "face.png", "an explicit avatar override is never clobbered by pack seeding");
+}

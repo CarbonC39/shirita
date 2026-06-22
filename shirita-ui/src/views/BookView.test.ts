@@ -28,13 +28,16 @@ vi.mock('../api/client', () => ({
   deletePack: vi.fn().mockResolvedValue(undefined),
   duplicatePack: vi.fn().mockResolvedValue({ id: 'dp' }),
   downloadPackExport: vi.fn().mockResolvedValue(undefined),
+  importFile: vi.fn().mockResolvedValue({ created: [], skipped: [], overwritten: [] }),
+  getOrphanDefinitionsForPack: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('../stores/library', () => ({
   useLibraryStore: () => ({
-    templates: [], definitions: [], containerTypes: [], packs: [],
+    templates: [], definitions: [], containerTypes: [],
+    packs: [{ id: 'imported-pack', name: 'Imported', identity: {}, meta: {} }],
     loadTemplates: vi.fn(), loadDefinitions: vi.fn(), loadTypes: vi.fn(),
-    loadPacks: vi.fn(),
+    loadPacks: vi.fn(), loadAll: vi.fn(),
     addType: vi.fn(), removeType: vi.fn(),
   }),
 }))
@@ -96,5 +99,21 @@ describe('BookView scopes', () => {
     const clickSpy = vi.spyOn(input, 'click').mockImplementation(() => {})
     await btn.trigger('click')
     expect(clickSpy).toHaveBeenCalled()
+  })
+
+  it('selects the newly imported pack immediately instead of leaving the editor unchanged', async () => {
+    ;(api.importFile as any).mockResolvedValue({
+      created: [{ kind: 'pack', id: 'imported-pack', name: 'Imported' }],
+      skipped: [],
+      overwritten: [],
+    })
+    const ui = useUiStore(); ui.setActiveChatId(null)
+    const w = mount(BookView)
+    await flushPromises()
+    const input = w.find('input[type="file"]').element as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'card.png')], configurable: true })
+    await w.find('input[type="file"]').trigger('change')
+    await flushPromises()
+    expect(w.find('[data-test="pack-editor"]').exists()).toBe(true)
   })
 })

@@ -38,7 +38,7 @@ export default defineComponent({
         { class: 'md' },
         parseMarkdown(props.text).map((n) =>
           n.type === 'codeblock'
-            ? isHtmlDocument(n.value)
+            ? n.lang === 'html' || isHtmlDocument(n.value)
               ? h(HtmlCardFrame, { html: n.value })
               : h('pre', { class: 'md-pre' }, h('code', n.value))
             : renderInline([n])[0],

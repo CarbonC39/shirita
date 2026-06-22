@@ -43,6 +43,7 @@ pub async fn get(State(state): State<AppState>, Path(id): Path<String>) -> Resul
 
 pub async fn update(State(state): State<AppState>, Path(id): Path<String>, Json(body): Json<PackBody>) -> Result<Json<Pack>, StatusCode> {
     let mut p = state.storage.get_pack(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.ok_or(StatusCode::NOT_FOUND)?;
+    let old_avatar = p.identity.avatar.clone();
     p.name = body.name;
     p.identity = body.identity;
     if !body.meta.is_null() {
@@ -50,6 +51,12 @@ pub async fn update(State(state): State<AppState>, Path(id): Path<String>, Json(
     }
     p.updated_at = chrono::Utc::now().to_rfc3339();
     state.storage.update_pack(&p).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Clean up the previous avatar if this update just dropped its last reference.
+    if let Some(old) = old_avatar.filter(|a| !a.is_empty()) {
+        if p.identity.avatar.as_deref() != Some(old.as_str()) {
+            crate::routes::assets::gc_avatar_if_orphaned(&state, &old).await?;
+        }
+    }
     Ok(Json(p))
 }
 
@@ -58,7 +65,11 @@ pub async fn orphan_definitions(State(state): State<AppState>, Path(id): Path<St
 }
 
 pub async fn delete(State(state): State<AppState>, Path(id): Path<String>, Query(q): Query<DeleteQuery>) -> Result<StatusCode, StatusCode> {
+    let avatar = state.storage.get_pack(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?.and_then(|p| p.identity.avatar);
     state.storage.delete_pack(&id, q.delete_orphans).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(avatar) = avatar {
+        crate::routes::assets::gc_avatar_if_orphaned(&state, &avatar).await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

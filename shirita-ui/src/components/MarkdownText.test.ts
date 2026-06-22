@@ -58,4 +58,16 @@ describe('MarkdownText', () => {
     expect(w.find('iframe').exists()).toBe(true)
     expect(w.find('pre').exists()).toBe(false)
   })
+
+  it('renders a fenced ```html block in a sandboxed iframe even without a doctype/<html> wrapper', () => {
+    // The common real-world ST "HTML card" shape: a bare <div>+<style> snippet,
+    // not a full document — the ```html fence alone is the author's signal.
+    const snippet = '<div class="card">hi</div>\n<style>.card{color:red}</style>'
+    const w = mount(MarkdownText, { props: { text: '```html\n' + snippet + '\n```' } })
+    const frame = w.find('iframe')
+    expect(frame.exists()).toBe(true)
+    expect(w.find('pre').exists()).toBe(false)
+    expect(frame.attributes('srcdoc')).toContain('<div class="card">hi</div>')
+    expect(frame.attributes('srcdoc')).toContain('<style>.card{color:red}</style>')
+  })
 })

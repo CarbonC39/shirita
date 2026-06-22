@@ -55,10 +55,24 @@ pub async fn create_session(
         None => None,
     };
     let mut pack_metas = Vec::new();
+    let mut pack_identities = Vec::new();
     for pid in &session.mounted_packs {
         if let Ok(Some(p)) = state.storage.get_pack(pid).await {
             pack_metas.push(p.meta);
+            pack_identities.push(p.identity);
         }
+    }
+    // The chat-list preview (ChatCard.vue) reads `session.avatar` directly —
+    // it doesn't call /identity (that would be one extra request per row).
+    // Seed it once from the first mounted pack with a bound avatar (mount
+    // order) when the caller didn't explicitly pick an avatar override, so a
+    // pack character's avatar — e.g. one just brought in by a charcard
+    // import — shows up in the list, not just inside an open chat (which
+    // resolves live via get_session_identity's pack_avatar priority).
+    if session.avatar.as_deref().unwrap_or("").is_empty() {
+        session.avatar = pack_identities
+            .iter()
+            .find_map(|id| id.avatar.clone().filter(|a| !a.is_empty()));
     }
     let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
     session.current_state = Value::Object(schema_initials(&schema));

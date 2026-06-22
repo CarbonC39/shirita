@@ -102,6 +102,32 @@ async fn imports_png_card_and_saves_avatar() {
 }
 
 #[tokio::test]
+async fn skipped_card_import_does_not_leak_its_just_saved_avatar() {
+    // save_png_asset runs before persist_loreset_as_pack's same-name skip
+    // check, so a card whose pack import ends up skipped (a pack with that
+    // name already exists) must not leave its freshly written avatar behind
+    // with zero references.
+    let (state, _) = test_state().await;
+    send_pack_create(&state, "Trinity").await;
+    let png = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Trinity"}}"#);
+    let (st, v) = import_bytes(&state, "", "trinity.png", &png).await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(v["skipped"].as_array().unwrap().len(), 1, "same-named pack already exists");
+    assert!(state.storage.list_assets(Some("avatar")).await.unwrap().is_empty(), "orphaned avatar is cleaned up");
+}
+
+async fn send_pack_create(state: &AppState, name: &str) {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/packs")
+        .header(header::AUTHORIZATION, "Bearer secret-token")
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(serde_json::to_vec(&serde_json::json!({ "name": name })).unwrap()))
+        .unwrap();
+    app(state.clone()).oneshot(req).await.unwrap();
+}
+
+#[tokio::test]
 async fn imports_portable_definition() {
     let (state, _) = test_state().await;
     let doc = r#"{"format":"shirita.definition","version":1,"definition":{"type":"persona","name":"Me","content":"a user","meta":{}}}"#;

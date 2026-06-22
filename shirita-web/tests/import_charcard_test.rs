@@ -68,7 +68,10 @@ async fn import_charcard_creates_pack() {
     let pid = p["id"].as_str().unwrap();
     let (_, nodes) = send(&state, "GET", &format!("/api/packs/{pid}/nodes?owner_kind=pack"), None).await;
     let nodes: Value = serde_json::from_str(&nodes).unwrap();
-    assert!(nodes.as_array().unwrap().iter().any(|n| n["kind"] == "history"));
+    assert!(nodes.as_array().unwrap().iter().any(|n| n["kind"] == "folder" && n["tag"] == "char"));
+    // A pack carries no history/content mount of its own — those belong solely
+    // to the template that eventually mounts it (see loreset_to_pack).
+    assert!(!nodes.as_array().unwrap().iter().any(|n| n["kind"] == "history" || n["kind"] == "content"));
 }
 
 #[tokio::test]
