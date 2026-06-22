@@ -501,7 +501,36 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn delete_pack(&self, id: &str) -> Result<()> {
+    async fn orphaned_definitions_for_pack(&self, pack_id: &str) -> Result<Vec<Definition>> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT definition_id FROM prompt_nodes \
+             WHERE owner_kind = 'pack' AND owner_id = ? AND definition_id IS NOT NULL \
+             AND definition_id NOT IN ( \
+                 SELECT definition_id FROM prompt_nodes \
+                 WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'pack' AND owner_id = ?) \
+             )",
+        )
+        .bind(pack_id)
+        .bind(pack_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut defs = Vec::new();
+        for row in &rows {
+            let def_id: String = row.get("definition_id");
+            if let Some(d) = self.get_definition(&def_id).await? {
+                defs.push(d);
+            }
+        }
+        Ok(defs)
+    }
+
+    async fn delete_pack(&self, id: &str, delete_orphans: bool) -> Result<()> {
+        if delete_orphans {
+            let orphans = self.orphaned_definitions_for_pack(id).await?;
+            for def in orphans {
+                self.delete_definition(&def.id).await?;
+            }
+        }
         sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'pack' AND owner_id = ?").bind(id).execute(&self.pool).await?;
         sqlx::query("DELETE FROM packs WHERE id = ?").bind(id).execute(&self.pool).await?;
         Ok(())
@@ -545,6 +574,36 @@ impl Storage for SqliteStorage {
         tx.commit().await?;
         Ok(())
     }
+
+    async fn import_template(
+        &self,
+        template: &Template,
+        defs: &[Definition],
+        nodes: &[PromptNode],
+    ) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let tmeta = serde_json::to_string(&template.meta)?;
+        sqlx::query("INSERT INTO templates (id, name, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(&template.id).bind(&template.name).bind(tmeta).bind(&template.created_at).bind(&template.updated_at)
+            .execute(&mut *tx).await?;
+        for d in defs {
+            let dmeta = serde_json::to_string(&d.meta)?;
+            sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES (?, ?, ?, ?, ?)")
+                .bind(&d.id).bind(d.def_type.as_str()).bind(&d.name).bind(&d.content).bind(dmeta)
+                .execute(&mut *tx).await?;
+        }
+        // Nodes — caller guarantees parent-before-child order (self-referential FK).
+        for n in nodes {
+            let nmeta = serde_json::to_string(&n.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&n.id).bind(n.owner_kind.as_str()).bind(&n.owner_id).bind(&n.parent_id).bind(n.sort_order)
+                .bind(n.kind.as_str()).bind(&n.tag).bind(&n.definition_id).bind(n.enabled as i64).bind(&n.created_at).bind(nmeta)
+                .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn list_nodes(&self, owner_kind: &OwnerKind, owner_id: &str) -> Result<Vec<PromptNode>> {
         let rows = sqlx::query("SELECT id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta FROM prompt_nodes WHERE owner_kind = ? AND owner_id = ? ORDER BY sort_order ASC, id ASC")
             .bind(owner_kind.as_str()).bind(owner_id).fetch_all(&self.pool).await?;
@@ -1233,9 +1292,55 @@ mod tests {
         let node = PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &def.id);
         s.create_node(&node).await.unwrap();
 
-        s.delete_pack(&p.id).await.unwrap();
+        s.delete_pack(&p.id, false).await.unwrap();
         assert!(s.get_pack(&p.id).await.unwrap().is_none());
         assert!(s.list_nodes(&OwnerKind::Pack, &p.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_pack_orphans_definition_unless_referenced_elsewhere() {
+        let s = temp_storage().await;
+        let mut p = crate::models::pack::Pack::new("HasRule");
+        s.create_pack(&p).await.unwrap();
+        let rule = Definition::new("regex_rule", "Clean", "");
+        s.create_definition(&rule).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &rule.id)).await.unwrap();
+
+        // delete_orphans=false (today's default behavior): the rule survives
+        // with no remaining reference anywhere — it would now be treated as a
+        // global orphan rule by effective_regex_rules.
+        s.delete_pack(&p.id, false).await.unwrap();
+        assert!(s.get_definition(&rule.id).await.unwrap().is_some(), "kept when delete_orphans=false");
+
+        // Re-create the same setup and delete with delete_orphans=true: the
+        // rule should be cleaned up instead of leaking into the global set.
+        p = crate::models::pack::Pack::new("HasRule2");
+        s.create_pack(&p).await.unwrap();
+        let rule2 = Definition::new("regex_rule", "Clean2", "");
+        s.create_definition(&rule2).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p.id, None, 0, &rule2.id)).await.unwrap();
+        let orphans = s.orphaned_definitions_for_pack(&p.id).await.unwrap();
+        assert_eq!(orphans.len(), 1);
+        assert_eq!(orphans[0].id, rule2.id);
+        s.delete_pack(&p.id, true).await.unwrap();
+        assert!(s.get_definition(&rule2.id).await.unwrap().is_none(), "deleted when delete_orphans=true");
+    }
+
+    #[tokio::test]
+    async fn delete_pack_keeps_definition_still_referenced_by_another_owner() {
+        let s = temp_storage().await;
+        let p1 = crate::models::pack::Pack::new("P1");
+        s.create_pack(&p1).await.unwrap();
+        let p2 = crate::models::pack::Pack::new("P2");
+        s.create_pack(&p2).await.unwrap();
+        let shared = Definition::new("regex_rule", "Shared", "");
+        s.create_definition(&shared).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p1.id, None, 0, &shared.id)).await.unwrap();
+        s.create_node(&PromptNode::new_ref(OwnerKind::Pack, &p2.id, None, 0, &shared.id)).await.unwrap();
+
+        assert!(s.orphaned_definitions_for_pack(&p1.id).await.unwrap().is_empty(), "still referenced by p2");
+        s.delete_pack(&p1.id, true).await.unwrap();
+        assert!(s.get_definition(&shared.id).await.unwrap().is_some(), "p2 still references it");
     }
 
     #[tokio::test]
@@ -1347,5 +1452,37 @@ mod tests {
         assert!(s.get_pack(&pack.id).await.unwrap().is_none());
         assert!(s.get_definition(&def.id).await.unwrap().is_none());
         assert!(s.list_nodes(&OwnerKind::Pack, &pack.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn import_template_persists_atomically() {
+        let s = temp_storage().await;
+        let tmpl = Template::new("Atomic");
+        let def = Definition::new("prompt", "D", "c");
+        let node = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, 0, &def.id);
+        s.import_template(&tmpl, std::slice::from_ref(&def), std::slice::from_ref(&node)).await.unwrap();
+        assert!(s.get_template(&tmpl.id).await.unwrap().is_some());
+        assert!(s.get_definition(&def.id).await.unwrap().is_some());
+        assert_eq!(s.list_nodes(&OwnerKind::Template, &tmpl.id).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn import_template_rolls_back_on_failure() {
+        // Mirrors import_pack_rolls_back_on_failure: a mid-transaction failure
+        // (duplicate node primary key) must not leave an orphaned template or
+        // definition row behind — the bug this atomic method replaced (a loop
+        // of individual non-transactional creates in import_template_bundle/
+        // persist_preset) would have left exactly that.
+        let s = temp_storage().await;
+        let tmpl = Template::new("Atomic");
+        let def = Definition::new("prompt", "D", "c");
+        let n1 = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, 0, &def.id);
+        let mut n2 = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, 1, &def.id);
+        n2.id = n1.id.clone(); // duplicate primary key → mid-transaction failure
+        let res = s.import_template(&tmpl, &[def.clone()], &[n1, n2]).await;
+        assert!(res.is_err());
+        assert!(s.get_template(&tmpl.id).await.unwrap().is_none());
+        assert!(s.get_definition(&def.id).await.unwrap().is_none());
+        assert!(s.list_nodes(&OwnerKind::Template, &tmpl.id).await.unwrap().is_empty());
     }
 }

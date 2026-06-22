@@ -70,3 +70,26 @@ async fn import_charcard_creates_pack() {
     let nodes: Value = serde_json::from_str(&nodes).unwrap();
     assert!(nodes.as_array().unwrap().iter().any(|n| n["kind"] == "history"));
 }
+
+#[tokio::test]
+async fn unrelated_cards_dont_share_a_same_named_regex_rule() {
+    // Bug: regex_rule defs were deduped by name+def_type across charcard
+    // imports, so two unrelated cards whose ST regex script happened to share
+    // a generic `scriptName` (e.g. "Remove asterisks") ended up pointing at
+    // the very same Definition row — toggling/editing one card's rule would
+    // silently affect the other card's pack too.
+    let state = test_state().await;
+    let card_a = r#"{"data":{"name":"CardA","extensions":{"regex_scripts":[{"scriptName":"Clean","findRegex":"a","replaceString":"A"}]}}}"#;
+    let card_b = r#"{"data":{"name":"CardB","extensions":{"regex_scripts":[{"scriptName":"Clean","findRegex":"b","replaceString":"B"}]}}}"#;
+    let (st_a, _) = send(&state, "POST", "/api/import/charcard", Some(card_a)).await;
+    assert_eq!(st_a, StatusCode::OK);
+    let (st_b, _) = send(&state, "POST", "/api/import/charcard", Some(card_b)).await;
+    assert_eq!(st_b, StatusCode::OK);
+
+    let (_, defs) = send(&state, "GET", "/api/definitions", None).await;
+    let defs: Value = serde_json::from_str(&defs).unwrap();
+    let rules: Vec<_> = defs.as_array().unwrap().iter().filter(|d| d["type"] == "regex_rule" && d["name"] == "Clean").collect();
+    assert_eq!(rules.len(), 2, "each card keeps its own regex_rule definition, not a shared one");
+    let patterns: std::collections::HashSet<_> = rules.iter().map(|r| r["meta"]["pattern"].as_str().unwrap()).collect();
+    assert_eq!(patterns, std::collections::HashSet::from(["a", "b"]), "neither card's pattern was clobbered by the other's");
+}

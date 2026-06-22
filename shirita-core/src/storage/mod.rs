@@ -99,8 +99,15 @@ pub trait Storage: Send + Sync {
     async fn get_pack(&self, id: &str) -> Result<Option<Pack>>;
     async fn list_packs(&self) -> Result<Vec<Pack>>;
     async fn update_pack(&self, pack: &Pack) -> Result<()>;
-    /// Delete a pack and its node tree (`owner_kind='pack'`).
-    async fn delete_pack(&self, id: &str) -> Result<()>;
+    /// Definitions referenced by this pack's nodes that no other pack/template/
+    /// session references — i.e. would become unreachable (or, for regex_rule
+    /// defs, silently promoted to a global orphan rule — see
+    /// `effective_regex_rules`) if the pack is deleted.
+    async fn orphaned_definitions_for_pack(&self, pack_id: &str) -> Result<Vec<Definition>>;
+    /// Delete a pack and its node tree (`owner_kind='pack'`). If `delete_orphans`
+    /// is true, also delete the definitions reported by
+    /// `orphaned_definitions_for_pack` (mirrors `delete_template`).
+    async fn delete_pack(&self, id: &str, delete_orphans: bool) -> Result<()>;
     /// Atomically persist an imported pack bundle in a single transaction:
     /// new asset rows, the pack, its definitions, then its nodes (which MUST be
     /// pre-ordered parent-before-child). Any failure rolls the whole import back.
@@ -110,6 +117,17 @@ pub trait Storage: Send + Sync {
         defs: &[Definition],
         nodes: &[PromptNode],
         assets: &[Asset],
+    ) -> Result<()>;
+    /// Atomically persist an imported template in a single transaction: the
+    /// template row, its definitions, then its nodes (which MUST be
+    /// pre-ordered parent-before-child). Any failure rolls the whole import
+    /// back — mirrors `import_pack`'s atomicity for the template/preset import
+    /// paths, which previously looped individual non-transactional inserts.
+    async fn import_template(
+        &self,
+        template: &Template,
+        defs: &[Definition],
+        nodes: &[PromptNode],
     ) -> Result<()>;
 
     // --- def types (container type registry) ---

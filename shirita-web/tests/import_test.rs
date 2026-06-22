@@ -113,29 +113,79 @@ async fn imports_portable_definition() {
 
 #[tokio::test]
 async fn conflict_skip_then_overwrite_then_duplicate() {
+    // Charcard imports persist as a Pack now (see import_charcard_test.rs); the
+    // pack-name is the conflict unit (mirrors persist_pack_bundle), and a
+    // card's own definitions are always created fresh — never deduped by
+    // name+type across cards, since two unrelated cards can share a name
+    // (e.g. both called "Dup") and must not end up sharing content/avatar.
     let (state, _) = test_state().await;
     let card = r#"{"data":{"name":"Dup","description":"v1"}}"#;
-    // 首次：created
+    // 首次：created (1 def + 1 pack)
     let (_, v1) = import_bytes(&state, "", "d.json", card.as_bytes()).await;
     assert_eq!(created_defs(&v1), 1);
-    // skip：同名跳过
+
+    // skip：同名 pack 整体跳过，不产生任何新 definition
     let (_, v2) = import_bytes(&state, "?on_conflict=skip", "d.json", card.as_bytes()).await;
     assert_eq!(v2["skipped"].as_array().unwrap().len(), 1);
-    // overwrite：原地更新，id 不变、数量不增
-    let before = state.storage.list_definitions().await.unwrap();
-    let id_before = before.iter().find(|d| d.name == "Dup").unwrap().id.clone();
+    assert_eq!(created_defs(&v2), 0);
+    assert_eq!(state.storage.list_definitions().await.unwrap().iter().filter(|d| d.name == "Dup").count(), 1);
+
+    // overwrite：包级别没有就地覆盖（同 persist_pack_bundle），按新卡内容新建一份，
+    // 不复用/篡改已有同名定义。
     let card2 = r#"{"data":{"name":"Dup","description":"v2"}}"#;
     let (_, v3) = import_bytes(&state, "?on_conflict=overwrite", "d.json", card2.as_bytes()).await;
-    assert_eq!(v3["overwritten"].as_array().unwrap().len(), 1);
+    assert_eq!(created_defs(&v3), 1);
     let after = state.storage.list_definitions().await.unwrap();
-    let dup = after.iter().find(|d| d.name == "Dup").unwrap();
-    assert_eq!(dup.id, id_before, "overwrite 必须保留原 id（不删不换）");
-    assert_eq!(dup.content, "v2");
+    let dups: Vec<_> = after.iter().filter(|d| d.name == "Dup").collect();
+    assert_eq!(dups.len(), 2, "overwrite 不应吞掉已有同名卡的定义");
+
     // duplicate：同名再建新 id
     let (_, v4) = import_bytes(&state, "?on_conflict=duplicate", "d.json", card.as_bytes()).await;
     assert_eq!(created_defs(&v4), 1);
     let dups: Vec<_> = state.storage.list_definitions().await.unwrap().into_iter().filter(|d| d.name == "Dup").collect();
-    assert_eq!(dups.len(), 2, "duplicate 应产生同名共存");
+    assert_eq!(dups.len(), 3, "duplicate 应产生同名共存");
+}
+
+#[tokio::test]
+async fn reimporting_same_card_reuses_avatar_asset_instead_of_duplicating() {
+    // Bug: each PNG import always wrote a brand-new Asset row + file with no
+    // content-hash dedup, so re-importing the same card (e.g. a retried
+    // upload) silently piled up duplicate avatar assets for the same image.
+    let (state, assets) = test_state().await;
+    let png = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Trinity1"}}"#);
+    let (st1, _) = import_bytes(&state, "?on_conflict=duplicate", "trinity1.png", &png).await;
+    assert_eq!(st1, StatusCode::OK);
+    let (st2, _) = import_bytes(&state, "?on_conflict=duplicate", "trinity2.png", &png).await;
+    assert_eq!(st2, StatusCode::OK);
+
+    let all_assets = state.storage.list_assets(None).await.unwrap();
+    assert_eq!(all_assets.len(), 1, "identical image bytes must reuse the existing Asset row, not duplicate it");
+    assert!(assets.join(&all_assets[0].path).exists());
+}
+
+#[tokio::test]
+async fn unrelated_same_named_cards_keep_their_own_avatar() {
+    // Bug: definitions were deduped by name+def_type across charcard imports,
+    // so two unrelated cards sharing a `char` def name (very plausible —
+    // e.g. both literally named "Aria") ended up with the second one's pack
+    // referencing/inheriting the first one's avatar instead of its own.
+    let (state, _) = test_state().await;
+    let png_a = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Aria","description":"first"}}"#);
+    let (_, va) = import_bytes(&state, "?on_conflict=duplicate", "a.png", &png_a).await;
+    assert_eq!(created_defs(&va), 1);
+
+    let png_b = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Aria","description":"second, unrelated"}}"#);
+    let (_, vb) = import_bytes(&state, "?on_conflict=duplicate", "b.png", &png_b).await;
+    assert_eq!(created_defs(&vb), 1, "the second card's own char def must be created, not skipped/merged");
+
+    let defs = state.storage.list_definitions().await.unwrap();
+    let arias: Vec<_> = defs.iter().filter(|d| d.def_type == "char" && d.name == "Aria").collect();
+    assert_eq!(arias.len(), 2, "two unrelated cards stay as two distinct char defs");
+    let avatars: std::collections::HashSet<_> =
+        arias.iter().filter_map(|d| d.meta.get("avatar").and_then(|v| v.as_str())).collect();
+    assert_eq!(avatars.len(), 2, "each card keeps its own avatar reference, not the other's");
+    assert_eq!(arias[0].content, "first");
+    assert_eq!(arias[1].content, "second, unrelated");
 }
 
 #[tokio::test]

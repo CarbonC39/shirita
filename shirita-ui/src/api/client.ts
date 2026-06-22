@@ -541,9 +541,16 @@ export async function updatePack(id: string, body: { name: string; identity?: Pa
   return res.json()
 }
 
-export async function deletePack(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/api/packs/${id}`, { method: 'DELETE', headers: authHeaders() })
+export async function deletePack(id: string, deleteOrphans = false): Promise<void> {
+  const qs = deleteOrphans ? '?delete_orphans=true' : ''
+  const res = await fetch(`${BASE}/api/packs/${id}${qs}`, { method: 'DELETE', headers: authHeaders() })
   if (!res.ok) throw new Error(`Delete pack failed: ${res.status}`)
+}
+
+export async function getOrphanDefinitionsForPack(packId: string): Promise<Definition[]> {
+  const res = await fetch(`${BASE}/api/packs/${packId}/orphan-definitions`, { headers: authHeaders() })
+  if (!res.ok) throw new Error(`Get orphan definitions failed: ${res.status}`)
+  return res.json()
 }
 
 export async function duplicatePack(id: string): Promise<Pack> {
