@@ -116,111 +116,263 @@ fn strip_close_tag(content: &str, tag: &str) -> String {
     re.replacen(content, 1, "").trim().to_string()
 }
 
-/// Translate an ST chat-completion preset into a loreset. `name` becomes the
-/// template name; pass the uploaded filename stem (or `""` for the unique
-/// fallback). Pure apart from generated UUIDs.
 pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
-    let name = if name.trim().is_empty() {
-        // Unique fallback so two filename-less imports never collide under
-        // on_conflict=skip (4 hex chars off a fresh v4 UUID).
+    use std::collections::{HashMap, HashSet};
+
+    let tname = if name.trim().is_empty() {
         format!("Imported preset ({})", &uuid::Uuid::new_v4().to_string()[..4])
     } else {
         name.trim().to_string()
     };
-    let tmpl = Template::new(name);
+    let mut tmpl = Template::new(tname);
     let mut defs: Vec<Definition> = Vec::new();
     let mut nodes: Vec<PromptNode> = Vec::new();
 
-    // Index prompt pieces by identifier.
-    let prompts: std::collections::HashMap<&str, &serde_json::Value> = preset
+    // Index prompts by identifier, and keep their array order for the library tail.
+    let prompts: HashMap<String, &serde_json::Value> = preset
         .get("prompts")
         .and_then(|v| v.as_array())
         .map(|a| {
             a.iter()
-                .filter_map(|p| p.get("identifier").and_then(|i| i.as_str()).map(|id| (id, p)))
+                .filter_map(|p| p.get("identifier").and_then(|i| i.as_str()).map(|id| (id.to_string(), p)))
                 .collect()
         })
         .unwrap_or_default();
+    let all_ids: Vec<String> = preset
+        .get("prompts")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|p| p.get("identifier").and_then(|i| i.as_str()).map(String::from)).collect())
+        .unwrap_or_default();
 
-    // The default/global group (character_id == 100000) carries the assembled order.
-    let order = preset
+    // Active order (group 100000): (identifier, enabled) in list order.
+    let order: Vec<(String, bool)> = preset
         .get("prompt_order")
         .and_then(|v| v.as_array())
-        .and_then(|groups| {
-            groups.iter().find(|g| g.get("character_id").and_then(|c| c.as_i64()) == Some(100000))
-        })
+        .and_then(|gs| gs.iter().find(|g| g.get("character_id").and_then(|c| c.as_i64()) == Some(100000)))
         .and_then(|g| g.get("order"))
-        .and_then(|v| v.as_array());
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|e| {
+                    let id = e.get("identifier")?.as_str()?.to_string();
+                    let en = e.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false);
+                    Some((id, en))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let order_ids: HashSet<&str> = order.iter().map(|(id, _)| id.as_str()).collect();
 
-    let mut sort: i64 = 0;
-    let next = |s: &mut i64| -> i64 {
-        let v = *s;
-        *s += 1;
-        v
+    let is_marker = |id: &str| {
+        prompts.get(id).and_then(|p| p.get("marker")).and_then(|m| m.as_bool()) == Some(true)
     };
-    let mut has_history = false;
-    let mut emitted_content = false;
+    let name_of = |id: &str| {
+        prompts
+            .get(id)
+            .and_then(|p| p.get("name"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or(id)
+            .to_string()
+    };
 
-    if let Some(order) = order {
-        for entry in order {
-            if entry.get("enabled").and_then(|e| e.as_bool()) != Some(true) {
-                continue;
-            }
-            let Some(id) = entry.get("identifier").and_then(|i| i.as_str()) else { continue };
-            let Some(prompt) = prompts.get(id) else {
-                tracing::warn!(identifier = %id, "st preset import: identifier missing from prompts, skipping");
-                continue;
-            };
-            let is_marker = prompt.get("marker").and_then(|m| m.as_bool()) == Some(true);
-            if is_marker {
-                if id == "chatHistory" {
-                    let mut hist = PromptNode::new_folder(
-                        OwnerKind::Template, &tmpl.id, None, next(&mut sort), "history",
-                    );
-                    hist.kind = NodeKind::History;
-                    hist.tag = None;
-                    nodes.push(hist);
-                    has_history = true;
-                } else if !emitted_content {
-                    // First char/persona/world/examples placeholder -> the single
-                    // content mount (where attached pack defs assemble at runtime).
-                    let mut content = PromptNode::new_folder(
-                        OwnerKind::Template, &tmpl.id, None, next(&mut sort), "content",
-                    );
-                    content.kind = NodeKind::Content;
-                    content.tag = None;
-                    nodes.push(content);
-                    emitted_content = true;
-                }
-                // Later markers are dropped (lossy by design).
-            } else {
-                // Authored text -> a prompt def + a root Ref. Empty content is skipped.
-                let content = prompt.get("content").and_then(|v| v.as_str()).unwrap_or("");
-                if content.trim().is_empty() {
-                    tracing::warn!(identifier = %id, "st preset import: empty authored content, skipping");
-                    continue;
-                }
-                let pname = prompt
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.trim().is_empty())
-                    .unwrap_or(id);
-                let d = Definition::new("prompt", pname, content);
-                nodes.push(PromptNode::new_ref(
-                    OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id,
-                ));
-                defs.push(d);
+    // --- Part C: variables (global, first-wins) + cleaned-content cache. ---
+    // Walk active order first, then library ids (array order), so order values win.
+    let lib_ids: Vec<String> =
+        all_ids.iter().filter(|id| !order_ids.contains(id.as_str())).cloned().collect();
+    let mut vars: Vec<VarDecl> = Vec::new();
+    let mut cleaned: HashMap<String, String> = HashMap::new();
+    for id in order.iter().map(|(id, _)| id.clone()).chain(lib_ids.iter().cloned()) {
+        if cleaned.contains_key(&id) || !prompts.contains_key(&id) || is_marker(&id) {
+            continue;
+        }
+        let raw = prompts.get(&id).and_then(|p| p.get("content")).and_then(|v| v.as_str()).unwrap_or("");
+        let (clean, decls) = extract_variables(raw);
+        for d in decls {
+            if !vars.iter().any(|e| e.name == d.name) {
+                vars.push(d);
             }
         }
+        cleaned.insert(id, clean);
+    }
+    if !vars.is_empty() {
+        tmpl.meta = serde_json::json!({ "variables": vars });
     }
 
-    // A template needs a history mount; append one if the order had no chatHistory.
+    // --- Phase 1: build ordered elements for the active order. ---
+    struct Authored {
+        name: String,
+        content: String,
+        enabled: bool,
+    }
+    enum Elem {
+        Content,
+        History,
+        Prompt(usize),
+    }
+    let mut authored: Vec<Authored> = Vec::new();
+    let mut elems: Vec<Elem> = Vec::new();
+    let mut emitted_content = false;
+    let mut has_history = false;
+    for (id, enabled) in &order {
+        if !prompts.contains_key(id) {
+            tracing::warn!(identifier = %id, "st preset import: identifier missing from prompts, skipping");
+            continue;
+        }
+        if is_marker(id) {
+            if id == "chatHistory" {
+                elems.push(Elem::History);
+                has_history = true;
+            } else if !emitted_content {
+                elems.push(Elem::Content);
+                emitted_content = true;
+            }
+            continue;
+        }
+        let content = cleaned.get(id).cloned().unwrap_or_default();
+        if content.trim().is_empty() {
+            continue; // originally empty or emptied by setvar-stripping
+        }
+        authored.push(Authored { name: name_of(id), content, enabled: *enabled });
+        elems.push(Elem::Prompt(authored.len() - 1));
+    }
+
+    // --- Phase 2: detect cross-node spans within maximal runs of consecutive
+    //     ENABLED authored elements (a marker or disabled prompt breaks a run). ---
+    let mut spans: Vec<(usize, usize, String)> = Vec::new(); // (start_elem, end_elem, tag)
+    let mut e = 0;
+    while e < elems.len() {
+        let run_enabled = matches!(elems[e], Elem::Prompt(k) if authored[k].enabled);
+        if !run_enabled {
+            e += 1;
+            continue;
+        }
+        let start = e;
+        while e + 1 < elems.len() && matches!(elems[e + 1], Elem::Prompt(k) if authored[k].enabled) {
+            e += 1;
+        }
+        let end = e; // run is elems[start..=end]
+        let contents: Vec<String> = (start..=end)
+            .map(|x| match elems[x] {
+                Elem::Prompt(k) => authored[k].content.clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+        if let Some((ri, rj, tag)) = find_first_span(&contents) {
+            spans.push((start + ri, start + rj, tag));
+        }
+        e += 1;
+    }
+
+    // --- Phase 3: emit nodes from elements, applying spans + wrap_in_tag. ---
+    let folder_tag = |tag: &str| {
+        let s = crate::assembly::sanitize_tag(tag);
+        if s.is_empty() {
+            "prompt".to_string()
+        } else {
+            s
+        }
+    };
+    let mut root_sort: i64 = 0;
+    let mut x = 0;
+    while x < elems.len() {
+        if let Some((s, t, tag)) = spans.iter().find(|(s, _, _)| *s == x).cloned() {
+            let folder = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, root_sort, folder_tag(&tag));
+            root_sort += 1;
+            let fid = folder.id.clone();
+            nodes.push(folder);
+            let mut child_sort: i64 = 0;
+            for ei in s..=t {
+                let k = match elems[ei] {
+                    Elem::Prompt(k) => k,
+                    _ => unreachable!(),
+                };
+                let mut content = authored[k].content.clone();
+                if ei == s {
+                    content = strip_open_tag(&content, &tag);
+                }
+                if ei == t {
+                    content = strip_close_tag(&content, &tag);
+                }
+                let d = Definition::new("prompt", &authored[k].name, content);
+                // children are not individually wrapped — the folder emits <tag>…</tag>
+                nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, Some(fid.clone()), child_sort, &d.id));
+                child_sort += 1;
+                defs.push(d);
+            }
+            x = t + 1;
+            continue;
+        }
+        match &elems[x] {
+            Elem::Content => {
+                let mut c = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, root_sort, "content");
+                c.kind = NodeKind::Content;
+                c.tag = None;
+                nodes.push(c);
+                root_sort += 1;
+            }
+            Elem::History => {
+                let mut h = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, root_sort, "history");
+                h.kind = NodeKind::History;
+                h.tag = None;
+                nodes.push(h);
+                root_sort += 1;
+            }
+            Elem::Prompt(k) => {
+                let a = &authored[*k];
+                let mut d = Definition::new("prompt", &a.name, &a.content);
+                if is_balanced(&a.content) {
+                    d.meta = serde_json::json!({ "wrap_in_tag": true });
+                }
+                let mut r = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, root_sort, &d.id);
+                r.enabled = a.enabled;
+                nodes.push(r);
+                defs.push(d);
+                root_sort += 1;
+            }
+        }
+        x += 1;
+    }
+
+    // A template needs a history mount.
     if !has_history {
-        let mut hist =
-            PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, next(&mut sort), "history");
+        let mut hist = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, root_sort, "history");
         hist.kind = NodeKind::History;
         hist.tag = None;
         nodes.push(hist);
+        root_sort += 1;
+    }
+
+    // --- Part A tail: not-in-order authored prompts -> one disabled `inactive` folder. ---
+    let inactive: Vec<(String, String)> = lib_ids
+        .iter()
+        .filter(|id| !is_marker(id))
+        .filter_map(|id| {
+            let c = cleaned.get(id).cloned().unwrap_or_default();
+            if c.trim().is_empty() {
+                None
+            } else {
+                Some((name_of(id), c))
+            }
+        })
+        .collect();
+    if !inactive.is_empty() {
+        let mut folder = PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, root_sort, "inactive");
+        folder.enabled = false;
+        let fid = folder.id.clone();
+        nodes.push(folder);
+        let mut cs: i64 = 0;
+        for (nm, content) in inactive {
+            let mut d = Definition::new("prompt", &nm, &content);
+            if is_balanced(&content) {
+                d.meta = serde_json::json!({ "wrap_in_tag": true });
+            }
+            let mut r = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, Some(fid.clone()), cs, &d.id);
+            r.enabled = false;
+            cs += 1;
+            nodes.push(r);
+            defs.push(d);
+        }
     }
 
     LoreSet { template: tmpl, definitions: defs, nodes }
@@ -304,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn skips_disabled_entries_and_unknown_identifiers() {
+    fn imports_disabled_in_order_as_disabled_ref_skips_unknown() {
         let preset = json!({
             "prompts": [
                 { "identifier": "main", "name": "Main", "content": "hi" },
@@ -317,9 +469,15 @@ mod tests {
             ]}]
         });
         let ls = stpreset_to_loreset(&preset, "P");
-        let prompts = prompt_defs(&ls);
-        assert_eq!(prompts.len(), 1);
-        assert_eq!(prompts[0].name, "Main");
+        // both authored prompts imported; ghost (unknown id) skipped
+        assert_eq!(prompt_defs(&ls).len(), 2);
+        let def_of = |nm: &str| ls.definitions.iter().find(|d| d.name == nm).unwrap();
+        let ref_of = |nm: &str| {
+            let id = &def_of(nm).id;
+            ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(id.as_str())).unwrap()
+        };
+        assert!(ref_of("Main").enabled);
+        assert!(!ref_of("Off").enabled, "disabled-in-order imported as a disabled Ref");
     }
 
     #[test]
@@ -341,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn reads_only_default_group_100000() {
+    fn reads_default_group_others_go_inactive() {
         let preset = json!({
             "prompts": [
                 { "identifier": "main", "name": "Main", "content": "default" },
@@ -353,9 +511,17 @@ mod tests {
             ]
         });
         let ls = stpreset_to_loreset(&preset, "P");
-        let prompts = prompt_defs(&ls);
-        assert_eq!(prompts.len(), 1);
-        assert_eq!(prompts[0].content, "default");
+        // "main" is the active (enabled, root) prompt
+        let main = ls.definitions.iter().find(|d| d.name == "Main").unwrap();
+        let main_ref = ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(main.id.as_str())).unwrap();
+        assert!(main_ref.enabled && main_ref.parent_id.is_none());
+        // "other" (not in group 100000) -> disabled Ref under the inactive folder
+        let inactive = ls.nodes.iter().find(|n| n.tag.as_deref() == Some("inactive")).expect("inactive folder");
+        assert!(!inactive.enabled);
+        let other = ls.definitions.iter().find(|d| d.name == "Other").unwrap();
+        let other_ref = ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(other.id.as_str())).unwrap();
+        assert_eq!(other_ref.parent_id.as_deref(), Some(inactive.id.as_str()));
+        assert!(!other_ref.enabled);
     }
 
     #[test]
@@ -369,6 +535,74 @@ mod tests {
         // empty preset: no defs, no content mount — just an appended history.
         assert!(a.definitions.is_empty());
         assert!(!a.nodes.iter().any(|n| n.kind == NodeKind::Content));
+    }
+
+    #[test]
+    fn setvar_registers_variables_and_emits_no_node_when_emptied() {
+        let preset = json!({
+            "prompts": [
+                { "identifier": "vars", "name": "Vars", "content": "{{setvar::hp::100}}{{setvar::tone::soft}}" },
+                { "identifier": "main", "name": "Main", "content": "use {{getvar::hp}}" }
+            ],
+            "prompt_order": [ { "character_id": 100000, "order": [
+                { "identifier": "vars", "enabled": true },
+                { "identifier": "main", "enabled": true }
+            ]}]
+        });
+        let ls = stpreset_to_loreset(&preset, "P");
+        // "vars" emptied by stripping -> no def; its variables registered on the template
+        assert!(ls.definitions.iter().all(|d| d.name != "Vars"));
+        let vars = ls.template.meta["variables"].as_array().unwrap();
+        assert!(vars.iter().any(|v| v["name"] == "hp" && v["type"] == "number"));
+        assert!(vars.iter().any(|v| v["name"] == "tone" && v["type"] == "string"));
+        // getvar rewritten to {{hp}} in main's content
+        let main = ls.definitions.iter().find(|d| d.name == "Main").unwrap();
+        assert_eq!(main.content, "use {{hp}}");
+    }
+
+    #[test]
+    fn balanced_prompt_wraps_stray_tag_stays_raw() {
+        let preset = json!({
+            "prompts": [
+                { "identifier": "a", "name": "Clean", "content": "just text" },
+                { "identifier": "b", "name": "Stray", "content": "see <最新互动> here" }
+            ],
+            "prompt_order": [ { "character_id": 100000, "order": [
+                { "identifier": "a", "enabled": true },
+                { "identifier": "b", "enabled": true }
+            ]}]
+        });
+        let ls = stpreset_to_loreset(&preset, "P");
+        let wrap = |nm: &str| {
+            ls.definitions.iter().find(|d| d.name == nm).unwrap()
+                .meta.get("wrap_in_tag").and_then(|v| v.as_bool()).unwrap_or(false)
+        };
+        assert!(wrap("Clean"), "balanced/no-tag prompt is wrapped");
+        assert!(!wrap("Stray"), "stray unclosed tag -> left raw");
+    }
+
+    #[test]
+    fn cross_node_span_becomes_a_folder() {
+        let preset = json!({
+            "prompts": [
+                { "identifier": "open", "name": "Open", "content": "<Rule depth=\"0\">first" },
+                { "identifier": "close", "name": "Close", "content": "second</Rule>" }
+            ],
+            "prompt_order": [ { "character_id": 100000, "order": [
+                { "identifier": "open", "enabled": true },
+                { "identifier": "close", "enabled": true }
+            ]}]
+        });
+        let ls = stpreset_to_loreset(&preset, "P");
+        let folder = ls.nodes.iter().find(|n| n.kind == NodeKind::Folder && n.tag.as_deref() == Some("Rule")).expect("span folder");
+        // both prompts are children of the folder, literal tags stripped, not individually wrapped
+        let children: Vec<_> = ls.nodes.iter().filter(|n| n.parent_id.as_deref() == Some(folder.id.as_str())).collect();
+        assert_eq!(children.len(), 2);
+        let open = ls.definitions.iter().find(|d| d.name == "Open").unwrap();
+        let close = ls.definitions.iter().find(|d| d.name == "Close").unwrap();
+        assert_eq!(open.content, "first");
+        assert_eq!(close.content, "second");
+        assert!(open.meta.get("wrap_in_tag").is_none(), "span children not individually wrapped");
     }
 
     #[test]
