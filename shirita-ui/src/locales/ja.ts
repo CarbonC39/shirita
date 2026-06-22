@@ -233,6 +233,8 @@ const ja: MessageSchema = {
     summarizeInstruction: '要約の指示',
     notifications: '通知',
     notifyReplies: 'バックグラウンド応答通知',
+    notifyUnsupported: 'このアプリ/ブラウザではデスクトップ通知に対応していません。',
+    notifyDenied: '通知の許可が拒否されました。ブラウザの設定でこのサイトの通知を許可してから、再度お試しください。',
     contentWidth: 'コンテンツ幅 (px)',
     appearance: '外観',
     messageStyle: 'メッセージスタイル',

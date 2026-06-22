@@ -34,7 +34,7 @@ pub use error::{Error, Result};
 pub use model::{
     AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
 };
-pub use adapters::charcard::{charcard_to_loreset, LoreSet};
+pub use adapters::charcard::{charcard_to_loreset, loreset_to_pack, LoreSet};
 pub use adapters::preset::tree_to_preset;
 pub use adapters::stpreset::stpreset_to_loreset;
 pub use adapters::worldinfo::worldinfo_to_defs;

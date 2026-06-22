@@ -4,6 +4,7 @@
 
 use crate::adapters::worldinfo::worldinfo_to_defs;
 use crate::models::definition::Definition;
+use crate::models::pack::Pack;
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::template::Template;
 use crate::state::{VarDecl, VarType};
@@ -237,6 +238,35 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     LoreSet { template: tmpl, definitions: defs, nodes }
 }
 
+/// Re-home a [`LoreSet`] under a fresh [`Pack`] instead of a [`Template`].
+///
+/// A Pack is the format actually designed to hold one self-contained piece of
+/// imported character content: a node tree owned directly by the pack (no
+/// separate Template row) plus an optional bound identity. This takes the
+/// `Template`-owned tree `charcard_to_loreset` builds and rewrites every
+/// node's `owner_kind`/`owner_id` to point at a new pack, carries the
+/// template's `meta` (e.g. imported `variables`) onto `pack.meta`, and sets
+/// `pack.identity` from the card's name + (optional) saved avatar filename.
+///
+/// Definitions are returned unchanged — they have no owner field, so they are
+/// reused as-is regardless of which tree they're attached to.
+pub fn loreset_to_pack(ls: LoreSet, avatar: Option<&str>) -> (Pack, Vec<Definition>, Vec<PromptNode>) {
+    let LoreSet { template, definitions, nodes } = ls;
+    let mut pack = Pack::new(template.name.clone());
+    pack.identity.display_name = Some(template.name);
+    pack.identity.avatar = avatar.map(String::from);
+    pack.meta = template.meta;
+    let nodes = nodes
+        .into_iter()
+        .map(|mut n| {
+            n.owner_kind = OwnerKind::Pack;
+            n.owner_id = pack.id.clone();
+            n
+        })
+        .collect();
+    (pack, definitions, nodes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,6 +359,51 @@ mod tests {
         assert_eq!(find("is_alive")["type"], "bool");
         assert_eq!(find("name")["type"], "string");
         assert_eq!(find("items")["type"], "list");
+    }
+
+    #[test]
+    fn loreset_to_pack_rehomes_every_node_under_the_new_pack() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc", "personality": "calm",
+                "scenario": "the matrix", "first_mes": "wake up",
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        let n_nodes = ls.nodes.len();
+        let n_defs = ls.definitions.len();
+        let (pack, defs, nodes) = loreset_to_pack(ls, Some("neo.png"));
+
+        assert_eq!(pack.name, "Neo");
+        assert_eq!(pack.identity.display_name.as_deref(), Some("Neo"));
+        assert_eq!(pack.identity.avatar.as_deref(), Some("neo.png"));
+        assert_eq!(defs.len(), n_defs);
+        assert_eq!(nodes.len(), n_nodes);
+        // every node now belongs to the pack, not a template.
+        for n in &nodes {
+            assert_eq!(n.owner_kind, OwnerKind::Pack);
+            assert_eq!(n.owner_id, pack.id);
+        }
+        // refs still resolve into the returned defs (nothing dangling).
+        let def_ids: std::collections::HashSet<_> = defs.iter().map(|d| d.id.clone()).collect();
+        for n in nodes.iter().filter(|n| n.kind == NodeKind::Ref) {
+            assert!(def_ids.contains(n.definition_id.as_ref().unwrap()));
+        }
+    }
+
+    #[test]
+    fn loreset_to_pack_carries_template_meta_and_no_avatar_when_absent() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc",
+                "extensions": { "tavern_helper": { "variables": { "hp": 100 } } }
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        assert!(!ls.template.meta["variables"].as_array().unwrap().is_empty());
+        let (pack, _, _) = loreset_to_pack(ls, None);
+        assert!(!pack.meta["variables"].as_array().unwrap().is_empty());
+        assert_eq!(pack.identity.avatar, None);
     }
 
     #[test]

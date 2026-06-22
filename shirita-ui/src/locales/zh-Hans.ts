@@ -232,6 +232,8 @@ const zhHans: MessageSchema = {
     summarizeInstruction: '总结指令',
     notifications: '通知',
     notifyReplies: '后台回复时通知',
+    notifyUnsupported: '此应用/浏览器不支持桌面通知。',
+    notifyDenied: '通知权限被拒绝。请在浏览器设置中允许此站点的通知，然后重试。',
     contentWidth: '内容宽度 (px)',
     appearance: '外观',
     messageStyle: '消息样式',

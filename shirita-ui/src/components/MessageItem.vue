@@ -6,6 +6,7 @@ import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
 import { useMediaStore } from '../stores/media'
 import { formatTokens } from '../utils/tokens'
+import { assetUrl } from '../api/client'
 
 const props = withDefaults(defineProps<{
   message: Message
@@ -32,7 +33,7 @@ const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
 const side = computed(() => (isAssistant.value ? props.identity?.assistant : props.identity?.user))
 const displayName = computed(() => side.value?.name || (isAssistant.value ? t('chat.assistant') : t('chat.you')))
-const avatarUrl = computed(() => (side.value?.avatar ? `/assets/${side.value.avatar}` : ''))
+const avatarUrl = computed(() => (side.value?.avatar ? assetUrl(side.value.avatar) : ''))
 const label = displayName
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)

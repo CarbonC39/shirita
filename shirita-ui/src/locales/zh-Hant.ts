@@ -232,6 +232,8 @@ const zhHant: MessageSchema = {
     summarizeInstruction: '總結指令',
     notifications: '通知',
     notifyReplies: '背景回覆時通知',
+    notifyUnsupported: '此應用程式/瀏覽器不支援桌面通知。',
+    notifyDenied: '通知權限被拒絕。請在瀏覽器設定中允許此網站的通知，然後重試。',
     contentWidth: '內容寬度 (px)',
     appearance: '外觀',
     messageStyle: '訊息樣式',

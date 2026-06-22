@@ -38,7 +38,7 @@ async fn send(state: &AppState, method: &str, uri: &str, body: Option<&str>) -> 
 }
 
 #[tokio::test]
-async fn import_charcard_creates_loreset() {
+async fn import_charcard_creates_pack() {
     let state = test_state().await;
     let card = r#"{"spec":"chara_card_v3","data":{"name":"Neo","description":"d","first_mes":"hi","character_book":{"entries":[{"keys":["zion"],"comment":"Zion","content":"c"}]},"extensions":{"regex_scripts":[{"scriptName":"r","findRegex":"a","replaceString":"b","markdownOnly":true}]}}}"#;
     let (st, _) = send(&state, "POST", "/api/import/charcard", Some(card)).await;
@@ -52,11 +52,21 @@ async fn import_charcard_creates_loreset() {
     assert!(arr.iter().any(|d| d["type"] == "world"));
     assert!(arr.iter().any(|d| d["type"] == "regex_rule"));
 
+    // ST character cards import as a Pack — the format designed to hold one
+    // self-contained piece of imported content — not a bare Template.
     let (_, tmpls) = send(&state, "GET", "/api/templates", None).await;
     let tmpls: Value = serde_json::from_str(&tmpls).unwrap();
-    let t = tmpls.as_array().unwrap().iter().find(|t| t["name"] == "Neo").unwrap();
-    let tid = t["id"].as_str().unwrap();
-    let (_, nodes) = send(&state, "GET", &format!("/api/templates/{tid}/nodes?owner_kind=template"), None).await;
+    assert!(
+        !tmpls.as_array().unwrap().iter().any(|t| t["name"] == "Neo"),
+        "charcard import must not create a Template"
+    );
+
+    let (_, packs) = send(&state, "GET", "/api/packs", None).await;
+    let packs: Value = serde_json::from_str(&packs).unwrap();
+    let p = packs.as_array().unwrap().iter().find(|p| p["name"] == "Neo").unwrap();
+    assert_eq!(p["identity"]["display_name"], "Neo");
+    let pid = p["id"].as_str().unwrap();
+    let (_, nodes) = send(&state, "GET", &format!("/api/packs/{pid}/nodes?owner_kind=pack"), None).await;
     let nodes: Value = serde_json::from_str(&nodes).unwrap();
     assert!(nodes.as_array().unwrap().iter().any(|n| n["kind"] == "history"));
 }

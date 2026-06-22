@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use shirita_core::{
-    charcard_to_loreset, collect_pack_assets, parse_portable, rewrite_pack_assets, stpreset_to_loreset,
-    Asset, Definition, LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode, Template,
+    charcard_to_loreset, collect_pack_assets, loreset_to_pack, parse_portable, rewrite_pack_assets,
+    stpreset_to_loreset, Asset, Definition, LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode,
+    Template,
 };
 
 use crate::AppState;
@@ -331,18 +332,38 @@ fn with_avatar(mut ls: LoreSet, avatar: Option<&str>) -> LoreSet {
     ls
 }
 
-/// Persist a loreset: dedup definitions by name+def_type per `on_conflict`,
-/// remap ref `definition_id`s to the actually-stored ids, then persist the
-/// template and its nodes.
-async fn persist_loreset(
+/// Persist a charcard-derived [`LoreSet`] as a [`Pack`] — the format actually
+/// designed to hold one self-contained piece of imported character content
+/// (a node tree owned directly by the pack, plus a bound identity), instead
+/// of a bare `Template`. Definitions are deduped by name+def_type per
+/// `on_conflict` (same dedup rule the old Template-based persist used); the
+/// node tree and the new pack row are then created via the same atomic
+/// `import_pack` path the
+/// `shirita.pack` bundle importer uses (no new assets here — the avatar, if
+/// any, was already saved by the caller).
+async fn persist_loreset_as_pack(
     state: &AppState,
     ls: LoreSet,
+    avatar: Option<&str>,
     oc: OnConflict,
     summary: &mut ImportSummary,
 ) -> Result<(), StatusCode> {
+    // Skip an existing same-name pack (peek before any def/node work), mirroring
+    // persist_pack_bundle's early-skip.
+    if matches!(oc, OnConflict::Skip) {
+        let packs = state.storage.list_packs().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(ex) = packs.iter().find(|p| p.name == ls.template.name) {
+            summary.skipped.push(item("pack", &ex.id, &ex.name));
+            return Ok(());
+        }
+    }
+
+    let (pack, defs, mut nodes) = loreset_to_pack(ls, avatar);
+
     let existing = state.storage.list_definitions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut idmap: HashMap<String, String> = HashMap::new();
-    for mut d in ls.definitions {
+    let mut out_defs: Vec<Definition> = Vec::new();
+    for mut d in defs {
         let orig_id = d.id.clone();
         let dup = existing.iter().find(|e| e.name == d.name && e.def_type == d.def_type).cloned();
         match (dup, oc) {
@@ -357,24 +378,29 @@ async fn persist_loreset(
                 summary.overwritten.push(item("definition", &d.id, &d.name));
             }
             (_, OnConflict::Duplicate) | (None, _) => {
-                state.storage.create_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                 idmap.insert(orig_id, d.id.clone());
                 summary.created.push(item("definition", &d.id, &d.name));
+                out_defs.push(d);
             }
         }
     }
-    state.storage.create_template(&ls.template).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    // Persist container nodes (folder/history) before refs so a child ref's
-    // parent_id always already exists (self-referential FK).
-    let (containers, refs): (Vec<PromptNode>, Vec<PromptNode>) =
-        ls.nodes.into_iter().partition(|n| n.kind != NodeKind::Ref);
-    for mut n in containers.into_iter().chain(refs) {
+    // Remap ref definition_ids to the actually-stored ids (skipped/overwritten
+    // defs reuse an existing id instead of being re-inserted).
+    for n in &mut nodes {
         if let Some(did) = n.definition_id.as_ref().and_then(|id| idmap.get(id)).cloned() {
             n.definition_id = Some(did);
         }
-        state.storage.create_node(&n).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
-    summary.created.push(item("template", &ls.template.id, &ls.template.name));
+    // Container nodes (folder/history) before refs — import_pack requires
+    // parent-before-child order for the self-referential FK.
+    nodes.sort_by_key(|n| if n.kind == NodeKind::Ref { 1 } else { 0 });
+
+    state
+        .storage
+        .import_pack(&pack, &out_defs, &nodes, &[])
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    summary.created.push(item("pack", &pack.id, &pack.name));
     Ok(())
 }
 
@@ -427,7 +453,8 @@ pub async fn import(
         let card = shirita_core::read_card_json(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
         let name = card.get("data").and_then(|d| d.get("name")).and_then(|v| v.as_str()).unwrap_or("character");
         let avatar = save_png_asset(&state, &bytes, name).await?;
-        persist_loreset(&state, with_avatar(charcard_to_loreset(&card), Some(&avatar)), oc, &mut summary).await?;
+        let ls = with_avatar(charcard_to_loreset(&card), Some(&avatar));
+        persist_loreset_as_pack(&state, ls, Some(&avatar), oc, &mut summary).await?;
         return Ok(Json(summary));
     }
 
@@ -470,7 +497,7 @@ pub async fn import(
                 }
                 persist_preset(&state, ls, oc, &mut summary).await?;
             } else if is_card {
-                persist_loreset(&state, charcard_to_loreset(&v), oc, &mut summary).await?;
+                persist_loreset_as_pack(&state, charcard_to_loreset(&v), None, oc, &mut summary).await?;
             } else if v.get("entries").is_some() {
                 persist_defs(&state, shirita_core::worldinfo_to_defs(&v), oc, &mut summary).await?;
             } else {
@@ -487,7 +514,7 @@ pub async fn import_charcard(
     Json(body): Json<Value>,
 ) -> Result<Json<ImportSummary>, StatusCode> {
     let mut summary = ImportSummary::default();
-    persist_loreset(&state, charcard_to_loreset(&body), OnConflict::Skip, &mut summary).await?;
+    persist_loreset_as_pack(&state, charcard_to_loreset(&body), None, OnConflict::Skip, &mut summary).await?;
     Ok(Json(summary))
 }
 

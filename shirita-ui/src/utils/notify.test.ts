@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { notifyReplyDone } from './notify'
+import { notifyReplyDone, ensureNotifyPermission } from './notify'
 
 describe('notifyReplyDone', () => {
   beforeEach(() => { vi.restoreAllMocks() })
@@ -26,5 +26,36 @@ describe('notifyReplyDone', () => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     notifyReplyDone('t', 'b')
     expect(ctor).not.toHaveBeenCalled()
+  })
+})
+
+describe('ensureNotifyPermission', () => {
+  beforeEach(() => { vi.restoreAllMocks() })
+
+  it('reports unsupported when the Notification API is unavailable', async () => {
+    vi.stubGlobal('Notification', undefined)
+    await expect(ensureNotifyPermission()).resolves.toBe('unsupported')
+  })
+
+  it('reports granted immediately when already granted', async () => {
+    vi.stubGlobal('Notification', { permission: 'granted' })
+    await expect(ensureNotifyPermission()).resolves.toBe('granted')
+  })
+
+  it('reports denied without prompting when already denied', async () => {
+    const requestPermission = vi.fn()
+    vi.stubGlobal('Notification', { permission: 'denied', requestPermission })
+    await expect(ensureNotifyPermission()).resolves.toBe('denied')
+    expect(requestPermission).not.toHaveBeenCalled()
+  })
+
+  it('prompts when permission is default and reports the user choice', async () => {
+    const requestPermission = vi.fn().mockResolvedValue('granted')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission })
+    await expect(ensureNotifyPermission()).resolves.toBe('granted')
+
+    const requestPermissionDenied = vi.fn().mockResolvedValue('denied')
+    vi.stubGlobal('Notification', { permission: 'default', requestPermission: requestPermissionDenied })
+    await expect(ensureNotifyPermission()).resolves.toBe('denied')
   })
 })
