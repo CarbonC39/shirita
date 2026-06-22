@@ -150,6 +150,83 @@ fn extract_tag_blocks(html: &str, tag: &str) -> (String, Vec<String>) {
     (out, blocks)
 }
 
+/// Result of recognizing exactly one ST `regex_scripts` entry as the common
+/// single-regex/`$N`-template status-bar pattern and converting it into
+/// native Panel content. See the 2026-06-22 design spec, §3.
+struct PanelConversion {
+    source_index: usize,
+    html: String,
+    css: String,
+    var_decls: Vec<VarDecl>,
+    capture_vars: Vec<Option<String>>,
+}
+
+/// Detect and convert the card's status-bar `regex_scripts` entry, if there
+/// is exactly one unambiguous candidate. Returns `None` when zero or
+/// multiple scripts qualify — ambiguous detections are skipped rather than
+/// guessed.
+fn try_convert_status_panel(scripts: &[serde_json::Value]) -> Option<PanelConversion> {
+    struct Candidate {
+        index: usize,
+        replace_string: String,
+        valid_ns: Vec<usize>,
+    }
+
+    let mut candidates = Vec::new();
+    for (index, s) in scripts.iter().enumerate() {
+        if s.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        // Same scope derivation as `regex_rule_def`: (markdownOnly, promptOnly)
+        // -> "display" | "prompt" | "both". Conversion only applies to scripts
+        // that affect display ("display" or "both").
+        let markdown_only = s.get("markdownOnly").and_then(|v| v.as_bool()).unwrap_or(false);
+        let prompt_only = s.get("promptOnly").and_then(|v| v.as_bool()).unwrap_or(false);
+        let display_scope = !(prompt_only && !markdown_only);
+        if !display_scope {
+            continue;
+        }
+        let Some(find_regex) = s.get("findRegex").and_then(|v| v.as_str()) else { continue };
+        let Some(replace_string) = s.get("replaceString").and_then(|v| v.as_str()) else { continue };
+        let normalized = crate::assembly::normalize_js_regex_literal(find_regex);
+        let Ok(re) = fancy_regex::Regex::new(&normalized) else { continue };
+        let group_count = re.captures_len().saturating_sub(1);
+        if group_count == 0 {
+            continue;
+        }
+        let valid_ns = dollar_refs_in(replace_string, group_count);
+        if valid_ns.is_empty() {
+            continue;
+        }
+        candidates.push(Candidate { index, replace_string: replace_string.to_string(), valid_ns });
+    }
+
+    if candidates.len() != 1 {
+        return None;
+    }
+    let c = candidates.into_iter().next().unwrap();
+
+    let substituted = substitute_dollar_refs(&c.replace_string, &c.valid_ns);
+    let (no_style, style_blocks) = extract_tag_blocks(&substituted, "style");
+    let (html, _script_blocks) = extract_tag_blocks(&no_style, "script"); // script content is dropped, never preserved
+
+    let max_n = *c.valid_ns.iter().max().unwrap();
+    let mut capture_vars: Vec<Option<String>> = vec![None; max_n];
+    let mut var_decls = Vec::new();
+    for &n in &c.valid_ns {
+        let name = format!("field{n}");
+        capture_vars[n - 1] = Some(name.clone());
+        var_decls.push(VarDecl {
+            name,
+            var_type: VarType::String,
+            initial: serde_json::Value::String(String::new()),
+            scope: None,
+        });
+    }
+
+    Some(PanelConversion { source_index: c.index, html, css: style_blocks.join("\n"), var_decls, capture_vars })
+}
+
 /// Translate an ST character card (v1 top-level / v2/v3 under `data`) into a loreset.
 pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     let data = card.get("data").unwrap_or(card);
@@ -399,6 +476,89 @@ mod tests {
         let (remaining, blocks) = extract_tag_blocks(html, "script");
         assert_eq!(remaining, html);
         assert!(blocks.is_empty());
+    }
+
+    fn script(find_regex: &str, replace_string: &str) -> serde_json::Value {
+        serde_json::json!({ "findRegex": find_regex, "replaceString": replace_string, "disabled": false })
+    }
+
+    #[test]
+    fn try_convert_status_panel_converts_the_only_candidate() {
+        let scripts = vec![script(
+            r"<update>(.*?)<hp>(\d+)</hp></update>",
+            "<div>$1</div><div>HP: $2</div><style>.x{color:red}</style><script>alert(1)</script>",
+        )];
+        let conv = try_convert_status_panel(&scripts).expect("exactly one candidate must convert");
+        assert_eq!(conv.source_index, 0);
+        assert_eq!(conv.html, "<div>{{field1}}</div><div>HP: {{field2}}</div>");
+        assert_eq!(conv.css, ".x{color:red}");
+        assert_eq!(conv.capture_vars, vec![Some("field1".to_string()), Some("field2".to_string())]);
+        let names: Vec<&str> = conv.var_decls.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, vec!["field1", "field2"]);
+        assert!(conv.var_decls.iter().all(|v| v.var_type == VarType::String));
+    }
+
+    #[test]
+    fn try_convert_status_panel_skips_when_no_candidates() {
+        // no `$N` anywhere in replaceString -> not a status-bar template.
+        let scripts = vec![script(r"<a>(.*)</a>", "plain text, no placeholders")];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_skips_when_ambiguous() {
+        // two scripts both qualify -> skip rather than guess.
+        let scripts = vec![script(r"<a>(.*)</a>", "$1"), script(r"<b>(.*)</b>", "$1")];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_skips_disabled_scripts() {
+        let mut s = script(r"<a>(.*)</a>", "$1");
+        s["disabled"] = serde_json::json!(true);
+        assert!(try_convert_status_panel(&[s]).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_skips_prompt_only_scripts() {
+        // promptOnly (no markdownOnly) -> scope is "prompt", never applies to display.
+        let mut s = script(r"<a>(.*)</a>", "$1");
+        s["promptOnly"] = serde_json::json!(true);
+        assert!(try_convert_status_panel(&[s]).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_handles_js_literal_find_regex() {
+        // `/pattern/flags` form must compile via normalize_js_regex_literal,
+        // same as the display-time regex_rule pipeline.
+        let scripts = vec![script(r"/<hp>(\d+)<\/hp>/gsi", "hp=$1")];
+        let conv = try_convert_status_panel(&scripts).expect("js-literal pattern must still convert");
+        assert_eq!(conv.html, "hp={{field1}}");
+    }
+
+    #[test]
+    fn try_convert_status_panel_out_of_range_dollar_is_not_a_candidate_signal() {
+        // 1 capture group, but replaceString only references $10 (out of range) ->
+        // not a valid candidate (no in-range $N at all).
+        let scripts = vec![script(r"<a>(.*)</a>", "$10 literally")];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_ignores_uncompilable_findregex() {
+        // An unbalanced paren never compiles -> excluded from candidates
+        // entirely (not an error, not a panic).
+        let scripts = vec![script(r"<a>(.*", "$1")];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_repeated_dollar_n_yields_one_variable() {
+        let scripts = vec![script(r"<hp>(\d+)</hp>", "now: $1, again: $1")];
+        let conv = try_convert_status_panel(&scripts).unwrap();
+        assert_eq!(conv.html, "now: {{field1}}, again: {{field1}}");
+        assert_eq!(conv.var_decls.len(), 1);
+        assert_eq!(conv.var_decls[0].name, "field1");
     }
 
     #[test]
