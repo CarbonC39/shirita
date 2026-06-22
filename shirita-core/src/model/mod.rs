@@ -81,6 +81,43 @@ pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
     Ok(Delta::None)
 }
 
+/// 把网络分片字节流安全地解码为 UTF-8：跨分片被截断的多字节字符不会被
+/// 当场替换成 U+FFFD，而是留在 `pending` 里等下一片字节补全后再解码。
+/// 真正非法的字节序列才会被替换并跳过（不会无限堆积在 `pending` 里）。
+pub fn decode_utf8_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    pending.extend_from_slice(chunk);
+    let mut out = String::new();
+    loop {
+        match std::str::from_utf8(pending) {
+            Ok(s) => {
+                out.push_str(s);
+                pending.clear();
+                break;
+            }
+            Err(e) => {
+                let valid_up_to = e.valid_up_to();
+                out.push_str(std::str::from_utf8(&pending[..valid_up_to]).expect("valid_up_to guarantees this prefix is valid UTF-8"));
+                match e.error_len() {
+                    Some(bad_len) => {
+                        // A genuinely invalid byte sequence (not just a
+                        // chunk boundary mid-character) — replace and skip
+                        // past it, then keep decoding the remainder.
+                        out.push('\u{FFFD}');
+                        pending.drain(..valid_up_to + bad_len);
+                    }
+                    None => {
+                        // Trailing bytes are an incomplete sequence; hold
+                        // them for the next chunk and stop for now.
+                        pending.drain(..valid_up_to);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
 /// 把一个 `Delta` 渲染成要 yield 的文本增量，沿用既有的 `<think>…</think>` 前端折叠约定
 /// （见 `shirita-ui/src/utils/thinking.ts`），在推理段与正文段切换时补上开/闭标签。
 /// `in_reasoning` 在调用间持有状态（每个流一个），纯函数便于单测。
@@ -161,5 +198,35 @@ mod tests {
     fn render_delta_none_yields_nothing() {
         let mut in_reasoning = false;
         assert_eq!(render_delta(&mut in_reasoning, Delta::None), None);
+    }
+
+    #[test]
+    fn decode_utf8_chunk_handles_whole_chunks() {
+        let mut pending = Vec::new();
+        assert_eq!(decode_utf8_chunk(&mut pending, "hello".as_bytes()), "hello");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn decode_utf8_chunk_reassembles_a_multibyte_char_split_across_chunks() {
+        // "café" — 'é' is the 2-byte sequence 0xC3 0xA9. Split it down the middle.
+        let bytes = "café".as_bytes();
+        let (first, second) = bytes.split_at(bytes.len() - 1);
+        let mut pending = Vec::new();
+        let out1 = decode_utf8_chunk(&mut pending, first);
+        assert_eq!(out1, "caf", "incomplete trailing byte must not be lossily replaced yet");
+        assert_eq!(pending, vec![0xC3], "the lone lead byte stays buffered");
+        let out2 = decode_utf8_chunk(&mut pending, second);
+        assert_eq!(out2, "é");
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn decode_utf8_chunk_replaces_genuinely_invalid_bytes() {
+        let mut pending = Vec::new();
+        // 0xFF is never valid in UTF-8 on its own.
+        let out = decode_utf8_chunk(&mut pending, &[b'a', 0xFF, b'b']);
+        assert_eq!(out, "a\u{FFFD}b");
+        assert!(pending.is_empty());
     }
 }

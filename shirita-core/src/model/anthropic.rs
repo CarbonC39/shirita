@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::models::message::Role;
 use crate::{Error, Result};
 
-use super::{ChatMessage, ChatRequest, ModelProvider};
+use super::{decode_utf8_chunk, ChatMessage, ChatRequest, ModelProvider};
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -154,6 +154,7 @@ impl ModelProvider for AnthropicProvider {
         let mut bytes = resp.bytes_stream();
         let stream = async_stream::stream! {
             let mut buf = String::new();
+            let mut pending_bytes = Vec::new();
             // extended thinking 块用独立的 content_block_start/_delta 事件流式吐出；
             // 折进既有的 <think>…</think> 前端约定（见 thinking.ts），下一个文本块开始时补闭合标签。
             let mut in_thinking = false;
@@ -162,7 +163,8 @@ impl ModelProvider for AnthropicProvider {
                     Ok(c) => c,
                     Err(e) => { yield Err(Error::Config(format!("stream error: {e}"))); return; }
                 };
-                buf.push_str(&String::from_utf8_lossy(&chunk));
+                // 多字节字符可能正好被切在两个 chunk 边界之间；见 model/mod.rs::decode_utf8_chunk。
+                buf.push_str(&decode_utf8_chunk(&mut pending_bytes, &chunk));
                 while let Some(pos) = buf.find('\n') {
                     let line = buf[..pos].trim_end_matches('\r').to_string();
                     buf.drain(..=pos);
