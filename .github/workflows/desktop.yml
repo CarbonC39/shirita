@@ -73,14 +73,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: shirita-*
+          path: release-artifacts
 
-      - name: Flatten artifacts for release
+      - name: Flatten for release
         run: |
-          mkdir -p release-artifacts
-          find . -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.msi" \) -exec cp {} release-artifacts/ \;
+          mkdir -p upload
+          find release-artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.msi" \) -exec cp {} upload/ \;
+          ls -la upload/
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: release-artifacts/*
+          files: upload/*
           generate_release_notes: true
