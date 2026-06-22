@@ -324,16 +324,30 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     }
 
     // --- non-rendering root refs: regex_scripts + first_message ---
-    if let Some(scripts) = data
+    let empty_scripts: Vec<serde_json::Value> = Vec::new();
+    let scripts: &[serde_json::Value] = data
         .get("extensions")
         .and_then(|e| e.get("regex_scripts"))
         .and_then(|v| v.as_array())
-    {
-        for s in scripts {
-            let d = regex_rule_def(s);
-            nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
-            defs.push(d);
+        .unwrap_or(&empty_scripts);
+    // Detect the common single-regex/$N-template status-bar pattern (see the
+    // 2026-06-22 design spec). Ambiguous or absent -> None, and nothing about
+    // the regex_rule Definitions below changes.
+    let panel_conversion = try_convert_status_panel(scripts);
+    for (index, s) in scripts.iter().enumerate() {
+        let mut d = regex_rule_def(s);
+        if let Some(conv) = &panel_conversion {
+            if conv.source_index == index {
+                if let Some(obj) = d.meta.as_object_mut() {
+                    obj.insert(
+                        "capture_vars".to_string(),
+                        serde_json::to_value(&conv.capture_vars).unwrap(),
+                    );
+                }
+            }
         }
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+        defs.push(d);
     }
     let first = nonempty(data, "first_mes");
     let alts: Vec<String> = data
@@ -369,10 +383,25 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
         }
     }
 
-    // --- register the card's default chat variables, if any ---
-    let vardecls = tavern_helper_vardecls(data);
+    // --- register the card's default chat variables, plus any converted
+    // status-bar fields, plus the converted panel itself ---
+    let mut vardecls = tavern_helper_vardecls(data);
+    if let Some(conv) = &panel_conversion {
+        for vd in &conv.var_decls {
+            if !vardecls.iter().any(|existing| existing.name == vd.name) {
+                vardecls.push(vd.clone());
+            }
+        }
+    }
+    let mut meta = serde_json::Map::new();
     if !vardecls.is_empty() {
-        tmpl.meta = serde_json::json!({ "variables": vardecls });
+        meta.insert("variables".to_string(), serde_json::to_value(&vardecls).unwrap());
+    }
+    if let Some(conv) = &panel_conversion {
+        meta.insert("panel".to_string(), serde_json::json!({ "html": conv.html, "css": conv.css }));
+    }
+    if !meta.is_empty() {
+        tmpl.meta = serde_json::Value::Object(meta);
     }
 
     LoreSet { template: tmpl, definitions: defs, nodes }
@@ -704,5 +733,68 @@ mod tests {
         let s = charcard_to_loreset(&card);
         assert_eq!(s.definitions.len(), 1); // only the char(description)
         assert_eq!(s.definitions[0].def_type, "char");
+    }
+
+    #[test]
+    fn charcard_to_loreset_populates_panel_for_unambiguous_status_bar() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc",
+                "extensions": { "regex_scripts": [
+                    { "scriptName": "status", "findRegex": "<hp>(\\d+)</hp>",
+                      "replaceString": "HP: $1", "disabled": false, "markdownOnly": true }
+                ] }
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        assert_eq!(ls.template.meta["panel"]["html"], "HP: {{field1}}");
+        let vars = ls.template.meta["variables"].as_array().unwrap();
+        assert!(vars.iter().any(|v| v["name"] == "field1" && v["type"] == "string"));
+
+        let rule = ls.definitions.iter().find(|d| d.def_type == "regex_rule").unwrap();
+        assert_eq!(rule.meta["capture_vars"], serde_json::json!(["field1"]));
+        // the compatibility-layer fields are untouched.
+        assert_eq!(rule.meta["pattern"], "<hp>(\\d+)</hp>");
+        assert_eq!(rule.meta["replacement"], "HP: $1");
+    }
+
+    #[test]
+    fn charcard_to_loreset_omits_panel_when_no_status_bar_detected() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc",
+                "extensions": { "regex_scripts": [
+                    { "scriptName": "r1", "findRegex": "a", "replaceString": "b", "disabled": false }
+                ] }
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        assert!(ls.template.meta.get("panel").is_none());
+        let rule = ls.definitions.iter().find(|d| d.def_type == "regex_rule").unwrap();
+        assert!(rule.meta.get("capture_vars").is_none());
+    }
+
+    #[test]
+    fn charcard_to_loreset_merges_converted_vars_with_tavern_helper_vars_without_duplicates() {
+        let card = serde_json::json!({
+            "data": {
+                "name": "Neo", "description": "desc",
+                "extensions": {
+                    "regex_scripts": [
+                        { "scriptName": "status", "findRegex": "<hp>(\\d+)</hp>",
+                          "replaceString": "HP: $1", "disabled": false, "markdownOnly": true }
+                    ],
+                    "tavern_helper": { "variables": { "field1": "already declared", "mood": "calm" } }
+                }
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        let vars = ls.template.meta["variables"].as_array().unwrap();
+        let field1_count = vars.iter().filter(|v| v["name"] == "field1").count();
+        assert_eq!(field1_count, 1, "must not declare field1 twice");
+        // the tavern_helper declaration (a string type) wins since it was added first and
+        // the converter skips names that already exist.
+        assert_eq!(vars.iter().find(|v| v["name"] == "field1").unwrap()["initial"], "already declared");
+        assert!(vars.iter().any(|v| v["name"] == "mood"));
     }
 }
