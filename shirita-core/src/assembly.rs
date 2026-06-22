@@ -7,6 +7,7 @@ use crate::model::ChatMessage;
 use crate::models::definition::Definition;
 use crate::models::message::Role;
 use crate::models::prompt_node::{NodeKind, PromptNode};
+use crate::state::{Action, Update};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerMode {
@@ -308,6 +309,34 @@ pub fn apply_regex_rules_for(
 /// AI 输出、显示侧的便捷封装（沿用旧调用点的语义）。
 pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
     apply_regex_rules_for(text, rules, RegexTarget::AiOutput, RegexPhase::Display)
+}
+
+/// Pull values for a converted status-bar panel's variables out of one AI
+/// turn's raw text, using the same `pattern` that also drives the
+/// compatibility-layer display replace in `apply_regex_rules_for` — but
+/// read-only (`captures`, never `replace_all`): this never touches what's
+/// shown to the user, only extracts values to fold into the session's
+/// persistent variable state via the same `apply_updates` call already used
+/// for `<state_update>` tags. Only rules carrying `meta.capture_vars`
+/// (written by `adapters::charcard::try_convert_status_panel`) participate;
+/// every other regex_rule is untouched and contributes nothing here.
+pub fn capture_panel_updates(text: &str, rules: &[Definition]) -> Vec<Update> {
+    let mut out = Vec::new();
+    for rule in rules {
+        let Some(capture_vars) = rule.meta.get("capture_vars").and_then(|v| v.as_array()) else {
+            continue;
+        };
+        let Some(pattern) = rule.meta.get("pattern").and_then(|v| v.as_str()) else { continue };
+        let Ok(re) = fancy_regex::Regex::new(&normalize_js_regex_literal(pattern)) else { continue };
+        let Ok(Some(caps)) = re.captures(text) else { continue };
+        for (i, name) in capture_vars.iter().enumerate() {
+            let Some(name) = name.as_str() else { continue }; // null slot -> no variable for this group
+            if let Some(m) = caps.get(i + 1) {
+                out.push(Update { action: Action::Set, key: name.to_string(), value: Some(m.as_str().to_string()) });
+            }
+        }
+    }
+    out
 }
 
 /// 段落落点：历史消息节点之前 / 之后。
@@ -931,6 +960,47 @@ mod tests {
             Some("ab")
         );
         assert_eq!(apply_regex_rules("abc", &[]), None);
+    }
+
+    #[test]
+    fn capture_panel_updates_extracts_named_groups_into_set_updates() {
+        let mut r = def("regex_rule", "status", "");
+        r.meta = json!({
+            "pattern": "<hp>(\\d+)</hp> <mood>(\\w+)</mood>",
+            "replacement": "HP: $1 ($2)",
+            "capture_vars": ["hp", "mood"]
+        });
+        let updates = capture_panel_updates("text <hp>42</hp> <mood>calm</mood> more", &[r]);
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0], Update { action: Action::Set, key: "hp".to_string(), value: Some("42".to_string()) });
+        assert_eq!(updates[1], Update { action: Action::Set, key: "mood".to_string(), value: Some("calm".to_string()) });
+    }
+
+    #[test]
+    fn capture_panel_updates_skips_rules_without_capture_vars() {
+        let mut r = def("regex_rule", "plain", "");
+        r.meta = json!({ "pattern": "x", "replacement": "y" }); // no capture_vars -> not a panel-sync rule
+        assert_eq!(capture_panel_updates("x", &[r]), Vec::new());
+    }
+
+    #[test]
+    fn capture_panel_updates_no_match_yields_no_updates() {
+        let mut r = def("regex_rule", "status", "");
+        r.meta = json!({ "pattern": "<hp>(\\d+)</hp>", "replacement": "$1", "capture_vars": ["hp"] });
+        assert_eq!(capture_panel_updates("no tags here", &[r]), Vec::new());
+    }
+
+    #[test]
+    fn capture_panel_updates_honors_null_slots_in_capture_vars() {
+        // group 1 has no associated variable (out-of-range $N case from Task 3) -> skipped.
+        let mut r = def("regex_rule", "status", "");
+        r.meta = json!({
+            "pattern": "<a>(.)</a><b>(.)</b>",
+            "replacement": "$2",
+            "capture_vars": [null, "field2"]
+        });
+        let updates = capture_panel_updates("<a>X</a><b>Y</b>", &[r]);
+        assert_eq!(updates, vec![Update { action: Action::Set, key: "field2".to_string(), value: Some("Y".to_string()) }]);
     }
 
     #[test]
