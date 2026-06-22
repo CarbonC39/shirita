@@ -1,0 +1,60 @@
+name: web-build
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            bin: target/x86_64-unknown-linux-musl/release/shirita-web
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            bin: target/aarch64-apple-darwin/release/shirita-web
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: target/x86_64-pc-windows-msvc/release/shirita-web.exe
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install musl tools (Linux static build)
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: shirita-ui
+
+      - name: Build frontend (embedded into the binary)
+        run: npm run build
+        working-directory: shirita-ui
+
+      - name: Build web binary (embed-ui, static on Linux)
+        run: cargo build --release -p shirita-web --features embed-ui --target ${{ matrix.target }}
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: shirita-web-${{ matrix.platform }}
+          path: ${{ matrix.bin }}
+          if-no-files-found: error
