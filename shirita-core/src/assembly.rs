@@ -388,7 +388,13 @@ pub fn sanitize_tag(name: &str) -> String {
         }
         out.push(ch);
     }
-    out
+    // Guarantee a valid XML name start: a non-empty name that starts with a
+    // digit/punctuation is prefixed; empty stays empty (callers fall back to def_type).
+    match out.chars().next() {
+        Some(c) if c.is_alphabetic() || c == '_' => out,
+        Some(_) => format!("tag_{out}"),
+        None => out,
+    }
 }
 
 /// 若 `wrap_in_tag` 开着，用其 `sanitize_tag(name)`（空则兜底 def_type）包裹内容。节点级
@@ -803,6 +809,14 @@ mod tests {
     #[test]
     fn sanitize_tag_empty_when_all_stripped() {
         assert_eq!(sanitize_tag("<>&\"'/"), "");
+    }
+
+    #[test]
+    fn sanitize_tag_prefixes_invalid_xml_start() {
+        assert_eq!(sanitize_tag("123 核心"), "tag_123_核心"); // digit start -> prefixed
+        assert_eq!(sanitize_tag("Alice Smith"), "Alice_Smith"); // letter start -> unchanged
+        assert_eq!(sanitize_tag("主角·凛"), "主角·凛"); // CJK letter start -> unchanged
+        assert_eq!(sanitize_tag("<>&\"'/"), ""); // all stripped -> empty (caller falls back)
     }
 
     fn plain_ref_node() -> PromptNode {
