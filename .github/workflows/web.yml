@@ -56,12 +56,22 @@ jobs:
       - name: Build web binary (embed-ui, static on Linux)
         run: cargo build --release -p shirita-web --features embed-ui --target ${{ matrix.target }}
 
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
+      - name: Upload binary (platform-named)
+        shell: bash
+        run: |
+          mkdir -p upload
+          exe="${{ matrix.bin }}"
+          base="shirita-web-${{ matrix.platform }}"
+          case "${{ matrix.platform }}" in
+            windows-latest) base="$base.exe" ;;
+          esac
+          cp "$exe" "upload/$base"
+        # 先把二进制命名为带平台的唯一名，避免后续 release job 跨平台路径问题。
+
+      - uses: actions/upload-artifact@v4
         with:
-          name: shirita-web-${{ matrix.platform }}
-          path: ${{ matrix.bin }}
-          if-no-files-found: error
+          name: shirita-web-binary-${{ matrix.platform }}
+          path: upload/*
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -70,13 +80,17 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: shirita-web-*
+          pattern: shirita-web-binary-*
+          path: release-artifacts
+
+      - name: Flatten for release
+        run: |
+          mkdir -p upload
+          find release-artifacts -type f -exec cp {} upload/ \;
+          ls -la upload/
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          files: |
-            shirita-web-ubuntu-latest/shirita-web
-            shirita-web-macos-latest/shirita-web
-            shirita-web-windows-latest/shirita-web.exe
+          files: upload/*
           generate_release_notes: true
