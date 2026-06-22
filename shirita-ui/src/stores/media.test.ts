@@ -18,4 +18,20 @@ describe('media store by kind', () => {
     expect(m.byKind('avatar').map((a) => a.id)).toEqual(['a'])
     expect(m.byKind('background').map((a) => a.id)).toEqual(['b'])
   })
+
+  it('invalidate forces the next load to refetch (picks up assets created server-side)', async () => {
+    const list = vi.spyOn(client, 'listAssets').mockResolvedValue([])
+    const m = useMediaStore()
+    await m.load('avatar')
+    expect(list).toHaveBeenCalledTimes(1)
+
+    await m.load('avatar') // cached — no second fetch
+    expect(list).toHaveBeenCalledTimes(1)
+
+    m.invalidate('avatar')
+    list.mockResolvedValue([{ id: 'x', name: 'n', path: 'x.png', url: '/assets/x.png', kind: 'avatar' }])
+    await m.load('avatar')
+    expect(list).toHaveBeenCalledTimes(2)
+    expect(m.byKind('avatar').map((a) => a.id)).toEqual(['x'])
+  })
 })

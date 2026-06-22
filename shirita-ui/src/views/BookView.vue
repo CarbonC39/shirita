@@ -4,6 +4,7 @@ import { useI18n } from "vue-i18n";
 import { Check, Pencil, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
+import { useMediaStore } from "../stores/media";
 import { estimateTokens, formatTokens } from "../utils/tokens";
 import {
     listNodes,
@@ -49,6 +50,7 @@ import PackEditor from "../components/PackEditor.vue";
 const { t: tr } = useI18n();
 const library = useLibraryStore();
 const ui = useUiStore();
+const media = useMediaStore();
 const loading = ref(true);
 const error = ref<string | null>(null);
 const selectedTemplateId = ref<string | null>(null);
@@ -85,6 +87,10 @@ async function runImport(file: File, onConflict: OnConflict) {
         importSummary.value = await importFile(file, onConflict);
         pendingImportFile.value = importSummary.value.skipped.length > 0 ? file : null;
         await library.loadAll();
+        // Character-card import can write a new avatar Asset server-side
+        // (bypassing media.upload), so the picker's cached list must be
+        // dropped or the new avatar never shows up in the gallery.
+        media.invalidate("avatar");
         // Jump straight to the newly imported pack/template instead of leaving
         // the editor on whatever was selected before — otherwise the import
         // looks like it did nothing until the user manually finds it in the

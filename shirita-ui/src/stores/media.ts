@@ -17,6 +17,13 @@ export const useMediaStore = defineStore('media', () => {
     catch (e) { error.value = (e as Error).message }
   }
 
+  // Drop the cached flag for a kind so the next `load()` actually refetches.
+  // Needed after server-side flows that create Asset rows without going
+  // through `upload()` (e.g. character-card import writes an avatar Asset
+  // directly) — otherwise a picker opened earlier in the session keeps
+  // showing its stale snapshot and the new asset never appears.
+  function invalidate(kind: 'avatar' | 'background') { loaded.value[kind] = false }
+
   async function upload(file: File, kind: 'avatar' | 'background' = 'background'): Promise<Asset | null> {
     try { const a = await uploadAsset(file, kind); assets.value[kind] = [a, ...byKind(kind)]; return a }
     catch (e) { error.value = (e as Error).message; return null }
@@ -35,5 +42,5 @@ export const useMediaStore = defineStore('media', () => {
     catch (e) { error.value = (e as Error).message }
   }
 
-  return { assets, loaded, error, byKind, load, upload, rename, remove }
+  return { assets, loaded, error, byKind, load, invalidate, upload, rename, remove }
 })
