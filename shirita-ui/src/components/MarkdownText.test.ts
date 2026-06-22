@@ -49,7 +49,9 @@ describe('MarkdownText', () => {
     const frame = w.find('iframe')
     expect(frame.exists()).toBe(true)
     expect(frame.attributes('sandbox')).toBe('allow-scripts')
-    expect(frame.attributes('srcdoc')).toBe(html)
+    // The frame prepends a theme-color base <style> (so cards without their own
+    // background don't default to browser white); the original markup follows verbatim.
+    expect(frame.attributes('srcdoc')).toContain(html)
   })
 
   it('renders a fenced HTML document in a sandboxed iframe, not a <pre>', () => {
