@@ -211,7 +211,7 @@ pub fn strip_comments(input: &str) -> String {
 /// and translate supported flags into fancy-regex's inline `(?ismx)` syntax
 /// so both forms compile to the same regex (`g` has no inline equivalent —
 /// `replace_all` is already "replace every match").
-fn normalize_js_regex_literal(pattern: &str) -> String {
+pub(crate) fn normalize_js_regex_literal(pattern: &str) -> String {
     let bytes = pattern.as_bytes();
     if bytes.len() < 2 || bytes[0] != b'/' {
         return pattern.to_string();
