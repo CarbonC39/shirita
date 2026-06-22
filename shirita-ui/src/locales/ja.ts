@@ -128,7 +128,7 @@ const ja: MessageSchema = {
     importConflictFound: '{skipped} 件は既存の項目と名前が同じためスキップされました。上書きしますか？',
     conflictOverwrite: '上書き',
     conflictDuplicate: '複製',
-    importTitle: 'カード / ワールド / テンプレート / パックをインポート（.png, .json, .zip）',
+    importTitle: 'カード / ワールド / プリセット / テンプレート / パックをインポート（.png, .json, .zip）',
     exportTemplateTitle: 'テンプレートをエクスポート（有効な部分）',
     exportPackTitle: 'パックをエクスポート（.zip / .json）',
     importSummary: 'インポート完了：新規 {created} 件、スキップ {skipped} 件、上書き {overwritten} 件。',
