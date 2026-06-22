@@ -290,15 +290,24 @@ async fn persist_defs(
 }
 
 /// 把整张 PNG 存进 assets 目录并登记 Asset，返回存储文件名（写入定义 meta.avatar）。
+/// Hash-deduped like `persist_pack_bundle`'s asset restore: re-importing the
+/// same card (e.g. a retried or repeated upload) reuses the existing row
+/// instead of writing a fresh duplicate file + Asset each time.
 async fn save_png_asset(state: &AppState, bytes: &[u8], display: &str) -> Result<String, StatusCode> {
     use std::path::Path as FsPath;
+    let hash = shirita_core::sha256_hex(bytes);
+    if let Some(existing) =
+        state.storage.find_asset_by_hash(&hash).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Ok(existing.path);
+    }
     let stored = format!("{}.png", uuid::Uuid::new_v4());
     let path = FsPath::new(&state.config.assets_dir).join(&stored);
     tokio::fs::create_dir_all(&state.config.assets_dir).await.ok();
     tokio::fs::write(&path, bytes).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut asset = shirita_core::Asset::new(display, stored.clone());
     asset.kind = "avatar".into(); // character-card PNGs are avatars
-    asset.hash = Some(shirita_core::sha256_hex(bytes));
+    asset.hash = Some(hash);
     state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(stored)
 }
@@ -335,12 +344,17 @@ fn with_avatar(mut ls: LoreSet, avatar: Option<&str>) -> LoreSet {
 /// Persist a charcard-derived [`LoreSet`] as a [`Pack`] — the format actually
 /// designed to hold one self-contained piece of imported character content
 /// (a node tree owned directly by the pack, plus a bound identity), instead
-/// of a bare `Template`. Definitions are deduped by name+def_type per
-/// `on_conflict` (same dedup rule the old Template-based persist used); the
-/// node tree and the new pack row are then created via the same atomic
-/// `import_pack` path the
-/// `shirita.pack` bundle importer uses (no new assets here — the avatar, if
-/// any, was already saved by the caller).
+/// of a bare `Template`. Definitions are always created **fresh** (no
+/// name+def_type dedup) — like `persist_preset` already does, and like
+/// `persist_pack_bundle` does for bundle defs — because a card's field names
+/// (the character's display name, an ST regex script's `scriptName`, …) are
+/// not globally unique across unrelated cards; deduping by name would let one
+/// card's content (e.g. its avatar-bearing `char` def, or a `regex_rule`)
+/// silently get skipped/overwritten in favor of an unrelated card's, instead
+/// of staying self-contained to this pack. The node tree and the new pack row
+/// are then created via the same atomic `import_pack` path the `shirita.pack`
+/// bundle importer uses (no new assets here — the avatar, if any, was already
+/// saved by the caller).
 async fn persist_loreset_as_pack(
     state: &AppState,
     ls: LoreSet,
@@ -360,36 +374,8 @@ async fn persist_loreset_as_pack(
 
     let (pack, defs, mut nodes) = loreset_to_pack(ls, avatar);
 
-    let existing = state.storage.list_definitions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut idmap: HashMap<String, String> = HashMap::new();
-    let mut out_defs: Vec<Definition> = Vec::new();
-    for mut d in defs {
-        let orig_id = d.id.clone();
-        let dup = existing.iter().find(|e| e.name == d.name && e.def_type == d.def_type).cloned();
-        match (dup, oc) {
-            (Some(ex), OnConflict::Skip) => {
-                idmap.insert(orig_id, ex.id.clone());
-                summary.skipped.push(item("definition", &ex.id, &ex.name));
-            }
-            (Some(ex), OnConflict::Overwrite) => {
-                d.id = ex.id.clone();
-                state.storage.update_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                idmap.insert(orig_id, d.id.clone());
-                summary.overwritten.push(item("definition", &d.id, &d.name));
-            }
-            (_, OnConflict::Duplicate) | (None, _) => {
-                idmap.insert(orig_id, d.id.clone());
-                summary.created.push(item("definition", &d.id, &d.name));
-                out_defs.push(d);
-            }
-        }
-    }
-    // Remap ref definition_ids to the actually-stored ids (skipped/overwritten
-    // defs reuse an existing id instead of being re-inserted).
-    for n in &mut nodes {
-        if let Some(did) = n.definition_id.as_ref().and_then(|id| idmap.get(id)).cloned() {
-            n.definition_id = Some(did);
-        }
+    for d in &defs {
+        summary.created.push(item("definition", &d.id, &d.name));
     }
     // Container nodes (folder/history) before refs — import_pack requires
     // parent-before-child order for the self-referential FK.
@@ -397,7 +383,7 @@ async fn persist_loreset_as_pack(
 
     state
         .storage
-        .import_pack(&pack, &out_defs, &nodes, &[])
+        .import_pack(&pack, &defs, &nodes, &[])
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     summary.created.push(item("pack", &pack.id, &pack.name));
@@ -423,17 +409,16 @@ async fn persist_preset(
             return Ok(());
         }
     }
-    state.storage.create_template(&ls.template).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    for d in &ls.definitions {
-        state.storage.create_definition(d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
-    // Container nodes (history/content) before refs, mirroring persist_loreset's
+    // Container nodes (history/content) before refs, mirroring import_pack's
     // self-referential-FK ordering (preset refs are all roots, but keep it safe).
     let (containers, refs): (Vec<PromptNode>, Vec<PromptNode>) =
         ls.nodes.into_iter().partition(|n| n.kind != NodeKind::Ref);
-    for n in containers.into_iter().chain(refs) {
-        state.storage.create_node(&n).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+    let nodes: Vec<PromptNode> = containers.into_iter().chain(refs).collect();
+    state
+        .storage
+        .import_template(&ls.template, &ls.definitions, &nodes)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     summary.created.push(item("template", &ls.template.id, &ls.template.name));
     Ok(())
 }
@@ -552,18 +537,18 @@ async fn import_template_bundle(
         }
     }
 
-    // 1) 新建模板。
+    // 1) 新模板（与下面的定义、节点一起，在 import_template 单事务内原子落库）。
     let mut tmpl = Template::new(&name);
     tmpl.meta = meta;
-    state.storage.create_template(&tmpl).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     // 2) 新建定义，建 local_id -> 新定义 id 映射（bundle 内定义随模板原子新建，不按 name+type 去重）。
     let mut def_map: HashMap<String, String> = HashMap::new();
+    let mut out_defs: Vec<Definition> = Vec::new();
     for pd in &defs {
         let mut d = Definition::new(&pd.def_type, &pd.name, &pd.content);
         d.meta = pd.meta.clone();
-        state.storage.create_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         def_map.insert(pd.local_id.clone(), d.id.clone());
+        out_defs.push(d);
     }
 
     // 3) 预分配节点新 UUID（供 parent 重指）。
@@ -573,6 +558,7 @@ async fn import_template_bundle(
     // 拓扑插入：父必须先于子（parent_id REFERENCES prompt_nodes(id)）。bundle 节点顺序不保证父在前
     // （导出侧 list_nodes 在 sort_order 相等时排序不定），故按"父已插入"分层插入。
     let mut inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out_nodes: Vec<PromptNode> = Vec::new();
     let mut remaining: Vec<&shirita_core::PortableNode> = nodes.iter().collect();
     loop {
         let mut progressed = false;
@@ -600,7 +586,7 @@ async fn import_template_bundle(
                 },
                 _ => None,
             };
-            let node = PromptNode {
+            out_nodes.push(PromptNode {
                 id: node_map[&pn.local_id].clone(),
                 owner_kind: OwnerKind::Template,
                 owner_id: tmpl.id.clone(),
@@ -612,8 +598,7 @@ async fn import_template_bundle(
                 enabled: pn.enabled,
                 created_at: chrono::Utc::now().to_rfc3339(),
                 meta: pn.meta.clone(),
-            };
-            state.storage.create_node(&node).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            });
             inserted.insert(pn.local_id.clone());
             progressed = true;
         }
@@ -623,6 +608,13 @@ async fn import_template_bundle(
         }
     }
 
+    // 模板 + 定义 + 节点（已按父在前排好）一并原子落库：任一步失败整单回滚，
+    // 不再留下孤儿模板/定义行。
+    state
+        .storage
+        .import_template(&tmpl, &out_defs, &out_nodes)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     summary.created.push(item("template", &tmpl.id, &tmpl.name));
     Ok(())
 }

@@ -34,6 +34,7 @@ import {
     updatePack,
     deletePack,
     duplicatePack,
+    getOrphanDefinitionsForPack,
 } from "../api/client";
 import type { PromptNode, Definition, Trigger, Session, VarDecl, OnConflict, ImportSummary } from "../api/types";
 import { selectOneSiblingsToDisable } from "../utils/tree";
@@ -740,8 +741,14 @@ async function dupPack() {
 async function delPack() {
     if (!selectedPackId.value) return;
     if (!confirm(tr("book.deletePackConfirm"))) return;
-    try { await deletePack(selectedPackId.value); selectedPackId.value = null; await library.loadPacks(); }
-    catch (e) { error.value = (e as Error).message; }
+    try {
+        const orphans = await getOrphanDefinitionsForPack(selectedPackId.value);
+        const deleteOrphans =
+            orphans.length > 0 && confirm(tr("book.deleteTemplateOrphans", orphans.length));
+        await deletePack(selectedPackId.value, deleteOrphans);
+        selectedPackId.value = null;
+        await library.loadPacks();
+    } catch (e) { error.value = (e as Error).message; }
 }
 async function exportSelectedPack() {
     if (!selectedPack.value) return;
