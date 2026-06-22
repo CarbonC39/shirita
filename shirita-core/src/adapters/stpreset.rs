@@ -63,6 +63,59 @@ fn extract_variables(content: &str) -> (String, Vec<VarDecl>) {
     (out, decls)
 }
 
+/// (is_close, name) for each XML-ish tag. The name is the first token after
+/// `<`/`</`; attributes are ignored; self-closing `<x/>` is skipped.
+fn scan_tags(s: &str) -> Vec<(bool, String)> {
+    let re = regex::Regex::new(r"<\s*(/?)\s*([^\s<>/]+)[^<>]*?(/?)\s*>").unwrap();
+    re.captures_iter(s)
+        .filter(|c| &c[3] != "/") // skip self-closing
+        .map(|c| (&c[1] == "/", c[2].to_string()))
+        .collect()
+}
+
+/// Net open count per tag name (open +1, close -1); balanced entries removed.
+fn tag_balance(s: &str) -> std::collections::HashMap<String, i32> {
+    let mut bal: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    for (is_close, name) in scan_tags(s) {
+        *bal.entry(name).or_insert(0) += if is_close { -1 } else { 1 };
+    }
+    bal.retain(|_, v| *v != 0);
+    bal
+}
+
+fn is_balanced(s: &str) -> bool {
+    tag_balance(s).is_empty()
+}
+
+/// First cross-node span in a contiguous slice: the earliest element that
+/// leaves some tag T net-open, paired with the earliest later element that
+/// leaves T net-closed. Returns (opener_idx, closer_idx, tag).
+fn find_first_span(contents: &[String]) -> Option<(usize, usize, String)> {
+    for (i, c) in contents.iter().enumerate() {
+        let Some(tag) = tag_balance(c).into_iter().find(|(_, v)| *v > 0).map(|(t, _)| t) else {
+            continue;
+        };
+        for (j, c2) in contents.iter().enumerate().skip(i + 1) {
+            if tag_balance(c2).get(&tag).copied().unwrap_or(0) < 0 {
+                return Some((i, j, tag));
+            }
+        }
+    }
+    None
+}
+
+/// Remove the first `<tag …>` (any attributes) and trim.
+fn strip_open_tag(content: &str, tag: &str) -> String {
+    let re = regex::Regex::new(&format!(r"<\s*{}(?:\s[^<>]*)?\s*>", regex::escape(tag))).unwrap();
+    re.replacen(content, 1, "").trim().to_string()
+}
+
+/// Remove the first `</tag>` and trim.
+fn strip_close_tag(content: &str, tag: &str) -> String {
+    let re = regex::Regex::new(&format!(r"</\s*{}\s*>", regex::escape(tag))).unwrap();
+    re.replacen(content, 1, "").trim().to_string()
+}
+
 /// Translate an ST chat-completion preset into a loreset. `name` becomes the
 /// template name; pass the uploaded filename stem (or `""` for the unique
 /// fallback). Pure apart from generated UUIDs.
@@ -346,5 +399,30 @@ mod tests {
     fn extract_variables_keeps_unterminated_and_malformed_literal() {
         assert_eq!(extract_variables("x{{setvar::y").0, "x{{setvar::y");
         assert_eq!(extract_variables("x{{setvar::nosep}}y").0, "x{{setvar::nosep}}y");
+    }
+
+    #[test]
+    fn scan_tags_ignores_attributes_and_self_closing() {
+        assert_eq!(
+            scan_tags("<Rule depth=\"0\">x</Rule><br/><最新互动>"),
+            vec![(false, "Rule".to_string()), (true, "Rule".to_string()), (false, "最新互动".to_string())]
+        );
+        assert!(is_balanced("<a>x</a> plain"));
+        assert!(!is_balanced("<a>x"));
+        assert!(is_balanced("no tags here"));
+    }
+
+    #[test]
+    fn find_first_span_pairs_open_and_close() {
+        let c = vec!["<rules>foo".to_string(), "mid".to_string(), "bar</rules>".to_string()];
+        assert_eq!(find_first_span(&c), Some((0, 2, "rules".to_string())));
+        let none = vec!["<x>unclosed".to_string(), "plain".to_string()];
+        assert_eq!(find_first_span(&none), None);
+    }
+
+    #[test]
+    fn strip_tag_helpers_remove_first_occurrence() {
+        assert_eq!(strip_open_tag("<Rule depth=\"0\">body", "Rule"), "body");
+        assert_eq!(strip_close_tag("body</rules>", "rules"), "body");
     }
 }
