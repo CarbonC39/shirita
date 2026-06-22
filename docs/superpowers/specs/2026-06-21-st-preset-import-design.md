@@ -31,7 +31,7 @@ Walk group `character_id == 100000`, entries with `enabled == true`, in list ord
 **Dropped** (out of scope, lossy by design): sampler params; `injection_position == 1` / `injection_depth` (Shirita's preamble has no depth injection — these authored prompts are still imported as ordinary in-order Refs, their depth ignored); per-prompt `role` (everything folds into the system preamble); and every prompt not in the enabled order (~129 in the example).
 
 ### Name + edge cases
-- **Template name** = the uploaded filename stem (`示例预设.json` → `示例预设`); fallback `"Imported preset"` when the filename is absent/empty.
+- **Template name** = the uploaded filename stem (`示例预设.json` → `示例预设`); fallback `"Imported preset (xxxx)"` with a short random suffix (4 hex chars) when the filename is absent/empty, so two filename-less imports stay distinct instead of both becoming `"Imported preset"` and colliding under `on_conflict=skip`.
 - **No `chatHistory`** in the enabled order → append one `History` node at the end (a template needs a history mount to be usable).
 - **Empty/missing** group `100000`, or zero enabled entries → the adapter yields a template with no usable content; the web layer returns `400` (nothing to import) rather than creating an empty template.
 
@@ -45,11 +45,11 @@ Reuse the existing import chain — the same one char-card import already flows 
   ```
   Pure, deterministic, unit-testable. Builds `LoreSet { template, definitions, nodes }` per §3. Re-exported from `lib.rs` (`pub use adapters::stpreset::stpreset_to_loreset;`).
 
-- **Web:** in `routes::import_export::import`, the JSON sniff gains a preset arm. Detection is structural (no `format` field): **`prompts` is an array AND `prompt_order` is an array**. This arm runs in the existing `_ =>` fallback, checked **before** the char-card/worldinfo heuristics (a preset has neither `data.name` nor `entries`, so ordering is safe, but explicit is clearer). On match:
+- **Web:** in `routes::import_export::import`, the JSON sniff gains a preset arm. Detection is structural (no `format` field): **`prompts` is an array AND `prompt_order` is an array**. This arm runs in the existing `_ =>` fallback, checked **before** the char-card/worldinfo heuristics (a preset has neither `data.name` nor `entries`, so ordering is safe, but explicit is clearer). On match it persists via a dedicated `persist_preset` — **not** `persist_loreset`:
   ```rust
-  persist_loreset(&state, stpreset_to_loreset(&v, &name), oc, &mut summary).await?;
+  persist_preset(&state, stpreset_to_loreset(&v, &name), oc, &mut summary).await?;
   ```
-  `persist_loreset` already dedups definitions by name+def_type per `on_conflict`, creates the template, and inserts nodes topologically — no new persistence code.
+  **Why a new path, not `persist_loreset`:** `persist_loreset` dedups definitions by `name + def_type`. Preset prompts carry generic names (`main`, `nsfw`, `jailbreak`, `Custom Prompt`), so deduping across imports would make a later preset silently reuse — or, under `overwrite`, clobber — an earlier preset's text, breaking it. `persist_preset` therefore creates every preset definition **fresh** (new UUID, no name dedup), mirroring `import_template_bundle`'s self-contained-bundle semantics: create the template, create each `ls.definitions` entry as-is, then insert `ls.nodes` topologically (containers before refs; each node's `definition_id` already points at the fresh def UUID set by `stpreset_to_loreset`, so no id remap is needed). `on_conflict` still governs the **template** name (under `skip`, a same-name template short-circuits); definitions are always fresh.
 
 - **Filename threading:** `import` currently reads bytes via `first_field_bytes`, which drops the multipart filename. Replace that read at the preset path (or generally) so the first field's `file_name()` is captured alongside its bytes; pass the stem as `name`. PNG/other branches are unaffected (they ignore the name).
 
@@ -61,14 +61,16 @@ Reuse the existing import chain — the same one char-card import already flows 
   - two char/world markers → exactly one `Content` node (first wins);
   - an enabled order with no `chatHistory` → a `History` node appended at the end;
   - a disabled entry and an identifier missing from `prompts` are skipped;
-  - only group `100000` is read (a second group is ignored).
+  - only group `100000` is read (a second group is ignored);
+  - the fallback name (no/empty `name` arg) is `"Imported preset (xxxx)"` with a 4-hex-char suffix, and two calls yield distinct names.
 - **Web integration test** (`shirita-web/tests/`): POST the real `examples/示例预设.json` via multipart → `200`; the summary reports a created `template`; a few expected `prompt` definitions exist. Plus: a preset with an empty enabled order → `400`.
+- **Collision-independence test** (web, the bug the user flagged): import two different presets that each carry a `main` prompt with *different* content (distinct template names so neither short-circuits under `on_conflict`). Assert two independent `prompt` definitions named `main` now exist, each with its own content — the second import must **not** reuse or overwrite the first's text. Guards the `persist_preset` fresh-create semantics against a regression back to name-dedup.
 
 ## 6. Decomposition
 
 One plan, two tasks:
 - **Task 1 — core `stpreset_to_loreset` adapter** (TDD against §3/§5 unit tests).
-- **Task 2 — web sniff + filename threading + integration test** (wire into `import`, reuse `persist_loreset`, test against the real example file).
+- **Task 2 — web `persist_preset` + sniff + filename threading + integration tests**: add `persist_preset` (fresh defs, no name dedup — mirrors `import_template_bundle`; **not** `persist_loreset`), add the structural preset arm to the JSON sniff, capture the multipart filename stem as the template name, and test against the real example file plus the collision-independence case (§5).
 
 ## 7. Out of scope
 
