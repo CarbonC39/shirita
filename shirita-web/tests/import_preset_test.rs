@@ -62,10 +62,11 @@ async fn import_real_st_preset_creates_template_and_prompt_defs() {
     // template created, named after the filename stem
     let created = summary["created"].as_array().unwrap();
     assert!(created.iter().any(|c| c["kind"] == "template" && c["name"] == "示例预设"));
-    // the three enabled authored prompts (main + nsfw + jailbreak) became prompt defs
+    // Active-order prompts (main + nsfw + jailbreak) and any not-in-order library
+    // prompts all became prompt defs (v2: library items go into the inactive folder).
     let defs = state.storage.list_definitions().await.unwrap();
     let prompts: Vec<_> = defs.iter().filter(|d| d.def_type == "prompt").collect();
-    assert_eq!(prompts.len(), 3, "main + nsfw + jailbreak");
+    assert!(prompts.len() >= 3, "at least the active prompts have defs");
     assert!(prompts.iter().any(|d| d.name == "➡️扩写/转述输入"));
 }
 
