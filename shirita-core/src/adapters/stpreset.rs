@@ -8,6 +8,60 @@ use crate::adapters::charcard::LoreSet;
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::template::Template;
+use crate::state::{VarDecl, VarType};
+
+/// Type-infer an ST setvar value: f64-parseable -> Number, bool-parseable ->
+/// Bool, else String. Uses the standard parses (no hand-rolled numeric regex).
+fn infer_var(value: &str) -> (VarType, serde_json::Value) {
+    if let Ok(n) = value.parse::<f64>() {
+        (VarType::Number, serde_json::json!(n))
+    } else if let Ok(b) = value.parse::<bool>() {
+        (VarType::Bool, serde_json::json!(b))
+    } else {
+        (VarType::String, serde_json::json!(value))
+    }
+}
+
+/// Strip `{{setvar::name::value}}` macros (collecting them as VarDecls in
+/// first-seen order) and rewrite `{{getvar::name}}` -> `{{name}}`. Any other
+/// `{{...}}` (e.g. `{{trim}}`, `{{// comment}}`, `{{user}}`) is kept literal.
+/// Linear scan; nested macros inside a value are not parsed (first `}}` wins).
+fn extract_variables(content: &str) -> (String, Vec<VarDecl>) {
+    let mut out = String::with_capacity(content.len());
+    let mut decls: Vec<VarDecl> = Vec::new();
+    let mut rest = content;
+    while let Some(pos) = rest.find("{{") {
+        out.push_str(&rest[..pos]);
+        let after = &rest[pos + 2..];
+        let Some(end) = after.find("}}") else {
+            out.push_str(&rest[pos..]); // unterminated -> keep literal, stop
+            return (out, decls);
+        };
+        let inner = &after[..end];
+        let literal = &rest[pos..pos + 2 + end + 2]; // the whole {{...}}
+        if let Some(body) = inner.strip_prefix("setvar::") {
+            if let Some((name, value)) = body.split_once("::") {
+                let name = name.trim();
+                if !name.is_empty() {
+                    let (var_type, initial) = infer_var(value);
+                    decls.push(VarDecl { name: name.to_string(), var_type, initial, scope: None });
+                }
+                // strip entirely (emit nothing)
+            } else {
+                out.push_str(literal); // malformed setvar -> keep literal
+            }
+        } else if let Some(name) = inner.strip_prefix("getvar::") {
+            out.push_str("{{");
+            out.push_str(name.trim());
+            out.push_str("}}");
+        } else {
+            out.push_str(literal); // not a var macro -> keep literal
+        }
+        rest = &rest[pos + 2 + end + 2..];
+    }
+    out.push_str(rest);
+    (out, decls)
+}
 
 /// Translate an ST chat-completion preset into a loreset. `name` becomes the
 /// template name; pass the uploaded filename stem (or `""` for the unique
@@ -262,5 +316,35 @@ mod tests {
         // empty preset: no defs, no content mount — just an appended history.
         assert!(a.definitions.is_empty());
         assert!(!a.nodes.iter().any(|n| n.kind == NodeKind::Content));
+    }
+
+    #[test]
+    fn extract_variables_handles_setvar_getvar_and_literals() {
+        let (clean, decls) = extract_variables(
+            "a{{setvar::hp::100}}b{{setvar::ok::true}}c{{setvar::note:: }}{{getvar::hp}}{{trim}}{{// c}}",
+        );
+        // setvar macros stripped; getvar rewritten; other macros kept literal
+        assert_eq!(clean, "abc{{hp}}{{trim}}{{// c}}");
+        assert_eq!(decls.len(), 3);
+        let by = |n: &str| decls.iter().find(|d| d.name == n).unwrap();
+        assert_eq!(by("hp").var_type, VarType::Number);
+        assert_eq!(by("hp").initial, serde_json::json!(100.0));
+        assert_eq!(by("ok").var_type, VarType::Bool);
+        assert_eq!(by("ok").initial, serde_json::json!(true));
+        assert_eq!(by("note").var_type, VarType::String);
+        assert_eq!(by("note").initial, serde_json::json!(" "));
+    }
+
+    #[test]
+    fn extract_variables_all_setvar_yields_empty_content() {
+        let (clean, decls) = extract_variables("{{setvar::a:: }}{{setvar::b::继续}}");
+        assert!(clean.trim().is_empty());
+        assert_eq!(decls.len(), 2);
+    }
+
+    #[test]
+    fn extract_variables_keeps_unterminated_and_malformed_literal() {
+        assert_eq!(extract_variables("x{{setvar::y").0, "x{{setvar::y");
+        assert_eq!(extract_variables("x{{setvar::nosep}}y").0, "x{{setvar::nosep}}y");
     }
 }
