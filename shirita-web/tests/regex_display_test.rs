@@ -87,3 +87,31 @@ async fn list_messages_applies_display_regex_at_read_time() {
     assert_eq!(m["display_content"], "a [redacted] b");
     assert_eq!(m["raw_content"], "a SECRET b", "raw row never mutated");
 }
+
+#[tokio::test]
+async fn list_messages_skips_rp_regex_on_a_fenced_html_card_document() {
+    // Bug: a real-world ST "HTML card" greeting is commonly the whole
+    // document wrapped in a ```/```html fence (sometimes with CRLF line
+    // endings), not starting with the doctype literally. The skip-check in
+    // list_messages used a doctype-prefix test that missed the fence, so an
+    // RP regex meant for prose (e.g. swapping "SECRET") could mangle markup
+    // inside the card instead of being skipped.
+    let state = test_state().await;
+    let session = Session::new("Chat");
+    state.storage.create_session(&session).await.unwrap();
+
+    let mut rule = Definition::new("regex_rule", "redact", "");
+    rule.meta = serde_json::json!({
+        "pattern": "SECRET", "replacement": "", "scope": "display", "targets": ["ai_output"]
+    });
+    state.storage.create_definition(&rule).await.unwrap();
+
+    let html = "```\r\n<!DOCTYPE html>\r\n<html><body>SECRET</body></html>\r\n```";
+    let msg = Message::new(&session.id, None, Role::Assistant, html);
+    state.storage.create_message(&msg).await.unwrap();
+
+    let out = messages(&state, &session.id).await;
+    let m = out.as_array().unwrap().iter().find(|m| m["role"] == "assistant").unwrap();
+    assert_eq!(m["raw_content"], html);
+    assert!(m["display_content"].is_null(), "skipped — left untouched rather than regex-mangled");
+}
