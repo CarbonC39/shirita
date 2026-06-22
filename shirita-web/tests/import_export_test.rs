@@ -68,7 +68,8 @@ async fn import_charcard_creates_char_and_book() {
     assert_eq!(st, StatusCode::OK);
     let parsed = json(&out);
     let created = parsed["created"].as_array().unwrap();
-    // char(description) + world(book entry) + template
+    // char(description) + world(book entry) + pack (not a bare template —
+    // Pack is the format designed to hold one self-contained imported card).
     assert_eq!(created.len(), 3);
-    assert!(created.iter().any(|c| c["kind"] == "template"));
+    assert!(created.iter().any(|c| c["kind"] == "pack"));
 }

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { Camera, User } from 'lucide-vue-next'
 import AssetPicker from './AssetPicker.vue'
+import { assetUrl } from '../api/client'
 
 const emit = defineEmits<{ select: [path: string | null] }>()
 
@@ -20,7 +21,7 @@ function onSelect(path: string) {
     <!-- avatar with persistent camera badge -->
     <button type="button" class="relative w-[92px] h-[92px] cursor-pointer" @click="toggle">
       <span class="block w-[92px] h-[92px] rounded-full bg-line/40 border border-line overflow-hidden grid place-items-center">
-        <img v-if="selectedPath" :src="`/assets/${selectedPath}`" class="w-full h-full object-cover" alt="" />
+        <img v-if="selectedPath" :src="assetUrl(selectedPath)" class="w-full h-full object-cover" alt="" />
         <User v-else :size="36" class="text-muted" :stroke-width="1.7" />
       </span>
       <span class="absolute right-0 bottom-0 w-7 h-7 rounded-full bg-primary border-[2.5px] border-surface grid place-items-center">

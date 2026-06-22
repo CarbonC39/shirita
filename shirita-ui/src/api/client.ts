@@ -22,6 +22,21 @@ function authHeaders(extra: Record<string, string> = {}): Record<string, string>
   return { Authorization: `Bearer ${TOKEN}`, ...extra }
 }
 
+// Build a displayable URL for a stored asset's relative path (e.g. `avatar.png`).
+// On the web build, BASE is '' and a host-relative `/assets/<rel>` resolves fine
+// against the page's own origin. In Tauri, the webview's page origin is
+// `tauri://localhost` (prod) or the dev server origin — neither of which is the
+// embedded Axum server's origin (`http://127.0.0.1:<port>`, injected as BASE via
+// `window.__SHIRITA_RUNTIME__`). A bare relative URL would resolve against the
+// wrong origin and fail to load ("Load failed" / broken image). Always prefix
+// with BASE so the request reaches the embedded server regardless of the page's
+// own origin.
+export function assetUrl(relativePath: string): string {
+  if (!relativePath) return ''
+  const rel = relativePath.startsWith('/') ? relativePath : `/assets/${relativePath}`
+  return `${BASE}${rel}`
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}/api${path}`, { headers: authHeaders() })
   if (!res.ok) {
@@ -398,8 +413,15 @@ export async function fetchProviderModels(): Promise<{ data?: Array<{ id: string
 // --- Media library (assets) ---
 export interface Asset { id: string; name: string; path: string; kind: string; url: string }
 
-export function listAssets(kind?: string): Promise<Asset[]> {
-  return apiGet<Asset[]>('/assets' + (kind ? '?kind=' + kind : ''))
+// The server returns `url` as a host-relative path (e.g. `/assets/<file>`); see
+// `assetUrl` above for why this must be rewritten against BASE for Tauri.
+function withAbsoluteUrl(a: Asset): Asset {
+  return BASE && a.url.startsWith('/') ? { ...a, url: `${BASE}${a.url}` } : a
+}
+
+export async function listAssets(kind?: string): Promise<Asset[]> {
+  const assets = await apiGet<Asset[]>('/assets' + (kind ? '?kind=' + kind : ''))
+  return assets.map(withAbsoluteUrl)
 }
 
 // Upload an image (or any file) to the library; returns the new asset record.
@@ -410,7 +432,7 @@ export async function uploadAsset(file: File, kind = 'background'): Promise<Asse
   const qs = kind ? `?kind=${kind}` : ''
   const res = await fetch(`${BASE}/api/assets${qs}`, { method: 'POST', headers: authHeaders(), body: form })
   if (!res.ok) throw new Error(`Asset upload failed: ${res.status}`)
-  return res.json()
+  return withAbsoluteUrl(await res.json())
 }
 
 export async function renameAsset(id: string, name: string): Promise<void> {

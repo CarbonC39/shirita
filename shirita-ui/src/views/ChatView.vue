@@ -6,7 +6,7 @@ import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
-import { getSessionState, getSessionIdentity, getSession, getPack, applyStateUpdates } from '../api/client'
+import { getSessionState, getSessionIdentity, getSession, getPack, applyStateUpdates, assetUrl } from '../api/client'
 import type { SessionState, Identity, Pack, Panel, PanelAction } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
@@ -89,11 +89,11 @@ const effectiveIdentity = computed<Identity>(() => {
 const headerName = computed(() => effectiveIdentity.value.assistant.name || t('chat.title'))
 const avatar = computed(() => {
   const a = effectiveIdentity.value.assistant.avatar
-  return a ? `/assets/${a}` : ''
+  return a ? assetUrl(a) : ''
 })
 const bg = computed(() => {
   const v = sessionState.value.values['$background']
-  return typeof v === 'string' && v ? `/assets/${v}` : ''
+  return typeof v === 'string' && v ? assetUrl(v) : ''
 })
 const bgStyle = computed(() => (bg.value ? { backgroundImage: `url(${bg.value})` } : {}))
 

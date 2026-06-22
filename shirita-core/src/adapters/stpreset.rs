@@ -144,11 +144,21 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
         .map(|a| a.iter().filter_map(|p| p.get("identifier").and_then(|i| i.as_str()).map(String::from)).collect())
         .unwrap_or_default();
 
-    // Active order (group 100000): (identifier, enabled) in list order.
+    // Active order: pick the prompt_order group with the most entries (the
+    // user-curated, character-specific order), not hardcoded character_id
+    // 100000 — that id is ST's empty default skeleton and is frequently a
+    // strict subset of the real order saved under another character_id.
+    // Ties (including the common single-group case) favor 100000.
     let order: Vec<(String, bool)> = preset
         .get("prompt_order")
         .and_then(|v| v.as_array())
-        .and_then(|gs| gs.iter().find(|g| g.get("character_id").and_then(|c| c.as_i64()) == Some(100000)))
+        .and_then(|gs| {
+            gs.iter().max_by_key(|g| {
+                let len = g.get("order").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0);
+                let is_default = g.get("character_id").and_then(|c| c.as_i64()) == Some(100000);
+                (len, is_default)
+            })
+        })
         .and_then(|g| g.get("order"))
         .and_then(|v| v.as_array())
         .map(|a| {
@@ -343,7 +353,10 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
         root_sort += 1;
     }
 
-    // --- Part A tail: not-in-order authored prompts -> one disabled `inactive` folder. ---
+    // --- Part A tail: not-in-order authored prompts -> one disabled `inactive`
+    //     folder. Reuses the same cross-entry tag-span detection as the active
+    //     order (Phase 2/3) so a multi-part tag spanning two prompts isn't
+    //     flattened into two broken, unwrapped halves. ---
     let inactive: Vec<(String, String)> = lib_ids
         .iter()
         .filter(|id| !is_marker(id))
@@ -361,10 +374,49 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
         folder.enabled = false;
         let fid = folder.id.clone();
         nodes.push(folder);
+        let contents: Vec<String> = inactive.iter().map(|(_, c)| c.clone()).collect();
+        let span = find_first_span(&contents);
         let mut cs: i64 = 0;
-        for (nm, content) in inactive {
-            let mut d = Definition::new("prompt", &nm, &content);
-            if is_balanced(&content) {
+        let mut i = 0;
+        while i < inactive.len() {
+            if let Some((s, t, tag)) = &span {
+                if i == *s {
+                    let mut sub =
+                        PromptNode::new_folder(OwnerKind::Template, &tmpl.id, Some(fid.clone()), cs, folder_tag(tag));
+                    sub.enabled = false;
+                    cs += 1;
+                    let sid = sub.id.clone();
+                    nodes.push(sub);
+                    let mut child_sort: i64 = 0;
+                    for ei in *s..=*t {
+                        let (nm, content) = &inactive[ei];
+                        let mut content = content.clone();
+                        if ei == *s {
+                            content = strip_open_tag(&content, tag);
+                        }
+                        if ei == *t {
+                            content = strip_close_tag(&content, tag);
+                        }
+                        let d = Definition::new("prompt", nm, content);
+                        let mut r = PromptNode::new_ref(
+                            OwnerKind::Template,
+                            &tmpl.id,
+                            Some(sid.clone()),
+                            child_sort,
+                            &d.id,
+                        );
+                        r.enabled = false;
+                        child_sort += 1;
+                        nodes.push(r);
+                        defs.push(d);
+                    }
+                    i = *t + 1;
+                    continue;
+                }
+            }
+            let (nm, content) = &inactive[i];
+            let mut d = Definition::new("prompt", nm, content);
+            if is_balanced(content) {
                 d.meta = serde_json::json!({ "wrap_in_tag": true });
             }
             let mut r = PromptNode::new_ref(OwnerKind::Template, &tmpl.id, Some(fid.clone()), cs, &d.id);
@@ -372,6 +424,7 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
             cs += 1;
             nodes.push(r);
             defs.push(d);
+            i += 1;
         }
     }
 
@@ -522,6 +575,70 @@ mod tests {
         let other_ref = ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(other.id.as_str())).unwrap();
         assert_eq!(other_ref.parent_id.as_deref(), Some(inactive.id.as_str()));
         assert!(!other_ref.enabled);
+    }
+
+    #[test]
+    fn larger_non_default_group_wins_over_empty_default_skeleton() {
+        // Real ST exports often carry the empty/skeleton default order under
+        // character_id 100000 alongside the user's actually-curated, larger
+        // order under another character_id. The larger one should be used.
+        let preset = json!({
+            "prompts": [
+                { "identifier": "main", "name": "Main", "content": "default" },
+                { "identifier": "jb", "name": "Jailbreak", "content": "stay in character" },
+                { "identifier": "nsfw", "name": "NSFW", "content": "be explicit" }
+            ],
+            "prompt_order": [
+                { "character_id": 100000, "order": [ { "identifier": "main", "enabled": true } ] },
+                { "character_id": 100001, "order": [
+                    { "identifier": "main", "enabled": true },
+                    { "identifier": "jb", "enabled": true },
+                    { "identifier": "nsfw", "enabled": false }
+                ] }
+            ]
+        });
+        let ls = stpreset_to_loreset(&preset, "P");
+        let prompts = prompt_defs(&ls);
+        assert_eq!(prompts.len(), 3, "all three entries from the larger group are imported, none dumped to inactive");
+        assert!(ls.nodes.iter().all(|n| n.tag.as_deref() != Some("inactive")), "no inactive folder needed");
+        let nsfw = ls.definitions.iter().find(|d| d.name == "NSFW").unwrap();
+        let nsfw_ref = ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(nsfw.id.as_str())).unwrap();
+        assert!(!nsfw_ref.enabled, "disabled-in-order stays a disabled ref in place, not inactive");
+        assert!(nsfw_ref.parent_id.is_none());
+    }
+
+    #[test]
+    fn inactive_tail_preserves_cross_prompt_tag_span_as_a_folder() {
+        // Two not-in-order prompts whose contents form a cross-node tag span
+        // must still be wrapped in a sub-folder under `inactive`, not
+        // flattened into two unwrapped halves.
+        let preset = json!({
+            "prompts": [
+                { "identifier": "main", "name": "Main", "content": "hi" },
+                { "identifier": "open", "name": "Open", "content": "<Rule depth=\"0\">first" },
+                { "identifier": "close", "name": "Close", "content": "second</Rule>" }
+            ],
+            "prompt_order": [ { "character_id": 100000, "order": [
+                { "identifier": "main", "enabled": true }
+            ]}]
+        });
+        let ls = stpreset_to_loreset(&preset, "P");
+        let inactive = ls.nodes.iter().find(|n| n.tag.as_deref() == Some("inactive")).expect("inactive folder");
+        let span_folder = ls
+            .nodes
+            .iter()
+            .find(|n| n.kind == NodeKind::Folder && n.tag.as_deref() == Some("Rule"))
+            .expect("span sub-folder under inactive");
+        assert_eq!(span_folder.parent_id.as_deref(), Some(inactive.id.as_str()));
+        assert!(!span_folder.enabled);
+        let open = ls.definitions.iter().find(|d| d.name == "Open").unwrap();
+        let close = ls.definitions.iter().find(|d| d.name == "Close").unwrap();
+        assert_eq!(open.content, "first");
+        assert_eq!(close.content, "second");
+        assert!(open.meta.get("wrap_in_tag").is_none(), "span children aren't individually wrapped");
+        let open_ref = ls.nodes.iter().find(|n| n.definition_id.as_deref() == Some(open.id.as_str())).unwrap();
+        assert_eq!(open_ref.parent_id.as_deref(), Some(span_folder.id.as_str()));
+        assert!(!open_ref.enabled);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PromptTree from './PromptTree.vue'
 import type { Definition, DefType, PromptNode } from '../api/types'
@@ -95,5 +95,22 @@ describe('PromptTree drag reorder', () => {
     await rows[0].trigger('dragstart')
     await rows[1].trigger('drop')
     expect(w.emitted('reorder')).toBeUndefined()
+  })
+
+  it('arms dataTransfer on dragstart so native DnD actually carries the drag past the source row', async () => {
+    // Real browsers (Firefox in particular) only continue a native HTML5 drag
+    // past the source element if dragstart calls dataTransfer.setData; without
+    // it the row looks draggable but dragover/drop never fire on other rows.
+    // jsdom doesn't enforce this, so we assert the call directly.
+    const nodes = [
+      n({ id: 'a', kind: 'folder', tag: 'char', definition_id: null, sort_order: 0 }),
+      n({ id: 'b', kind: 'folder', tag: 'world', definition_id: null, sort_order: 1 }),
+    ]
+    const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
+    const rows = w.findAll('[data-test="row-wrap"]')
+    const setData = vi.fn()
+    await rows[0].find('[data-test="drag-handle"]').trigger('mousedown')
+    await rows[0].trigger('dragstart', { dataTransfer: { setData, effectAllowed: '' } })
+    expect(setData).toHaveBeenCalledWith('text/plain', 'a')
   })
 })

@@ -3,11 +3,12 @@ import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
 import { useUiStore } from '../stores/ui'
+import { assetUrl } from '../api/client'
 
 const ui = useUiStore()
 const route = useRoute()
 const bgStyle = computed(() =>
-  ui.background ? { backgroundImage: `url(/assets/${ui.background})` } : { backgroundColor: 'var(--color-surface, #f8f7f6)' },
+  ui.background ? { backgroundImage: `url(${assetUrl(ui.background)})` } : { backgroundColor: 'var(--color-surface, #f8f7f6)' },
 )
 const section = computed(() => {
   if (route.path.startsWith('/book')) return 'book'

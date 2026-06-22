@@ -35,3 +35,67 @@ describe('SettingsView language switcher', () => {
     expect(localStorage.getItem('ui.locale')).toBe('zh-Hant')
   })
 })
+
+// Regression test: a manual tester reported the "Notify on reply (background
+// tab)" toggle as unclickable ("点不开"). Root cause was that the click DID
+// register, but ensureNotifyPermission() silently resolves to a non-granted
+// result whenever the Notification API is unsupported or permission is
+// denied, and the old handler reverted the toggle with zero feedback — so
+// every click looked like a dead no-op. The fix surfaces an explanatory
+// error message instead of silently snapping back.
+describe('SettingsView notify toggle', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.restoreAllMocks()
+    i18n.global.locale.value = 'en'
+    vi.spyOn(client, 'getSettings').mockResolvedValue({})
+    vi.spyOn(client, 'listDefinitions').mockResolvedValue([])
+  })
+
+  function findToggle(wrapper: ReturnType<typeof mount>) {
+    const label = wrapper.findAll('span').find((s) => s.text().includes('Notify on reply'))!
+    const row = label.element.closest('div')!
+    return wrapper.findAll('[data-test="toggle"]').find((t) => t.element === row.querySelector('[data-test="toggle"]'))!
+  }
+
+  it('explains why the toggle reverts when notifications are unsupported', async () => {
+    vi.stubGlobal('Notification', undefined)
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    const toggle = findToggle(wrapper)
+    expect(toggle.attributes('aria-checked')).toBe('false')
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.text()).toContain('Desktop notifications are not supported')
+  })
+
+  it('explains why the toggle reverts when permission was denied', async () => {
+    vi.stubGlobal('Notification', { permission: 'denied' })
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    const toggle = findToggle(wrapper)
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(wrapper.text()).toContain('Notification permission was denied')
+  })
+
+  it('stays on when permission is granted', async () => {
+    vi.stubGlobal('Notification', { permission: 'granted' })
+    const wrapper = mount(SettingsView)
+    await flushPromises()
+
+    const toggle = findToggle(wrapper)
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-checked')).toBe('true')
+  })
+})

@@ -97,6 +97,12 @@ function onMouseDown(e: MouseEvent) {
 function onDragStart(id: string, e: DragEvent) {
   if (!grabbedHandle.value) { e.preventDefault(); return }
   dragId.value = id
+  // Required for native HTML5 DnD to actually continue past the source
+  // element: without calling setData, Firefox (and some Chromium paths)
+  // never deliver dragover/drop to other elements, so the row looks
+  // draggable but nothing ever drops.
+  e.dataTransfer?.setData('text/plain', id)
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
 }
 function siblingsOf(parentId: string | null) { return getChildren(parentId).map((nd) => nd.id) }
 function parentOf(id: string): string | null {

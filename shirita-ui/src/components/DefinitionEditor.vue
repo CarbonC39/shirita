@@ -158,11 +158,11 @@ function startNew() {
         </transition>
       </div>
       <div v-if="headerActions" class="flex items-center">
-        <button data-test="rename-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.rename')" @click="renaming = !renaming"><Pencil :size="15" /></button>
+        <button data-test="rename-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.rename')" @click="renaming = !renaming"><Pencil :size="15" /></button>
         <button data-test="import-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
-        <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
-        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
-        <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
+        <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
+        <button data-test="duplicate-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
+        <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
       </div>
     </div>
 

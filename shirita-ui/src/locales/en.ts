@@ -243,6 +243,8 @@ const en = {
     summarizeInstruction: 'Summary instruction',
     notifications: 'Notifications',
     notifyReplies: 'Notify on reply (background tab)',
+    notifyUnsupported: 'Desktop notifications are not supported in this app/browser.',
+    notifyDenied: 'Notification permission was denied. Allow notifications for this site in your browser settings, then try again.',
     contentWidth: 'Content width (px)',
     appearance: 'Appearance',
     messageStyle: 'Message style',

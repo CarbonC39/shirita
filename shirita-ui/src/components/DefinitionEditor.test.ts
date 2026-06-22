@@ -40,7 +40,7 @@ describe('DefinitionEditor header actions', () => {
   const d = { id: 'd1', type: 'char', name: 'Alice', content: '', meta: {} }
 
   it('emits import and export when the header icons are clicked', async () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d] } })
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
     await w.get('[data-test="import-btn"]').trigger('click')
     await w.get('[data-test="export-btn"]').trigger('click')
     expect(w.emitted('import')).toBeTruthy()
@@ -82,6 +82,37 @@ describe('DefinitionEditor reveal', () => {
     // picker is always present; body (type chips, save) is not until active
     expect(w.findAll('[data-test="type-chip"]')).toHaveLength(0)
     expect(w.find('[data-test="save-btn"]').exists()).toBe(false)
+  })
+})
+
+describe('DefinitionEditor disabled state with no selection', () => {
+  const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
+
+  it('disables rename/export/duplicate/delete and keeps import enabled when nothing is selected', () => {
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: false } })
+    expect((w.get('[data-test="rename-btn"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((w.get('[data-test="export-btn"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((w.get('[data-test="duplicate-btn"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((w.get('[data-test="delete-btn"]').element as HTMLButtonElement).disabled).toBe(true)
+    expect((w.get('[data-test="import-btn"]').element as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('does not emit delete/export/duplicate when clicked while disabled', async () => {
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: false } })
+    await w.get('[data-test="delete-btn"]').trigger('click')
+    await w.get('[data-test="export-btn"]').trigger('click')
+    await w.get('[data-test="duplicate-btn"]').trigger('click')
+    expect(w.emitted('delete')).toBeFalsy()
+    expect(w.emitted('export')).toBeFalsy()
+    expect(w.emitted('duplicate')).toBeFalsy()
+  })
+
+  it('enables all action buttons once a definition is active', () => {
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    expect((w.get('[data-test="rename-btn"]').element as HTMLButtonElement).disabled).toBe(false)
+    expect((w.get('[data-test="export-btn"]').element as HTMLButtonElement).disabled).toBe(false)
+    expect((w.get('[data-test="duplicate-btn"]').element as HTMLButtonElement).disabled).toBe(false)
+    expect((w.get('[data-test="delete-btn"]').element as HTMLButtonElement).disabled).toBe(false)
   })
 })
 

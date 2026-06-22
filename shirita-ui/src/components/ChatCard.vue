@@ -4,6 +4,7 @@ import { MoreVertical, Copy, Download, Trash2, GripVertical, Pencil } from 'luci
 import { useI18n } from 'vue-i18n'
 import type { Session } from '../api/types'
 import { relativeTime } from '../utils/time'
+import { assetUrl } from '../api/client'
 
 const props = withDefaults(
   defineProps<{ session: Session; editMode?: boolean }>(),
@@ -45,7 +46,7 @@ function onRename() {
     @click="onCardClick"
   >
     <div :class="['w-11 h-11 rounded-full shrink-0 overflow-hidden grid place-items-center', tint]">
-      <img v-if="session.avatar" :src="`/assets/${session.avatar}`" class="w-full h-full object-cover" alt="" />
+      <img v-if="session.avatar" :src="assetUrl(session.avatar)" class="w-full h-full object-cover" alt="" />
     </div>
     <div class="flex-1 min-w-0">
       <div class="font-semibold text-ink truncate">{{ session.name }}</div>

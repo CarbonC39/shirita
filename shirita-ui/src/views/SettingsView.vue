@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from "vue";
+import { useI18n } from "vue-i18n";
 import { useSettingsStore } from "../stores/settings";
 import { useUiStore } from "../stores/ui";
 import {
@@ -22,6 +23,7 @@ import SegmentedControl from "../components/SegmentedControl.vue";
 import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
 import { ensureNotifyPermission } from "../utils/notify";
 
+const { t } = useI18n();
 const settings = useSettingsStore();
 const ui = useUiStore();
 const loading = ref(true);
@@ -376,8 +378,14 @@ function onWidthChange(v: string) {
 
 async function handleNotifyToggle(enabled: boolean) {
     notifyEnabled.value = enabled;
-    if (enabled && !(await ensureNotifyPermission())) {
+    if (!enabled) return;
+    const result = await ensureNotifyPermission();
+    if (result !== "granted") {
         notifyEnabled.value = false;
+        error.value =
+            result === "unsupported"
+                ? t("settings.notifyUnsupported")
+                : t("settings.notifyDenied");
     }
 }
 
