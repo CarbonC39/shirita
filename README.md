@@ -40,7 +40,7 @@ shirita/
 - **Variables & state** — declare variables with type and initial value on templates; update them mid-conversation via `<state_update>` tags or future native tool calls; per-message snapshots for branching
 - **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
 - **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation
-- **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, Shirita-native template bundles (.json) with dedup conflict resolution (skip / overwrite / duplicate)
+- **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, and chat-completion presets (→ editable templates: prompts imported by enabled/disabled status, `setvar`/`getvar` recognized as variables, cross-node XML bundled into folders); plus Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate)
 - **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars
 - **i18n** — English, 简体中文, 繁體中文, 日本語
 - **Custom CSS** — injected from a live-editable textarea with stable hooks (`.app-chat-column`, `.app-message[data-role]`, `.app-composer`, `[data-app=shell]`); cached in localStorage to prevent FOUC
@@ -117,7 +117,7 @@ When both env and UI settings are configured, the UI settings win.
 | Path | Purpose |
 |------|---------|
 | `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters |
-| `shirita-core/migrations/` | SQLite schema migrations (0016 = current) |
+| `shirita-core/migrations/` | SQLite schema migrations (0020 = current) |
 | `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, etc.) |
 | `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, NewChatPrompt) |
 | `shirita-ui/src/components/` | Vue shared components (MessageItem, Composer, AssetPicker, PromptTree, etc.) |
@@ -131,17 +131,20 @@ When both env and UI settings are configured, the UI settings win.
 
 ### Web (Docker)
 
-*Pending — roadmap milestone M9.*
+A single self-contained binary with the UI embedded, packaged as a Docker image. Pushing a `v*` tag publishes `ghcr.io/carbonc39/shirita:<tag>` + `:latest` via `.github/workflows/docker.yml`. See [`docs/deploy.md`](docs/deploy.md) for `docker run` / compose usage.
+
+### Web (standalone binary)
+
+`.github/workflows/web.yml` builds the embedded-UI `shirita-web` binary for Linux (static musl — no glibc dependency), macOS, and Windows on tag push or `workflow_dispatch`, uploaded as per-platform artifacts. Build it locally with:
+
+```bash
+npm --prefix shirita-ui run build
+cargo build --release -p shirita-web --features embed-ui
+```
 
 ### Desktop CI packages
 
-`.deb` / `.AppImage` / `.dmg` / `.msi` are built via GitHub Actions on tag push or `workflow_dispatch`:
-
-```yaml
-.github/workflows/desktop.yml
-```
-
-Artifacts are **unsigned** — macOS requires right-click → Open, Windows shows SmartScreen warnings.
+`.deb` / `.AppImage` / `.dmg` / `.msi` are built via GitHub Actions (`.github/workflows/desktop.yml`) on tag push or `workflow_dispatch`. Artifacts are **unsigned** — macOS requires right-click → Open, Windows shows SmartScreen warnings.
 
 ---
 
@@ -187,6 +190,6 @@ npm --prefix shirita-ui run build       # vite build
 | M6 — Context engineering (summarize, budget) | ✅ Done |
 | M7 — Import / export (ST cards, bundles) | ✅ Done |
 | M8 — Tauri desktop shell | ✅ Done |
-| M9 — Deploy (Docker, CI, release) | 🚧 Pending |
+| M9 — Deploy (Docker, CI, release) | ✅ Done |
 
 See `docs/superpowers/specs/` for milestone design documents and `docs/superpowers/plans/` for implementation plans.

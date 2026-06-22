@@ -3766,7 +3766,7 @@ dependencies = [
 
 [[package]]
 name = "shirita-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "aho-corasick",
  "async-stream",
@@ -3792,7 +3792,7 @@ dependencies = [
 
 [[package]]
 name = "shirita-tauri"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "serde_json",
@@ -3811,7 +3811,7 @@ dependencies = [
 
 [[package]]
 name = "shirita-web"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
