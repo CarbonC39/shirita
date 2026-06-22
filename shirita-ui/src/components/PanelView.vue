@@ -87,8 +87,15 @@ function render() {
   }
 }
 
+// CSS custom properties inherit through the shadow boundary, so the theme
+// vars are visible here. Set them as the host's default background/color
+// first so a panel that doesn't define its own background blends with the
+// app theme instead of defaulting to white; pack CSS (appended after, same
+// specificity) still wins if it sets its own.
+const BASE_CSS = ':host{background:var(--color-card,#fff);color:var(--color-ink,#1b1b1b)}'
+
 function applyCss() {
-  if (styleEl) styleEl.textContent = fenceCss(props.css)
+  if (styleEl) styleEl.textContent = BASE_CSS + fenceCss(props.css)
 }
 
 onMounted(() => {
