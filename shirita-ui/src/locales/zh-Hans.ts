@@ -128,7 +128,7 @@ const zhHans: MessageSchema = {
     importConflictFound: '{skipped} 个条目因名称冲突已跳过，是否改为覆盖？',
     conflictOverwrite: '覆盖',
     conflictDuplicate: '副本',
-    importTitle: '导入角色卡 / 世界书 / 模板 / Pack（.png, .json, .zip）',
+    importTitle: '导入角色卡 / 世界书 / 预设 / 模板 / Pack（.png, .json, .zip）',
     exportTemplateTitle: '导出模板（已启用部分）',
     exportPackTitle: '导出 Pack（.zip / .json）',
     importSummary: '已导入：新建 {created} 个，跳过 {skipped} 个，覆盖 {overwritten} 个。',

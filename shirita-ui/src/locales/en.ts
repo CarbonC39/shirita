@@ -135,7 +135,7 @@ const en = {
     importConflictFound: '{skipped} item(s) already exist with the same name — kept the existing ones. Replace them instead?',
     conflictOverwrite: 'Overwrite',
     conflictDuplicate: 'Duplicate',
-    importTitle: 'Import card / world / template / pack (.png, .json, .zip)',
+    importTitle: 'Import card / world / preset / template / pack (.png, .json, .zip)',
     exportTemplateTitle: 'Export template (enabled part)',
     exportPackTitle: 'Export pack (.zip / .json)',
     importSummary:
