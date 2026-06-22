@@ -36,6 +36,7 @@ pub use model::{
 };
 pub use adapters::charcard::{charcard_to_loreset, LoreSet};
 pub use adapters::preset::tree_to_preset;
+pub use adapters::stpreset::stpreset_to_loreset;
 pub use adapters::worldinfo::worldinfo_to_defs;
 pub use models::asset::Asset;
 pub use models::def_type::{is_prompt, is_reserved, DefType};
