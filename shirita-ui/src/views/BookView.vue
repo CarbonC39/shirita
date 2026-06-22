@@ -1060,11 +1060,12 @@ async function duplicateDef() {
                         @select="selectPack"
                         @create="createPackNamed"
                     />
-                    <div v-if="selectedPack" class="flex items-center">
-                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.rename')" @click="startRenamePack"><Pencil :size="15" /></button>
-                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.duplicate')" @click="dupPack"><Copy :size="16" /></button>
-                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('book.exportPackTitle')" data-test="pack-export" @click="exportSelectedPack"><Download :size="16" /></button>
-                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg" :title="$t('common.delete')" @click="delPack"><Trash2 :size="16" /></button>
+                    <div class="flex items-center">
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.rename')" :disabled="!selectedPack" @click="startRenamePack"><Pencil :size="15" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.import')" data-test="pack-import" :disabled="importBusy" @click="importInput?.click()"><Upload :size="16" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('book.exportPackTitle')" data-test="pack-export" :disabled="!selectedPack" @click="exportSelectedPack"><Download :size="16" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.duplicate')" :disabled="!selectedPack" @click="dupPack"><Copy :size="16" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-40" :title="$t('common.delete')" :disabled="!selectedPack" @click="delPack"><Trash2 :size="16" /></button>
                     </div>
                 </div>
                 <PackEditor v-if="selectedPack" :pack="selectedPack" @changed="library.loadPacks()" />
