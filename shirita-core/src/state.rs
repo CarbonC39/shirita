@@ -130,8 +130,12 @@ pub struct Update {
 
 /// 从流式文本中提取所有 `<state_update action=".." key=".." value=".."/>`（按出现顺序）。
 pub fn parse_state_updates(text: &str) -> Vec<Update> {
-    let tag_re = regex::Regex::new(r#"(?is)<state_update\b([^>]*?)/?>"#).unwrap();
-    let attr_re = regex::Regex::new(r#"(\w+)\s*=\s*"([^"]*)""#).unwrap();
+    static TAG_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?is)<state_update\b([^>]*?)/?>"#).unwrap());
+    static ATTR_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"(\w+)\s*=\s*"([^"]*)""#).unwrap());
+    let tag_re = &*TAG_RE;
+    let attr_re = &*ATTR_RE;
     let mut out = Vec::new();
     for caps in tag_re.captures_iter(text) {
         let mut action = None;
@@ -154,8 +158,9 @@ pub fn parse_state_updates(text: &str) -> Vec<Update> {
 
 /// 移除所有 state_update 标签（用于展示文本）。
 pub fn strip_state_tags(text: &str) -> String {
-    let tag_re = regex::Regex::new(r#"(?is)<state_update\b[^>]*?/?>"#).unwrap();
-    tag_re.replace_all(text, "").trim().to_string()
+    static TAG_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"(?is)<state_update\b[^>]*?/?>"#).unwrap());
+    TAG_RE.replace_all(text, "").trim().to_string()
 }
 
 fn parse_decls(v: Option<&Value>, scope: &str) -> Vec<VarDecl> {

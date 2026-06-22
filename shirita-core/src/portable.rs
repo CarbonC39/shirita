@@ -244,7 +244,7 @@ pub fn collect_pack_assets(manifest: &Value) -> Vec<String> {
             }
         }
     }
-    let re = regex::Regex::new(r#"/assets/([^"'\s)]+)"#).unwrap();
+    let re = &*ASSET_REF_RE;
     for key in ["html", "css"] {
         if let Some(text) = manifest["pack"]["meta"]["panel"][key].as_str() {
             for cap in re.captures_iter(text) {
@@ -254,6 +254,9 @@ pub fn collect_pack_assets(manifest: &Value) -> Vec<String> {
     }
     out
 }
+
+static ASSET_REF_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r#"/assets/([^"'\s)]+)"#).unwrap());
 
 fn remap_field(field: &mut Value, map: &HashMap<String, String>) {
     if let Some(old) = field.as_str() {
@@ -283,7 +286,7 @@ pub fn rewrite_pack_assets(manifest: &Value, map: &HashMap<String, String>) -> V
             }
         }
     }
-    let re = regex::Regex::new(r#"/assets/([^"'\s)]+)"#).unwrap();
+    let re = &*ASSET_REF_RE;
     for key in ["html", "css"] {
         let cur = field_mut(&mut m, &["pack", "meta", "panel", key])
             .and_then(|v| v.as_str())

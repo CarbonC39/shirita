@@ -28,7 +28,11 @@ impl SqliteStorage {
             .filename(database_path)
             .create_if_missing(true)
             .journal_mode(SqliteJournalMode::Wal)
-            .foreign_keys(true);
+            .foreign_keys(true)
+            // With up to 5 pooled connections writing concurrently, a writer
+            // can otherwise hit SQLITE_BUSY immediately instead of waiting
+            // for the lock to clear.
+            .busy_timeout(std::time::Duration::from_secs(5));
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
@@ -82,16 +86,27 @@ fn row_to_session(row: &SqliteRow) -> Result<Session> {
 /// Strip markdown/reasoning markup down to plain text, for contexts (like the
 /// home-list snippet) that show a short excerpt rather than rendering it.
 fn to_plain_text(text: &str) -> String {
-    let think_re = regex::Regex::new(r"(?is)<think>.*?</think>").unwrap();
-    let tag_re = regex::Regex::new(r"(?s)<[^>]+>").unwrap();
-    let fence_re = regex::Regex::new(r"(?s)```[^\n]*\n?(.*?)```").unwrap();
-    let inline_code_re = regex::Regex::new(r"`([^`]*)`").unwrap();
-    let image_re = regex::Regex::new(r"!\[[^\]]*\]\([^)]*\)").unwrap();
-    let link_re = regex::Regex::new(r"\[([^\]]*)\]\([^)]*\)").unwrap();
-    let heading_re = regex::Regex::new(r"(?m)^\s{0,3}#{1,6}\s+").unwrap();
-    let quote_re = regex::Regex::new(r"(?m)^\s{0,3}>\s?").unwrap();
-    let list_re = regex::Regex::new(r"(?m)^\s*(?:[-*+]|\d+\.)\s+").unwrap();
-    let emphasis_re = regex::Regex::new(r"(\*{1,3}|_{1,3})").unwrap();
+    use std::sync::LazyLock;
+    static THINK_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?is)<think>.*?</think>").unwrap());
+    static TAG_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?s)<[^>]+>").unwrap());
+    static FENCE_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?s)```[^\n]*\n?(.*?)```").unwrap());
+    static INLINE_CODE_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"`([^`]*)`").unwrap());
+    static IMAGE_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"!\[[^\]]*\]\([^)]*\)").unwrap());
+    static LINK_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\[([^\]]*)\]\([^)]*\)").unwrap());
+    static HEADING_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?m)^\s{0,3}#{1,6}\s+").unwrap());
+    static QUOTE_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?m)^\s{0,3}>\s?").unwrap());
+    static LIST_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?m)^\s*(?:[-*+]|\d+\.)\s+").unwrap());
+    static EMPHASIS_RE: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(\*{1,3}|_{1,3})").unwrap());
+    let think_re = &*THINK_RE;
+    let tag_re = &*TAG_RE;
+    let fence_re = &*FENCE_RE;
+    let inline_code_re = &*INLINE_CODE_RE;
+    let image_re = &*IMAGE_RE;
+    let link_re = &*LINK_RE;
+    let heading_re = &*HEADING_RE;
+    let quote_re = &*QUOTE_RE;
+    let list_re = &*LIST_RE;
+    let emphasis_re = &*EMPHASIS_RE;
 
     let s = think_re.replace_all(text, "");
     let s = tag_re.replace_all(&s, "");
@@ -266,10 +281,12 @@ impl Storage for SqliteStorage {
     }
 
     async fn delete_session(&self, id: &str) -> Result<()> {
-        sqlx::query("DELETE FROM messages WHERE session_id = ?").bind(id).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM summaries WHERE session_id = ?").bind(id).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?").bind(id).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM chat_sessions WHERE id = ?").bind(id).execute(&self.pool).await?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM messages WHERE session_id = ?").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM summaries WHERE session_id = ?").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM chat_sessions WHERE id = ?").bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -436,36 +453,38 @@ impl Storage for SqliteStorage {
 
     async fn orphaned_definitions_for_template(&self, template_id: &str) -> Result<Vec<Definition>> {
         let rows = sqlx::query(
-            "SELECT DISTINCT definition_id FROM prompt_nodes \
-             WHERE owner_kind = 'template' AND owner_id = ? AND definition_id IS NOT NULL \
-             AND definition_id NOT IN ( \
-                 SELECT definition_id FROM prompt_nodes \
-                 WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'template' AND owner_id = ?) \
+            "SELECT id, type, name, content, meta FROM definitions WHERE id IN ( \
+                 SELECT DISTINCT definition_id FROM prompt_nodes \
+                 WHERE owner_kind = 'template' AND owner_id = ? AND definition_id IS NOT NULL \
+                 AND definition_id NOT IN ( \
+                     SELECT definition_id FROM prompt_nodes \
+                     WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'template' AND owner_id = ?) \
+                 ) \
              )",
         )
         .bind(template_id)
         .bind(template_id)
         .fetch_all(&self.pool)
         .await?;
-        let mut defs = Vec::new();
-        for row in &rows {
-            let def_id: String = row.get("definition_id");
-            if let Some(d) = self.get_definition(&def_id).await? {
-                defs.push(d);
-            }
-        }
-        Ok(defs)
+        rows.iter().map(row_to_definition).collect()
     }
 
     async fn delete_template(&self, id: &str, delete_orphans: bool) -> Result<()> {
-        if delete_orphans {
-            let orphans = self.orphaned_definitions_for_template(id).await?;
-            for def in orphans {
-                self.delete_definition(&def.id).await?;
-            }
+        // Orphans are computed up front (before any deletes land) so the
+        // lookup query's self-join logic stays unaffected by the deletes
+        // below; everything then commits or rolls back together.
+        let orphans = if delete_orphans {
+            self.orphaned_definitions_for_template(id).await?
+        } else {
+            Vec::new()
+        };
+        let mut tx = self.pool.begin().await?;
+        for def in &orphans {
+            sqlx::query("DELETE FROM definitions WHERE id = ?").bind(&def.id).execute(&mut *tx).await?;
         }
-        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'template' AND owner_id = ?").bind(id).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM templates WHERE id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'template' AND owner_id = ?").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM templates WHERE id = ?").bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -503,36 +522,35 @@ impl Storage for SqliteStorage {
 
     async fn orphaned_definitions_for_pack(&self, pack_id: &str) -> Result<Vec<Definition>> {
         let rows = sqlx::query(
-            "SELECT DISTINCT definition_id FROM prompt_nodes \
-             WHERE owner_kind = 'pack' AND owner_id = ? AND definition_id IS NOT NULL \
-             AND definition_id NOT IN ( \
-                 SELECT definition_id FROM prompt_nodes \
-                 WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'pack' AND owner_id = ?) \
+            "SELECT id, type, name, content, meta FROM definitions WHERE id IN ( \
+                 SELECT DISTINCT definition_id FROM prompt_nodes \
+                 WHERE owner_kind = 'pack' AND owner_id = ? AND definition_id IS NOT NULL \
+                 AND definition_id NOT IN ( \
+                     SELECT definition_id FROM prompt_nodes \
+                     WHERE definition_id IS NOT NULL AND NOT (owner_kind = 'pack' AND owner_id = ?) \
+                 ) \
              )",
         )
         .bind(pack_id)
         .bind(pack_id)
         .fetch_all(&self.pool)
         .await?;
-        let mut defs = Vec::new();
-        for row in &rows {
-            let def_id: String = row.get("definition_id");
-            if let Some(d) = self.get_definition(&def_id).await? {
-                defs.push(d);
-            }
-        }
-        Ok(defs)
+        rows.iter().map(row_to_definition).collect()
     }
 
     async fn delete_pack(&self, id: &str, delete_orphans: bool) -> Result<()> {
-        if delete_orphans {
-            let orphans = self.orphaned_definitions_for_pack(id).await?;
-            for def in orphans {
-                self.delete_definition(&def.id).await?;
-            }
+        let orphans = if delete_orphans {
+            self.orphaned_definitions_for_pack(id).await?
+        } else {
+            Vec::new()
+        };
+        let mut tx = self.pool.begin().await?;
+        for def in &orphans {
+            sqlx::query("DELETE FROM definitions WHERE id = ?").bind(&def.id).execute(&mut *tx).await?;
         }
-        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'pack' AND owner_id = ?").bind(id).execute(&self.pool).await?;
-        sqlx::query("DELETE FROM packs WHERE id = ?").bind(id).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'pack' AND owner_id = ?").bind(id).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM packs WHERE id = ?").bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -643,11 +661,13 @@ impl Storage for SqliteStorage {
     }
 
     async fn reorder_nodes(&self, owner_kind: &OwnerKind, owner_id: &str, ordered_ids: &[String]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
         for (i, nid) in ordered_ids.iter().enumerate() {
             sqlx::query("UPDATE prompt_nodes SET sort_order = ? WHERE id = ? AND owner_kind = ? AND owner_id = ?")
                 .bind(i as i64).bind(nid).bind(owner_kind.as_str()).bind(owner_id)
-                .execute(&self.pool).await?;
+                .execute(&mut *tx).await?;
         }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -656,6 +676,7 @@ impl Storage for SqliteStorage {
         let mut id_map = HashMap::new();
         let mut sorted = source.clone();
         sorted.sort_by_key(|n| (n.parent_id.is_some(), n.sort_order));
+        let mut tx = self.pool.begin().await?;
         for node in &sorted {
             let new_id = uuid::Uuid::new_v4().to_string();
             let new_parent_id = node.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned());
@@ -666,9 +687,16 @@ impl Storage for SqliteStorage {
                 enabled: node.enabled, created_at: chrono::Utc::now().to_rfc3339(),
                 meta: node.meta.clone(),
             };
-            self.create_node(&copy).await?;
+            let meta = serde_json::to_string(&copy.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&copy.id).bind(copy.owner_kind.as_str()).bind(&copy.owner_id)
+                .bind(&copy.parent_id).bind(copy.sort_order).bind(copy.kind.as_str())
+                .bind(&copy.tag).bind(&copy.definition_id).bind(copy.enabled as i64).bind(&copy.created_at)
+                .bind(meta)
+                .execute(&mut *tx).await?;
             id_map.insert(node.id.clone(), new_id);
         }
+        tx.commit().await?;
         Ok(id_map)
     }
 
@@ -1295,6 +1323,29 @@ mod tests {
         s.delete_pack(&p.id, false).await.unwrap();
         assert!(s.get_pack(&p.id).await.unwrap().is_none());
         assert!(s.list_nodes(&OwnerKind::Pack, &p.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_node_cascades_to_grandchildren() {
+        let s = temp_storage().await;
+        let t = crate::models::template::Template::new("T");
+        s.create_template(&t).await.unwrap();
+        let def = Definition::new("char", "Alice", "hi");
+        s.create_definition(&def).await.unwrap();
+
+        let grandparent = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "outer");
+        s.create_node(&grandparent).await.unwrap();
+        // storage layer doesn't enforce the 2-level rule, so this models a
+        // pre-existing 3-level chain (e.g. from data created before that rule).
+        let parent = PromptNode::new_folder(OwnerKind::Template, &t.id, Some(grandparent.id.clone()), 0, "inner");
+        s.create_node(&parent).await.unwrap();
+        let child = PromptNode::new_ref(OwnerKind::Template, &t.id, Some(parent.id.clone()), 0, &def.id);
+        s.create_node(&child).await.unwrap();
+
+        s.delete_node(&grandparent.id).await.unwrap();
+
+        let remaining = s.list_nodes(&OwnerKind::Template, &t.id).await.unwrap();
+        assert!(remaining.is_empty(), "deleting the root should remove every descendant, found {remaining:?}");
     }
 
     #[tokio::test]

@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::{Error, Result};
 
-use super::{parse_delta_kind, render_delta, ChatRequest, ModelProvider};
+use super::{decode_utf8_chunk, parse_delta_kind, render_delta, ChatRequest, ModelProvider};
 
 pub struct OpenAiProvider {
     client: reqwest::Client,
@@ -104,6 +104,7 @@ impl ModelProvider for OpenAiProvider {
         let mut bytes = resp.bytes_stream();
         let stream = async_stream::stream! {
             let mut buf = String::new();
+            let mut pending_bytes = Vec::new();
             // DeepSeek 等推理模型在 content 之前先流式吐出 reasoning_content；
             // 这段状态把它折进既有的 <think>…</think> 前端约定（见 model/mod.rs::render_delta）。
             let mut in_reasoning = false;
@@ -112,7 +113,9 @@ impl ModelProvider for OpenAiProvider {
                     Ok(c) => c,
                     Err(e) => { yield Err(Error::Config(format!("stream error: {e}"))); return; }
                 };
-                buf.push_str(&String::from_utf8_lossy(&chunk));
+                // 多字节字符可能正好被切在两个 chunk 边界之间；用 decode_utf8_chunk
+                // 而非逐 chunk 各自 from_utf8_lossy，避免把截断的字符吞成乱码。
+                buf.push_str(&decode_utf8_chunk(&mut pending_bytes, &chunk));
 
                 // 逐行处理已完整接收的行（以 '\n' 结尾）。
                 while let Some(pos) = buf.find('\n') {

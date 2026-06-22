@@ -66,8 +66,10 @@ fn extract_variables(content: &str) -> (String, Vec<VarDecl>) {
 /// (is_close, name) for each XML-ish tag. The name is the first token after
 /// `<`/`</`; attributes are ignored; self-closing `<x/>` is skipped.
 fn scan_tags(s: &str) -> Vec<(bool, String)> {
-    let re = regex::Regex::new(r"<\s*(/?)\s*([^\s<>/]+)[^<>]*?(/?)\s*>").unwrap();
-    re.captures_iter(s)
+    static TAG_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"<\s*(/?)\s*([^\s<>/]+)[^<>]*?(/?)\s*>").unwrap());
+    TAG_RE
+        .captures_iter(s)
         .filter(|c| &c[3] != "/") // skip self-closing
         .map(|c| (&c[1] == "/", c[2].to_string()))
         .collect()
@@ -90,15 +92,32 @@ fn is_balanced(s: &str) -> bool {
 /// First cross-node span in a contiguous slice: the earliest element that
 /// leaves some tag T net-open, paired with the earliest later element that
 /// leaves T net-closed. Returns (opener_idx, closer_idx, tag).
+///
+/// Balances are computed once per element (not once per *pair*, which made
+/// the naive version O(n^2) regex scans — a slow import on a preset with a
+/// long run of prompts), and the lookup for "first closer after i" uses a
+/// per-tag sorted index instead of rescanning the tail of the slice.
 fn find_first_span(contents: &[String]) -> Option<(usize, usize, String)> {
-    for (i, c) in contents.iter().enumerate() {
-        let Some(tag) = tag_balance(c).into_iter().find(|(_, v)| *v > 0).map(|(t, _)| t) else {
+    let balances: Vec<std::collections::HashMap<String, i32>> = contents.iter().map(|c| tag_balance(c)).collect();
+
+    let mut closes_by_tag: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    for (idx, bal) in balances.iter().enumerate() {
+        for (tag, v) in bal {
+            if *v < 0 {
+                closes_by_tag.entry(tag.as_str()).or_default().push(idx);
+            }
+        }
+    }
+
+    for (i, bal) in balances.iter().enumerate() {
+        let Some(tag) = bal.iter().find(|(_, v)| **v > 0).map(|(t, _)| t.clone()) else {
             continue;
         };
-        for (j, c2) in contents.iter().enumerate().skip(i + 1) {
-            if tag_balance(c2).get(&tag).copied().unwrap_or(0) < 0 {
-                return Some((i, j, tag));
-            }
+        let Some(closers) = closes_by_tag.get(tag.as_str()) else { continue };
+        // `closers` was built by ascending idx, so it's already sorted.
+        let pos = closers.partition_point(|&x| x <= i);
+        if let Some(&j) = closers.get(pos) {
+            return Some((i, j, tag));
         }
     }
     None
@@ -769,6 +788,19 @@ mod tests {
         assert_eq!(find_first_span(&c), Some((0, 2, "rules".to_string())));
         let none = vec!["<x>unclosed".to_string(), "plain".to_string()];
         assert_eq!(find_first_span(&none), None);
+    }
+
+    #[test]
+    fn find_first_span_scales_linearly_on_a_long_unmatched_run() {
+        // A preset with thousands of unbalanced-tag prompts and no match is
+        // the worst case for the naive O(n^2) scan (every element re-scans
+        // every later element). This must stay fast — a few ms, not seconds —
+        // so an imported preset can't be used to hang the import endpoint.
+        let contents: Vec<String> = (0..4000).map(|i| format!("<tag{i}>no close here")).collect();
+        let start = std::time::Instant::now();
+        assert_eq!(find_first_span(&contents), None);
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_millis() < 200, "find_first_span took {elapsed:?}, expected well under 200ms");
     }
 
     #[test]
