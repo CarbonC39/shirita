@@ -87,6 +87,47 @@ fn tavern_helper_vardecls(data: &serde_json::Value) -> Vec<VarDecl> {
         .collect()
 }
 
+/// Capture-group numbers (1-based) referenced by valid `$N` tokens in
+/// `replace_string`, deduped and sorted ascending. A `$N` only counts when
+/// `1 <= N <= group_count` — an out-of-range `$N` (e.g. `$10` against a
+/// 3-group pattern) is not a capture reference at all and must be ignored
+/// here (see `substitute_dollar_refs`, which leaves it untouched in the
+/// output).
+fn dollar_refs_in(replace_string: &str, group_count: usize) -> Vec<usize> {
+    static DOLLAR_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\$(\d+)").unwrap());
+    let mut ns: Vec<usize> = DOLLAR_RE
+        .captures_iter(replace_string)
+        .filter_map(|c| c[1].parse::<usize>().ok())
+        .filter(|&n| n >= 1 && n <= group_count)
+        .collect();
+    ns.sort_unstable();
+    ns.dedup();
+    ns
+}
+
+/// Replace every `$N` in `replace_string` where `N` is in `valid_ns` with
+/// Panel's `{{fieldN}}` interpolation syntax; any other `$N` (out of range,
+/// already excluded from `valid_ns` by `dollar_refs_in`) is left exactly
+/// as-is.
+fn substitute_dollar_refs(replace_string: &str, valid_ns: &[usize]) -> String {
+    static DOLLAR_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"\$(\d+)").unwrap());
+    DOLLAR_RE
+        .replace_all(replace_string, |caps: &regex::Captures| {
+            let n: usize = caps[1].parse().unwrap();
+            if valid_ns.contains(&n) {
+                let mut s = String::from("{{field");
+                s.push_str(&n.to_string());
+                s.push_str("}}");
+                s
+            } else {
+                caps[0].to_string()
+            }
+        })
+        .into_owned()
+}
+
 /// Translate an ST character card (v1 top-level / v2/v3 under `data`) into a loreset.
 pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     let data = card.get("data").unwrap_or(card);
@@ -280,6 +321,30 @@ mod tests {
 
     fn ty<'a>(s: &'a LoreSet, t: &str) -> Vec<&'a Definition> {
         s.definitions.iter().filter(|d| d.def_type == t).collect()
+    }
+
+    #[test]
+    fn dollar_refs_in_keeps_only_in_range_groups() {
+        // pattern has 3 capture groups; $10 is not a reference (out of range),
+        // $1 and $3 are.
+        assert_eq!(dollar_refs_in("$1 $3 $10", 3), vec![1, 3]);
+    }
+
+    #[test]
+    fn dollar_refs_in_dedupes_and_sorts() {
+        assert_eq!(dollar_refs_in("$3 $1 $3", 3), vec![1, 3]);
+    }
+
+    #[test]
+    fn dollar_refs_in_ignores_dollar_dollar_and_dollar_amp() {
+        // `$$` and `$&` never match `\$(\d+)` — no digits follow the `$`.
+        assert_eq!(dollar_refs_in("$$ $& $1", 1), vec![1]);
+    }
+
+    #[test]
+    fn substitute_dollar_refs_replaces_only_valid_refs() {
+        let out = substitute_dollar_refs("a:$1 b:$10 c:$3", &[1, 3]);
+        assert_eq!(out, "a:{{field1}} b:$10 c:{{field3}}");
     }
 
     #[test]
