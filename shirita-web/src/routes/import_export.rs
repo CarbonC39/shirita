@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use shirita_core::{
-    charcard_to_loreset, collect_pack_assets, parse_portable, rewrite_pack_assets, Asset, Definition,
-    LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode, Template,
+    charcard_to_loreset, collect_pack_assets, parse_portable, rewrite_pack_assets, stpreset_to_loreset,
+    Asset, Definition, LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode, Template,
 };
 
 use crate::AppState;
@@ -302,11 +302,16 @@ async fn save_png_asset(state: &AppState, bytes: &[u8], display: &str) -> Result
     Ok(stored)
 }
 
-/// 读取首个 multipart 字段的字节。
-async fn first_field_bytes(mut mp: Multipart) -> Result<Vec<u8>, StatusCode> {
+/// Read the first multipart field's bytes plus its filename stem (no extension),
+/// if any. The stem seeds the imported preset's template name.
+async fn first_field(mut mp: Multipart) -> Result<(Vec<u8>, Option<String>), StatusCode> {
     let field = mp.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)?.ok_or(StatusCode::BAD_REQUEST)?;
+    // Capture the (owned) stem before `bytes()` consumes the field.
+    let stem = field.file_name().map(|f| {
+        std::path::Path::new(f).file_stem().and_then(|s| s.to_str()).unwrap_or(f).to_string()
+    });
     let bytes = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok(bytes.to_vec())
+    Ok((bytes.to_vec(), stem))
 }
 
 const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
@@ -373,6 +378,40 @@ async fn persist_loreset(
     Ok(())
 }
 
+/// Persist an ST-preset loreset. The template name is the conflict unit (like
+/// `import_template_bundle`); definitions are always created **fresh** (no
+/// name dedup) because preset prompt names are generic (`main`, `nsfw`, …) and
+/// deduping across imports would reuse or clobber an earlier preset's text.
+/// Node `definition_id`s already point at the fresh def UUIDs from
+/// `stpreset_to_loreset`, so no id remap is needed.
+async fn persist_preset(
+    state: &AppState,
+    ls: LoreSet,
+    oc: OnConflict,
+    summary: &mut ImportSummary,
+) -> Result<(), StatusCode> {
+    if matches!(oc, OnConflict::Skip) {
+        let templates = state.storage.list_templates().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if let Some(ex) = templates.iter().find(|t| t.name == ls.template.name) {
+            summary.skipped.push(item("template", &ex.id, &ex.name));
+            return Ok(());
+        }
+    }
+    state.storage.create_template(&ls.template).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    for d in &ls.definitions {
+        state.storage.create_definition(d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    // Container nodes (history/content) before refs, mirroring persist_loreset's
+    // self-referential-FK ordering (preset refs are all roots, but keep it safe).
+    let (containers, refs): (Vec<PromptNode>, Vec<PromptNode>) =
+        ls.nodes.into_iter().partition(|n| n.kind != NodeKind::Ref);
+    for n in containers.into_iter().chain(refs) {
+        state.storage.create_node(&n).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    }
+    summary.created.push(item("template", &ls.template.id, &ls.template.name));
+    Ok(())
+}
+
 /// POST /api/import — multipart 单 `file`。按内容 sniff 来源并落库。
 pub async fn import(
     State(state): State<AppState>,
@@ -380,7 +419,7 @@ pub async fn import(
     mp: Multipart,
 ) -> Result<Json<ImportSummary>, StatusCode> {
     let oc = OnConflict::parse(q.on_conflict.as_deref());
-    let bytes = first_field_bytes(mp).await?;
+    let (bytes, filename) = first_field(mp).await?;
     let mut summary = ImportSummary::default();
 
     // 1) PNG → ST 角色卡 + 头像。
@@ -413,10 +452,24 @@ pub async fn import(
             persist_pack_bundle(&state, &v, &HashMap::new(), oc, &mut summary).await?;
         }
         _ => {
+            // Structural sniff for an ST chat-completion preset (no `format`
+            // field): both `prompts` and `prompt_order` are arrays. Checked
+            // before the char-card/worldinfo heuristics.
+            let is_preset = v.get("prompts").map(|p| p.is_array()).unwrap_or(false)
+                && v.get("prompt_order").map(|o| o.is_array()).unwrap_or(false);
             let is_card = v.get("spec").and_then(|s| s.as_str()).map(|s| s.contains("chara_card")).unwrap_or(false)
                 || v.get("data").and_then(|d| d.get("name")).is_some()
                 || (v.get("name").is_some() && v.get("description").is_some());
-            if is_card {
+            if is_preset {
+                // Filename stem -> template name; empty -> adapter's unique fallback.
+                let name = filename.as_deref().unwrap_or("");
+                let ls = stpreset_to_loreset(&v, name);
+                // Nothing usable (empty/missing enabled order) -> 400, not an empty template.
+                if ls.definitions.is_empty() && !ls.nodes.iter().any(|n| n.kind == NodeKind::Content) {
+                    return Err(StatusCode::BAD_REQUEST);
+                }
+                persist_preset(&state, ls, oc, &mut summary).await?;
+            } else if is_card {
                 persist_loreset(&state, charcard_to_loreset(&v), oc, &mut summary).await?;
             } else if v.get("entries").is_some() {
                 persist_defs(&state, shirita_core::worldinfo_to_defs(&v), oc, &mut summary).await?;
