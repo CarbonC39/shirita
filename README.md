@@ -1,11 +1,13 @@
 # Shirita
 
-**A local-first, privacy-focused AI chat engine.** Rust backend + Vue frontend, sharing the same `shirita-core` across web and desktop (Tauri). Think self-hosted SillyTavern, designed for roleplay, creative writing, and in-depth conversation.
+**Experimental SillyTavern alternative — Rust + Vue, self-hosted, in development.**
 
-- **Self-contained** — one binary, SQLite storage, offline-capable with local models
+A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrite. Many features work (prompt trees, variables, import/export, branching), but the project is pre-1.0 — expect rough edges, breaking changes, and incomplete documentation. Not yet a daily driver.
+
+- **Self-hosted** — Docker image or static-musl binary, SQLite storage, BYO model API key
 - **No telemetry, no cloud, no account required**
-- **Dual target** — web (standalone Axum server) and desktop (Tauri + embedded Axum)
-- **Privacy-first** — API keys stay on your machine, all data local
+- **Development stage** — works for tinkering; not production-ready
+- **Dual build target** — web (standalone Axum server, `--features embed-ui`) and desktop (Tauri + embedded Axum)
 
 ---
 
@@ -50,15 +52,22 @@ shirita/
 
 ## Quick start
 
-### Prerequisites
+### Docker (recommended)
 
-| Tool | Version | Notes |
-|------|---------|-------|
-| Rust | 1.80+ | `rustup update` |
-| Node.js | 20+ | for the frontend |
-| npm | 10+ | ships with Node |
+```bash
+export TOKEN_SECRET=$(openssl rand -hex 32)
+docker run -d --name shirita -p 8787:8787 \
+  -e TOKEN_SECRET="$TOKEN_SECRET" \
+  -e PROVIDER=openai -e OPENAI_API_KEY=sk-... \
+  -v shirita-data:/data \
+  ghcr.io/carbonc39/shirita:latest
+```
 
-### Web (development)
+Open `http://localhost:8787`. See [`docs/deploy.md`](docs/deploy.md) for compose, env reference, and hardening notes.
+
+### From source (development)
+
+Requires Rust 1.80+ and Node.js 20+.
 
 ```bash
 # Terminal 1 — backend
@@ -68,7 +77,7 @@ TOKEN_SECRET=dev cargo run -p shirita-web
 npm --prefix shirita-ui run dev
 ```
 
-Then open `http://localhost:5173`. The default API secret is `dev`.
+Open `http://localhost:5173`. The API secret is `dev`.
 
 ### Desktop (Tauri)
 
