@@ -206,10 +206,34 @@ pub fn strip_comments(input: &str) -> String {
     out
 }
 
+/// ST stores `findRegex` either as a raw pattern or as a JS regex literal
+/// `/pattern/flags` (e.g. `/<update>(.*)<\/update>/gsi`). Strip the delimiters
+/// and translate supported flags into fancy-regex's inline `(?ismx)` syntax
+/// so both forms compile to the same regex (`g` has no inline equivalent —
+/// `replace_all` is already "replace every match").
+fn normalize_js_regex_literal(pattern: &str) -> String {
+    let bytes = pattern.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'/' {
+        return pattern.to_string();
+    }
+    let Some(close) = pattern.rfind('/').filter(|&i| i > 0) else { return pattern.to_string() };
+    let flags = &pattern[close + 1..];
+    if !flags.bytes().all(|b| matches!(b, b'i' | b's' | b'm' | b'x' | b'g' | b'u' | b'y')) {
+        return pattern.to_string(); // trailing "/..." isn't a flag set — treat as a literal pattern
+    }
+    let body = &pattern[1..close];
+    let inline: String = flags.chars().filter(|c| matches!(c, 'i' | 's' | 'm' | 'x')).collect();
+    if inline.is_empty() {
+        body.to_string()
+    } else {
+        format!("(?{inline}){body}")
+    }
+}
+
 /// 校验一条 regex_rule 的 pattern 能否编译（创作期使用；空 pattern 视为合法/无操作）。
 /// 用 fancy-regex 引擎（支持 lookaround / 反向引用，吃下 ST 兼容）。
 pub fn is_valid_regex(pattern: &str) -> bool {
-    fancy_regex::Regex::new(pattern).is_ok()
+    fancy_regex::Regex::new(&normalize_js_regex_literal(pattern)).is_ok()
 }
 
 /// 编译错误信息（合法或空 pattern 返回 None），供 UI 标记失效规则。
@@ -217,7 +241,7 @@ pub fn regex_error(pattern: &str) -> Option<String> {
     if pattern.is_empty() {
         return None;
     }
-    fancy_regex::Regex::new(pattern).err().map(|e| e.to_string())
+    fancy_regex::Regex::new(&normalize_js_regex_literal(pattern)).err().map(|e| e.to_string())
 }
 
 /// regex_rule 作用对象（哪一侧消息）。
@@ -269,7 +293,7 @@ pub fn apply_regex_rules_for(
         let pattern = rule.meta.get("pattern").and_then(|v| v.as_str());
         let replacement = rule.meta.get("replacement").and_then(|v| v.as_str()).unwrap_or("");
         if let Some(p) = pattern {
-            match fancy_regex::Regex::new(p) {
+            match fancy_regex::Regex::new(&normalize_js_regex_literal(p)) {
                 Ok(re) => {
                     out = re.replace_all(&out, replacement).into_owned();
                     ran = true;
@@ -931,6 +955,25 @@ mod tests {
         let mut r = def("regex_rule", "r", "");
         r.meta = json!({ "pattern": r"(?<=\d)px", "replacement": "" });
         assert_eq!(apply_regex_rules("12px and apx", &[r]).as_deref(), Some("12 and apx"));
+    }
+
+    #[test]
+    fn apply_regex_rules_supports_js_literal_pattern() {
+        // ST regex_scripts may store `findRegex` as a JS literal `/pattern/flags`
+        // instead of a raw pattern; both forms must work identically.
+        let mut r = def("regex_rule", "r", "");
+        r.meta = json!({ "pattern": "/<update>(.*)<\\/update>/gsi", "replacement": "[$1]" });
+        assert_eq!(
+            apply_regex_rules("a<update>hp 10</update>b", &[r]).as_deref(),
+            Some("a[hp 10]b")
+        );
+    }
+
+    #[test]
+    fn apply_regex_rules_js_literal_case_insensitive_flag() {
+        let mut r = def("regex_rule", "r", "");
+        r.meta = json!({ "pattern": "/HELLO/i", "replacement": "hi" });
+        assert_eq!(apply_regex_rules("hello world", &[r]).as_deref(), Some("hi world"));
     }
 
     #[test]
