@@ -75,6 +75,19 @@ async fn import_charcard_creates_pack() {
 }
 
 #[tokio::test]
+async fn import_charcard_with_status_bar_reports_a_panel_item() {
+    let state = test_state().await;
+    let card = r#"{"data":{"name":"Neo","description":"d","extensions":{"regex_scripts":[
+        {"scriptName":"status","findRegex":"<hp>(\\d+)</hp>","replaceString":"HP: $1","disabled":false,"markdownOnly":true}
+    ]}}}"#;
+    let (st, body) = send(&state, "POST", "/api/import/charcard", Some(card)).await;
+    assert_eq!(st, StatusCode::OK);
+    let summary: Value = serde_json::from_str(&body).unwrap();
+    let created = summary["created"].as_array().unwrap();
+    assert!(created.iter().any(|c| c["kind"] == "panel"), "expected a panel item in created: {created:?}");
+}
+
+#[tokio::test]
 async fn unrelated_cards_dont_share_a_same_named_regex_rule() {
     // Bug: regex_rule defs were deduped by name+def_type across charcard
     // imports, so two unrelated cards whose ST regex script happened to share
