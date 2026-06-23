@@ -164,6 +164,22 @@ struct PanelConversion {
     capture_vars: Vec<Option<String>>,
 }
 
+/// True if `html` cannot be represented as Panel content: either it's a
+/// full standalone document (contains an `<html`, `<head`, or `<body`
+/// opening tag — a `$N`-template status bar is, by definition, a fragment
+/// meant to be spliced into an existing page, not a complete document), or
+/// it relies on inline event-handler attributes (`onclick=...` etc. —
+/// `sanitizePanelHtml` strips every `on*=` attribute, so a template that
+/// needs one for its core interactivity cannot function as a Panel and
+/// must stay on the compatibility layer where its handlers actually run).
+fn is_unrepresentable_as_panel(html: &str) -> bool {
+    static DOC_TAG_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)<(?:html|head|body)\b").unwrap());
+    static INLINE_HANDLER_RE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)\bon[a-z]+\s*=").unwrap());
+    DOC_TAG_RE.is_match(html) || INLINE_HANDLER_RE.is_match(html)
+}
+
 /// Detect and convert the card's status-bar `regex_scripts` entry, if there
 /// is exactly one unambiguous candidate. Returns `None` when zero or
 /// multiple scripts qualify — ambiguous detections are skipped rather than
@@ -210,6 +226,9 @@ fn try_convert_status_panel(scripts: &[serde_json::Value]) -> Option<PanelConver
     let c = candidates.into_iter().next().unwrap();
 
     let substituted = substitute_dollar_refs(&c.replace_string, &c.valid_ns);
+    if is_unrepresentable_as_panel(&substituted) {
+        return None;
+    }
     let (no_style, style_blocks) = extract_tag_blocks(&substituted, "style");
     let (html, _script_blocks) = extract_tag_blocks(&no_style, "script"); // script content is dropped, never preserved
 
@@ -601,6 +620,39 @@ mod tests {
     }
 
     #[test]
+    fn try_convert_status_panel_skips_full_html_document() {
+        // A candidate whose replaceString is a complete standalone document
+        // (not a fragment) cannot become Panel content — Panel forbids
+        // <html>/<head>/<body> document-wrapper structure.
+        let scripts = vec![script(
+            r"<hp>(\d+)</hp>",
+            "<!DOCTYPE html><html><body><div>HP: $1</div></body></html>",
+        )];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_skips_inline_event_handlers() {
+        // A fragment (no <html> wrapper) that still relies on inline
+        // on*= handlers for its core interactivity cannot work as a Panel
+        // (sanitizePanelHtml strips all on*= attributes).
+        let scripts = vec![script(
+            r"<hp>(\d+)</hp>",
+            r#"<div onclick="doStuff()">HP: $1</div>"#,
+        )];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_accepts_plain_fragment_without_handlers() {
+        // Sanity check: the new rejection check must not affect a normal,
+        // already-passing fragment candidate (no <html>, no on*=).
+        let scripts = vec![script(r"<hp>(\d+)</hp>", "<div class=\"bar\">HP: $1</div>")];
+        let conv = try_convert_status_panel(&scripts).expect("plain fragment must still convert");
+        assert_eq!(conv.html, "<div class=\"bar\">HP: {{field1}}</div>");
+    }
+
+    #[test]
     fn decomposes_every_nonempty_field() {
         let card = serde_json::json!({
             "spec": "chara_card_v3", "spec_version": "3.0",
@@ -782,6 +834,33 @@ mod tests {
         assert!(ls.template.meta.get("panel").is_none());
         let rule = ls.definitions.iter().find(|d| d.def_type == "regex_rule").unwrap();
         assert!(rule.meta.get("capture_vars").is_none());
+    }
+
+    #[test]
+    fn charcard_to_loreset_omits_panel_for_full_document_status_bar() {
+        // Reproduces the 密教模拟器.json shape: a single $N-template candidate
+        // whose replaceString is a complete HTML document with onclick
+        // handlers and id-based CSS — must stay on the compatibility layer
+        // (regex_rule untouched, no panel written) rather than become a
+        // broken Panel.
+        let card = serde_json::json!({
+            "data": {
+                "name": "Cultist", "description": "desc",
+                "extensions": { "regex_scripts": [
+                    { "scriptName": "status", "findRegex": "<hp>(\\d+)</hp>",
+                      "replaceString": "<!DOCTYPE html><html><head><style>#bar{color:red}</style></head><body><div id=\"bar\" onclick=\"tick()\">HP: $1</div></body></html>",
+                      "disabled": false, "markdownOnly": true }
+                ] }
+            }
+        });
+        let ls = charcard_to_loreset(&card);
+        assert!(ls.template.meta.get("panel").is_none());
+        let rule = ls.definitions.iter().find(|d| d.def_type == "regex_rule").unwrap();
+        assert!(rule.meta.get("capture_vars").is_none());
+        // the compatibility-layer fields are untouched — this script still
+        // works exactly as before via apply_regex_rules_for + HtmlCardFrame.
+        assert_eq!(rule.meta["pattern"], "<hp>(\\d+)</hp>");
+        assert!(rule.meta["replacement"].as_str().unwrap().contains("onclick=\"tick()\""));
     }
 
     #[test]
