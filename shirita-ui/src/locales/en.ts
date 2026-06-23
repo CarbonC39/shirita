@@ -191,6 +191,7 @@ const en = {
     capWrite: 'write vars',
     capInsert: 'fill input',
     capSend: 'send',
+    panelPreview: 'Preview',
   },
   definition: {
     heading: 'Definition',

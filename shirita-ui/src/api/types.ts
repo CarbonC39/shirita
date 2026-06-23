@@ -114,6 +114,9 @@ export interface SessionPanel {
   html: string
   css: string
   caps: PanelCaps
+  /** Hide the panel header until the chat has at least this many messages.
+   *  Absent/0 = always show (default). */
+  min_messages?: number
 }
 
 /** A user interaction reported by a panel; the host decides whether to honor it. */

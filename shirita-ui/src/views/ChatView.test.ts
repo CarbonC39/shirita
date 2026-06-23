@@ -136,6 +136,48 @@ describe('ChatView', () => {
     expect(w.html()).toContain('Status')
   })
 
+  it('hides a panel until the chat reaches its min_messages threshold', async () => {
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null, mounted_packs: ['p1'] } as never)
+    vi.spyOn(client, 'getPack').mockResolvedValue({
+      id: 'p1', name: 'Alice', identity: { display_name: null, avatar: null },
+      meta: { panel: { html: '<span>x</span>', css: '', caps: {}, min_messages: 2 } },
+      created_at: '', updated_at: '',
+    } as never)
+    const oneMessage = [{
+      id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }]
+    vi.spyOn(client, 'listMessages').mockResolvedValue(oneMessage)
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const w = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(w.find('[data-test="panel-stack"]').exists()).toBe(false)
+  })
+
+  it('shows a panel once the chat reaches its min_messages threshold', async () => {
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null, mounted_packs: ['p1'] } as never)
+    vi.spyOn(client, 'getPack').mockResolvedValue({
+      id: 'p1', name: 'Alice', identity: { display_name: null, avatar: null },
+      meta: { panel: { html: '<span>x</span>', css: '', caps: {}, min_messages: 2 } },
+      created_at: '', updated_at: '',
+    } as never)
+    const twoMessages = [0, 1].map((i) => ({
+      id: `m${i}`, session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }))
+    vi.spyOn(client, 'listMessages').mockResolvedValue(twoMessages)
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const w = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(w.find('[data-test="panel-stack"]').exists()).toBe(true)
+  })
+
   it('prefers $assistant_name and $avatar overrides over the resolved identity', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({

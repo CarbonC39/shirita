@@ -181,6 +181,7 @@ const zhHans: MessageSchema = {
     capWrite: '改变量',
     capInsert: '填输入框',
     capSend: '发送',
+    panelPreview: '预览',
   },
   definition: {
     heading: '定义',
