@@ -100,6 +100,36 @@ pub async fn ensure_asset_hashes<S: Storage + ?Sized>(storage: &S, assets_dir: &
     Ok(())
 }
 
+/// One-time backfill for the `is_global` regex-rule flag (added after global
+/// rules were inferred from "zero references" instead of stored explicitly —
+/// see `conversation::effective_regex_rules`). Every `regex_rule` Definition
+/// that is currently unreferenced gets `is_global: true` so already-relied-
+/// upon global rules keep applying after the flag becomes the source of
+/// truth. Idempotent — a rule that already has `is_global` set (true or
+/// false) is left untouched, so this never re-flips a rule a user has since
+/// explicitly turned off.
+pub async fn ensure_global_regex_flag<S: Storage + ?Sized>(storage: &S) -> Result<()> {
+    let referenced: std::collections::HashSet<String> =
+        storage.referenced_definition_ids().await?.into_iter().collect();
+    for def in storage.list_definitions().await? {
+        if def.def_type != "regex_rule" {
+            continue;
+        }
+        if def.meta.get("is_global").is_some() {
+            continue;
+        }
+        if referenced.contains(&def.id) {
+            continue;
+        }
+        let mut updated = def.clone();
+        if let Some(obj) = updated.meta.as_object_mut() {
+            obj.insert("is_global".to_string(), serde_json::json!(true));
+        }
+        storage.update_definition(&updated).await?;
+    }
+    Ok(())
+}
+
 /// Seed the builtin `protocol` definitions (fixed ids, create-if-absent so it is
 /// idempotent and self-heals if one was deleted). Their content is the static
 /// protocol text the engine injects (see conversation::assemble_request).
@@ -221,5 +251,29 @@ mod tests {
 
         let got = storage.get_asset(&a.id).await.unwrap().unwrap();
         assert_eq!(got.hash.as_deref(), Some(crate::sha256_hex(b"hello-bytes").as_str()));
+    }
+
+    #[tokio::test]
+    async fn ensure_global_regex_flag_backfills_unreferenced_rules_without_clobbering_explicit_false() {
+        let storage = mem_storage().await;
+
+        // No is_global key at all, unreferenced -> should become true.
+        let mut unflagged = Definition::new("regex_rule", "unflagged", "");
+        unflagged.meta = serde_json::json!({ "pattern": "a", "replacement": "" });
+        storage.create_definition(&unflagged).await.unwrap();
+
+        // Already explicitly false -> must stay false, not be overwritten.
+        let mut explicit_false = Definition::new("regex_rule", "explicit-false", "");
+        explicit_false.meta = serde_json::json!({ "pattern": "b", "replacement": "", "is_global": false });
+        storage.create_definition(&explicit_false).await.unwrap();
+
+        crate::ensure_global_regex_flag(&storage).await.unwrap();
+        crate::ensure_global_regex_flag(&storage).await.unwrap(); // idempotent
+
+        let got_unflagged = storage.get_definition(&unflagged.id).await.unwrap().unwrap();
+        assert_eq!(got_unflagged.meta["is_global"], true);
+
+        let got_explicit_false = storage.get_definition(&explicit_false.id).await.unwrap().unwrap();
+        assert_eq!(got_explicit_false.meta["is_global"], false);
     }
 }

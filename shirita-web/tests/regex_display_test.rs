@@ -60,10 +60,10 @@ async fn list_messages_applies_display_regex_at_read_time() {
     let session = Session::new("Chat");
     state.storage.create_session(&session).await.unwrap();
 
-    // Global orphan rule: strip "SECRET" from AI output for display only.
+    // Explicit global rule: strip "SECRET" from AI output for display only.
     let mut rule = Definition::new("regex_rule", "redact", "");
     rule.meta = serde_json::json!({
-        "pattern": "SECRET", "replacement": "", "scope": "display", "targets": ["ai_output"]
+        "pattern": "SECRET", "replacement": "", "scope": "display", "targets": ["ai_output"], "is_global": true
     });
     state.storage.create_definition(&rule).await.unwrap();
 
@@ -79,7 +79,7 @@ async fn list_messages_applies_display_regex_at_read_time() {
 
     // Editing the rule reflects immediately on the next fetch — no re-write.
     rule.meta = serde_json::json!({
-        "pattern": "SECRET", "replacement": "[redacted]", "scope": "display", "targets": ["ai_output"]
+        "pattern": "SECRET", "replacement": "[redacted]", "scope": "display", "targets": ["ai_output"], "is_global": true
     });
     state.storage.update_definition(&rule).await.unwrap();
     let out = messages(&state, &session.id).await;
@@ -102,7 +102,7 @@ async fn list_messages_skips_rp_regex_on_a_fenced_html_card_document() {
 
     let mut rule = Definition::new("regex_rule", "redact", "");
     rule.meta = serde_json::json!({
-        "pattern": "SECRET", "replacement": "", "scope": "display", "targets": ["ai_output"]
+        "pattern": "SECRET", "replacement": "", "scope": "display", "targets": ["ai_output"], "is_global": true
     });
     state.storage.create_definition(&rule).await.unwrap();
 

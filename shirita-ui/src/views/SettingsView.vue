@@ -962,6 +962,7 @@ async function handleTestConnection() {
                                     disabled: false,
                                     scope: 'display',
                                     targets: ['ai_output'],
+                                    is_global: true,
                                 },
                             });
                             regexRules = [...regexRules, created];

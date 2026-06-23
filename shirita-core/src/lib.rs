@@ -60,7 +60,7 @@ pub use portable::{
 };
 pub use seed::{
     ensure_asset_hashes, ensure_builtin_definitions, ensure_default_template,
-    ensure_templates_have_content_node,
+    ensure_global_regex_flag, ensure_templates_have_content_node,
 };
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema_from_bricks,
