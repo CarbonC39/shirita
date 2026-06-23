@@ -24,7 +24,12 @@ pub trait Storage: Send + Sync {
     /// Definitions of a single `def_type`, filtered in SQL (no full-table load).
     async fn list_definitions_by_type(&self, def_type: &str) -> Result<Vec<Definition>>;
     /// Distinct `definition_id`s referenced by any prompt node (all owners).
-    /// Lets callers tell orphan ("global") defs from tree-mounted ones.
+    /// NOTE: a `regex_rule` Definition with `meta.is_global == true` is, by
+    /// design, never referenced by any node — "unreferenced" is NOT the same
+    /// as "safe to treat as dead/orphaned" for that one def_type. Any new
+    /// code built on this method that reasons about orphans/cleanup must
+    /// explicitly exclude `def_type == "regex_rule" && meta.is_global == true`
+    /// rows, the way `effective_regex_rules` and `list_regex_scopes` do.
     async fn referenced_definition_ids(&self) -> Result<Vec<String>>;
     /// `(template name, definition id)` for every template-owned ref node, via a
     /// single JOIN — replaces a per-template `list_nodes` N+1.
