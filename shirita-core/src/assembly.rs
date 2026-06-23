@@ -323,6 +323,9 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
 pub fn capture_panel_updates(text: &str, rules: &[Definition]) -> Vec<Update> {
     let mut out = Vec::new();
     for rule in rules {
+        if rule.meta.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            continue;
+        }
         let Some(capture_vars) = rule.meta.get("capture_vars").and_then(|v| v.as_array()) else {
             continue;
         };
@@ -988,6 +991,16 @@ mod tests {
         let mut r = def("regex_rule", "status", "");
         r.meta = json!({ "pattern": "<hp>(\\d+)</hp>", "replacement": "$1", "capture_vars": ["hp"] });
         assert_eq!(capture_panel_updates("no tags here", &[r]), Vec::new());
+    }
+
+    #[test]
+    fn capture_panel_updates_skips_disabled_rules() {
+        let mut r = def("regex_rule", "status", "");
+        r.meta = json!({
+            "pattern": "<hp>(\\d+)</hp>", "replacement": "$1", "capture_vars": ["hp"],
+            "disabled": true,
+        });
+        assert_eq!(capture_panel_updates("<hp>42</hp>", &[r]), Vec::new());
     }
 
     #[test]

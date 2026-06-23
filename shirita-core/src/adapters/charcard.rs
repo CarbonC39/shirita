@@ -115,7 +115,10 @@ fn substitute_dollar_refs(replace_string: &str, valid_ns: &[usize]) -> String {
         std::sync::LazyLock::new(|| regex::Regex::new(r"\$(\d+)").unwrap());
     DOLLAR_RE
         .replace_all(replace_string, |caps: &regex::Captures| {
-            let n: usize = caps[1].parse().unwrap();
+            // A digit run too large for usize can never be a valid group ref
+            // (valid_ns only holds 1..=group_count); fall back to 0 to fail
+            // the contains() check below rather than panicking.
+            let n: usize = caps[1].parse().unwrap_or(0);
             if valid_ns.contains(&n) {
                 let mut s = String::from("{{field");
                 s.push_str(&n.to_string());
@@ -473,6 +476,13 @@ mod tests {
     fn substitute_dollar_refs_replaces_only_valid_refs() {
         let out = substitute_dollar_refs("a:$1 b:$10 c:$3", &[1, 3]);
         assert_eq!(out, "a:{{field1}} b:$10 c:{{field3}}");
+    }
+
+    #[test]
+    fn substitute_dollar_refs_does_not_panic_on_overflowing_digit_run() {
+        // A digit run too large for usize must be left exactly as-is, not panic.
+        let out = substitute_dollar_refs("$1 $99999999999999999999999999", &[1]);
+        assert_eq!(out, "{{field1}} $99999999999999999999999999");
     }
 
     #[test]
