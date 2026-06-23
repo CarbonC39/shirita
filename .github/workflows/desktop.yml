@@ -16,8 +16,14 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-latest
+            os_name: linux
+            arch: x86_64
           - platform: macos-latest
+            os_name: macos
+            arch: aarch64
           - platform: windows-latest
+            os_name: windows
+            arch: x86_64
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -57,12 +63,13 @@ jobs:
       - name: Upload installers
         uses: actions/upload-artifact@v4
         with:
-          name: shirita-${{ matrix.platform }}
+          name: shirita-${{ matrix.os_name }}-${{ matrix.arch }}
           path: |
             target/release/bundle/appimage/*.AppImage
             target/release/bundle/deb/*.deb
             target/release/bundle/dmg/*.dmg
             target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
           if-no-files-found: ignore
 
   release:
@@ -78,7 +85,7 @@ jobs:
       - name: Flatten for release
         run: |
           mkdir -p upload
-          find release-artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.msi" \) -exec cp {} upload/ \;
+          find release-artifacts -type f \( -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" -o -name "*.msi" -o -name "*.exe" \) -exec cp {} upload/ \;
           ls -la upload/
 
       - uses: softprops/action-gh-release@v2
