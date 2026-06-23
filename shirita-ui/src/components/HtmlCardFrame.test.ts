@@ -15,10 +15,10 @@ function postReport(data: unknown) {
 }
 
 describe('HtmlCardFrame', () => {
-  it('starts at the default 640px height before any size report', () => {
+  it('starts at the MIN_HEIGHT floor before any size report', () => {
     const w = mount(HtmlCardFrame, { props: { html: '<p>hi</p>' } })
     const iframe = w.find('iframe').element as HTMLIFrameElement
-    expect(iframe.style.height).toBe('640px')
+    expect(iframe.style.height).toBe('80px')
   })
 
   it('resizes to a reported height carrying its own token', async () => {
@@ -34,7 +34,7 @@ describe('HtmlCardFrame', () => {
     postReport({ source: 'shirita-html-card', token: 'not-the-real-token', height: 1200 })
     await w.vm.$nextTick()
     const iframe = w.find('iframe').element as HTMLIFrameElement
-    expect(iframe.style.height).toBe('640px')
+    expect(iframe.style.height).toBe('80px')
   })
 
   it('ignores a message with a different source tag', async () => {
@@ -42,7 +42,7 @@ describe('HtmlCardFrame', () => {
     postReport({ source: 'something-else', token: tokenOf(w), height: 1200 })
     await w.vm.$nextTick()
     const iframe = w.find('iframe').element as HTMLIFrameElement
-    expect(iframe.style.height).toBe('640px')
+    expect(iframe.style.height).toBe('80px')
   })
 
   it('clamps a too-small reported height up to 80px', async () => {
@@ -75,6 +75,6 @@ describe('HtmlCardFrame', () => {
     await a.vm.$nextTick()
     await b.vm.$nextTick()
     expect((a.find('iframe').element as HTMLIFrameElement).style.height).toBe('999px')
-    expect((b.find('iframe').element as HTMLIFrameElement).style.height).toBe('640px')
+    expect((b.find('iframe').element as HTMLIFrameElement).style.height).toBe('80px')
   })
 })

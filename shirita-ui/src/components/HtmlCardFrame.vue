@@ -60,10 +60,17 @@ const srcdoc = computed(() => {
   return `<style>html,body{background:${bg};color:${fg};margin:0}</style>${props.html}${resizeScript(token)}`
 })
 
-const DEFAULT_HEIGHT = 640
+// Starting small (not a guessed "typical" height like the old 640px default)
+// is deliberate: scrollHeight is defined as max(box height, content height),
+// so a box that starts TALLER than the eventual content can never report
+// smaller than its own starting height — it plateaus. A card using vh/%-based
+// sizing (common for flex-centered layouts) resolves against whatever height
+// the iframe currently has; starting at the small MIN_HEIGHT floor instead of
+// a large guess means the box is virtually always ≤ content, so scrollHeight
+// naturally grows to match content from below with no plateau risk.
 const MIN_HEIGHT = 80
 const MAX_HEIGHT = 4000
-const height = ref(DEFAULT_HEIGHT)
+const height = ref(MIN_HEIGHT)
 
 function onMessage(e: MessageEvent) {
   const data = e.data as { source?: string; token?: string; height?: number } | null
