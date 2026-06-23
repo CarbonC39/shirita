@@ -401,9 +401,10 @@ pub fn send_message(
 
         // 4) 折叠 <state_update> 进快照、剥离展示文本，落库 assistant 消息，再 yield Done。
         // 转换面板的捕获变量（regex_rule.meta.capture_vars）与 state_update 标签
-        // 同步折叠：前者只读提取，不影响展示文本剥离。
-        let mut updates = parse_state_updates(&full);
-        updates.extend(capture_panel_updates(&full, &regex_rules));
+        // 同步折叠：前者只读提取，不影响展示文本剥离。捕获在前、state_update 在后——
+        // 同名 key 冲突时模型的显式指令优先于附带提取到的值（apply_updates 按序，后者覆盖前者）。
+        let mut updates = capture_panel_updates(&full, &regex_rules);
+        updates.extend(parse_state_updates(&full));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
         let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
@@ -487,8 +488,9 @@ pub fn regenerate(
                 Err(e) => { yield SendEvent::Error(e.to_string()); return; }
             }
         }
-        let mut updates = parse_state_updates(&full);
-        updates.extend(capture_panel_updates(&full, &regex_rules));
+        // 同上：捕获在前、state_update 在后，冲突时显式指令优先。
+        let mut updates = capture_panel_updates(&full, &regex_rules);
+        updates.extend(parse_state_updates(&full));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
@@ -1048,6 +1050,47 @@ mod tests {
         let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
         assert_eq!(assistant.snapshot_state["hp"], 95); // <state_update> tag still folds in
         assert_eq!(assistant.snapshot_state["field1"], "calm"); // regex capture folds in too
+    }
+
+    #[tokio::test]
+    async fn explicit_state_update_tag_wins_over_panel_capture_on_key_collision() {
+        // If a converted panel's capture variable shares a name with one the
+        // model also sets explicitly via <state_update>, the explicit tag —
+        // the model's deliberate instruction — must win, not whichever update
+        // happens to be appended last.
+        let storage = Arc::new(temp_storage().await);
+        let mut t = crate::models::template::Template::new("T");
+        t.meta = serde_json::json!({ "variables": [
+            { "name": "mood", "type": "string", "initial": "" }
+        ] });
+        storage.create_template(&t).await.unwrap();
+
+        let mut rule = Definition::new("regex_rule", "status", "");
+        rule.meta = serde_json::json!({
+            "pattern": "<mood>(\\w+)</mood>",
+            "replacement": "$1",
+            "capture_vars": ["mood"]
+        });
+        storage.create_definition(&rule).await.unwrap();
+
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        session.current_state = serde_json::json!({ "mood": "" });
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "<mood>calm</mood> <state_update action=\"SET\" key=\"mood\" value=\"furious\"/>".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(assistant.snapshot_state["mood"], "furious");
     }
 
     #[tokio::test]
