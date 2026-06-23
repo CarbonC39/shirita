@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X, Trash2 } from 'lucide-vue-next'
 import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
+import { containsHtmlCard } from '../utils/markdown'
 import { useMediaStore } from '../stores/media'
 import { formatTokens } from '../utils/tokens'
 import { assetUrl } from '../api/client'
@@ -38,6 +39,9 @@ const avatarUrl = computed(() => (side.value?.avatar ? assetUrl(side.value.avata
 const label = displayName
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)
+// HTML cards are rich, self-contained content meant to use the full message-row
+// width — the 78% cap below is a chat-bubble-text aesthetic that squeezes them.
+const isCard = computed(() => containsHtmlCard(displayText.value))
 
 const media = useMediaStore()
 onMounted(() => { media.load('avatar'); media.load('background') })
@@ -66,7 +70,7 @@ function cancelEdit() { editing.value = false }
     <div v-if="isAssistant" data-test="assistant-avatar" class="w-8 h-8 rounded-full bg-sky/40 shrink-0 mt-0.5 overflow-hidden">
       <img v-if="avatarUrl" :src="avatarUrl" class="w-full h-full object-cover rounded-full" alt="" />
     </div>
-    <div :class="['max-w-[78%]', isUser ? 'order-first' : '']">
+    <div data-test="msg-bubble-wrapper" :class="[isCard ? 'max-w-full' : 'max-w-[78%]', isUser ? 'order-first' : '']">
       <div
         :class="[
           'px-3.5 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap',

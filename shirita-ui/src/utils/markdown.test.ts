@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseMarkdown } from './markdown'
+import { parseMarkdown, containsHtmlCard } from './markdown'
 
 // Helper: a single-paragraph document wraps its inline content in a paragraph
 // block, so tests can focus on the inline parsing shape.
@@ -119,5 +119,24 @@ describe('parseMarkdown', () => {
         { children: [{ type: 'text', value: 'todo' }], checked: false },
       ] },
     ])
+  })
+})
+
+describe('containsHtmlCard', () => {
+  it('is true for a raw HTML document', () => {
+    expect(containsHtmlCard('<!DOCTYPE html><html><body>x</body></html>')).toBe(true)
+  })
+
+  it('is true for a fenced ```html code block', () => {
+    expect(containsHtmlCard('before\n```html\n<div>x</div>\n```\nafter')).toBe(true)
+  })
+
+  it('is true for an unlabeled fenced block whose content looks like a document', () => {
+    expect(containsHtmlCard('```\n<!doctype html><html></html>\n```')).toBe(true)
+  })
+
+  it('is false for plain text and non-html fenced code', () => {
+    expect(containsHtmlCard('just text')).toBe(false)
+    expect(containsHtmlCard('```js\nconst x = 1\n```')).toBe(false)
   })
 })
