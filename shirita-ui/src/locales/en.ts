@@ -140,6 +140,7 @@ const en = {
     exportPackTitle: 'Export pack (.zip / .json)',
     importSummary:
       'Imported: {created} created, {skipped} skipped, {overwritten} overwritten.',
+    importPanelDetected: 'Detected a status bar — generated a native panel preview.',
     templateNamePlaceholder: 'Template name',
     draftHint: 'Save this template to start building its node tree.',
     exportDefinition: 'Export this definition',

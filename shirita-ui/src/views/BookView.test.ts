@@ -116,4 +116,19 @@ describe('BookView scopes', () => {
     await flushPromises()
     expect(w.find('[data-test="pack-editor"]').exists()).toBe(true)
   })
+
+  it('shows a hint when the import summary includes a converted panel', async () => {
+    ;(api.importFile as any).mockResolvedValue({
+      created: [{ kind: 'pack', id: 'p1', name: 'Neo' }, { kind: 'panel', id: 'p1', name: 'Neo' }],
+      skipped: [],
+      overwritten: [],
+    })
+    const w = mount(BookView)
+    await flushPromises()
+    const input = w.find('input[type="file"]').element as HTMLInputElement
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'card.png')], configurable: true })
+    await w.find('input[type="file"]').trigger('change')
+    await flushPromises()
+    expect(w.text()).toContain('Detected a status bar')
+  })
 })

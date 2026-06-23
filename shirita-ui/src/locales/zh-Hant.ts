@@ -132,6 +132,7 @@ const zhHant: MessageSchema = {
     exportTemplateTitle: '匯出範本（已啟用部分）',
     exportPackTitle: '匯出 Pack（.zip / .json）',
     importSummary: '已匯入：新增 {created} 個，跳過 {skipped} 個，覆寫 {overwritten} 個。',
+    importPanelDetected: '偵測到狀態列，已產生原生面板預覽。',
     templateNamePlaceholder: '範本名稱',
     draftHint: '儲存此範本後即可開始建構其節點樹。',
     exportDefinition: '匯出此定義',

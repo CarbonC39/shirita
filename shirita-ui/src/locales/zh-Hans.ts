@@ -132,6 +132,7 @@ const zhHans: MessageSchema = {
     exportTemplateTitle: '导出模板（已启用部分）',
     exportPackTitle: '导出 Pack（.zip / .json）',
     importSummary: '已导入：新建 {created} 个，跳过 {skipped} 个，覆盖 {overwritten} 个。',
+    importPanelDetected: '检测到状态栏，已生成原生面板预览。',
     templateNamePlaceholder: '模板名称',
     draftHint: '保存此模板后即可开始搭建其节点树。',
     exportDefinition: '导出此定义',
