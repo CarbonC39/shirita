@@ -1002,6 +1002,14 @@ async function duplicateDef() {
                 }}
             </p>
 
+            <p
+                v-if="importSummary && importSummary.created.some((c) => c.kind === 'panel')"
+                data-test="import-panel-hint"
+                class="text-[12px] text-muted mt-1"
+            >
+                {{ $t("book.importPanelDetected") }}
+            </p>
+
             <!-- only shown when the import actually hit a name+type conflict -->
             <div v-if="pendingImportFile" data-test="import-conflict-resolve" class="flex items-center gap-2 mt-1.5 text-[12px] text-muted">
                 <span>{{ $t("book.importConflictFound", { skipped: importSummary?.skipped.length ?? 0 }) }}</span>

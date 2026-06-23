@@ -132,6 +132,7 @@ const ja: MessageSchema = {
     exportTemplateTitle: 'テンプレートをエクスポート（有効な部分）',
     exportPackTitle: 'パックをエクスポート（.zip / .json）',
     importSummary: 'インポート完了：新規 {created} 件、スキップ {skipped} 件、上書き {overwritten} 件。',
+    importPanelDetected: 'ステータスバーを検出し、ネイティブパネルのプレビューを生成しました。',
     templateNamePlaceholder: 'テンプレート名',
     draftHint: 'このテンプレートを保存するとノードツリーの構築を開始できます。',
     exportDefinition: 'この定義をエクスポート',
