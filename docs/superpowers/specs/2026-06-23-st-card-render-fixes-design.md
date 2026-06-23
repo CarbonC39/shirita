@@ -37,7 +37,15 @@ Location: `shirita-ui/src/components/HtmlCardFrame.vue`.
 
 **Fix:**
 1. Inject a small script into the `srcdoc` (alongside the existing theme-variable `<style>` injection) that:
-   - On `body` `ResizeObserver` firing (and once on initial load), measures `document.body.scrollHeight`.
+   - On `body` `ResizeObserver` firing (and once on initial load), measures height defensively rather than trusting a single property — different cards' CSS (`overflow`, absolute/fixed children, margin collapsing) make any one of `scrollHeight`/`offsetHeight` individually unreliable:
+     ```js
+     const height = Math.max(
+       document.body.scrollHeight,
+       document.body.offsetHeight,
+       document.documentElement.scrollHeight,
+       document.documentElement.offsetHeight,
+     )
+     ```
    - Posts `{ source: 'shirita-html-card', height }` to `window.parent` via `postMessage('*')` — `'*'` is required since the parent's origin is unknown to this opaque-origin document; the message payload carries only a number, nothing sensitive.
 2. In `HtmlCardFrame.vue`, add a `message` event listener (added on mount, removed on unmount) that:
    - Ignores any event whose `event.source` is not this component's own iframe `contentWindow` (guards against unrelated `message` events elsewhere on the page, e.g. other open `HtmlCardFrame` instances) and whose `data.source` is not `'shirita-html-card'`.
