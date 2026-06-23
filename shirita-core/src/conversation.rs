@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
 
+use crate::assembly::capture_panel_updates;
 use crate::attachments::resolve_images;
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::definition::Definition;
@@ -368,7 +369,7 @@ pub fn send_message(
         }
         let new_turn_images = resolve_images(storage.as_ref(), &assets_dir, &attachment_ids).await;
         context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images });
-        let (req, _regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -399,7 +400,10 @@ pub fn send_message(
         }
 
         // 4) 折叠 <state_update> 进快照、剥离展示文本，落库 assistant 消息，再 yield Done。
-        let updates = parse_state_updates(&full);
+        // 转换面板的捕获变量（regex_rule.meta.capture_vars）与 state_update 标签
+        // 同步折叠：前者只读提取，不影响展示文本剥离。
+        let mut updates = parse_state_updates(&full);
+        updates.extend(capture_panel_updates(&full, &regex_rules));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
         let mut assistant = Message::new(&session_id, Some(user_msg.id.clone()), Role::Assistant, &full);
@@ -459,7 +463,7 @@ pub fn regenerate(
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
-        let (req, _regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -483,7 +487,8 @@ pub fn regenerate(
                 Err(e) => { yield SendEvent::Error(e.to_string()); return; }
             }
         }
-        let updates = parse_state_updates(&full);
+        let mut updates = parse_state_updates(&full);
+        updates.extend(capture_panel_updates(&full, &regex_rules));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
@@ -1001,6 +1006,48 @@ mod tests {
         assert_eq!(assistant.snapshot_state["hp"], 95); // folded
         assert_eq!(assistant.display_content.as_deref(), Some("You take a hit.")); // tag stripped
         assert!(assistant.raw_content.contains("<state_update")); // raw keeps the tag
+    }
+
+    #[tokio::test]
+    async fn converted_panel_capture_folds_into_snapshot_alongside_state_update_tags() {
+        let storage = Arc::new(temp_storage().await);
+        let mut t = crate::models::template::Template::new("T");
+        t.meta = serde_json::json!({ "variables": [
+            { "name": "hp", "type": "number", "initial": 100 },
+            { "name": "field1", "type": "string", "initial": "" }
+        ] });
+        storage.create_template(&t).await.unwrap();
+
+        // An orphan (unreferenced) regex_rule with capture_vars — same shape
+        // `try_convert_status_panel` produces — is globally effective per
+        // `effective_regex_rules`.
+        let mut rule = Definition::new("regex_rule", "status", "");
+        rule.meta = serde_json::json!({
+            "pattern": "<mood>(\\w+)</mood>",
+            "replacement": "$1",
+            "capture_vars": ["field1"]
+        });
+        storage.create_definition(&rule).await.unwrap();
+
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        session.current_state = serde_json::json!({ "hp": 100, "field1": "" });
+        storage.create_session(&session).await.unwrap();
+
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider {
+            seen: Arc::new(Mutex::new(None)),
+            reply: "<mood>calm</mood> You take a hit. <state_update action=\"SUB\" key=\"hp\" value=\"5\"/>".into(),
+        });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let msgs = storage.list_messages(&session.id).await.unwrap();
+        let assistant = msgs.iter().find(|m| m.role == Role::Assistant).unwrap();
+        assert_eq!(assistant.snapshot_state["hp"], 95); // <state_update> tag still folds in
+        assert_eq!(assistant.snapshot_state["field1"], "calm"); // regex capture folds in too
     }
 
     #[tokio::test]
