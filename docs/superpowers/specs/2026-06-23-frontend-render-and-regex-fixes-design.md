@@ -98,6 +98,20 @@ There is no way today to tell these apart, and no way to "undo" the accidental c
 
 **Fix:** add an explicit `is_global: bool` to `regex_rule` Definitions' `meta`, and make it — not reference-emptiness — the source of truth for "applies everywhere."
 
+**Known trade-off (deliberately accepted, not a bug):** a `regex_rule` with `is_global: true` remains, in raw `prompt_nodes` terms, exactly as unreferenced as an accidental orphan — `is_global` is a flag bolted onto otherwise-identical DB state, not a structural anchor (the alternative — giving global rules a real `Ref` node under a reserved synthetic "Global" owner, so "referenced" stays an unambiguous signal — was considered and rejected as too invasive for this fix: new `OwnerKind` variant, a migration to attach every existing global rule to it, and changes to the Settings create/delete flow, for a problem the flag already solves at the only two call sites that currently care). Concretely, this means: **any future code that reasons generically about "unreferenced definitions" (a cleanup sweep, an integrity checker, a new orphan-detection feature) must explicitly check `def_type == "regex_rule" && meta.is_global == true` and skip those rows**, the same way `effective_regex_rules` and `list_regex_scopes` do in this fix — `referenced_definition_ids` alone is no longer sufficient to mean "safe to treat as dead." `orphaned_definitions_for_template`/`orphaned_definitions_for_pack` are unaffected today (they only ever consider definitions a *specific* template/pack's own tree references, and a global rule is referenced by no tree at all, so it can never appear in either's result) — but this exception must be carried forward by anyone adding a new orphan-aware code path later.
+
+0. **`shirita-core/src/storage/mod.rs:24-25`**: the `Storage::referenced_definition_ids` doc comment currently reads "Lets callers tell orphan (\"global\") defs from tree-mounted ones" — that sentence is the misleading premise this whole fix corrects (unreferenced no longer means global). Replace it with:
+   ```rust
+   /// Distinct `definition_id`s referenced by any prompt node (all owners).
+   /// NOTE: a `regex_rule` Definition with `meta.is_global == true` is, by
+   /// design, never referenced by any node — "unreferenced" is NOT the same
+   /// as "safe to treat as dead/orphaned" for that one def_type. Any new
+   /// code built on this method that reasons about orphans/cleanup must
+   /// explicitly exclude `def_type == "regex_rule" && meta.is_global == true`
+   /// rows, the way `effective_regex_rules` and `list_regex_scopes` do.
+   async fn referenced_definition_ids(&self) -> Result<Vec<String>>;
+   ```
+
 1. **`effective_regex_rules`** (`shirita-core/src/conversation.rs:108-117`): change the filter from
    ```rust
    .filter(|d| d.def_type == "regex_rule" && !referenced.contains(&d.id))
