@@ -22,7 +22,7 @@ import PromptTree from './PromptTree.vue'
 import * as api from '../api/client'
 
 const pack = { id: 'p1', name: 'Alice', identity: { display_name: 'Alice', avatar: null }, meta: {}, created_at: '', updated_at: '' }
-const stubs = { AssetPicker: true, PromptTree: true, VariablesEditor: true, PanelView: true }
+const stubs = { AssetPicker: true, PromptTree: true, VariablesEditor: true }
 
 describe('PackEditor', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
@@ -39,35 +39,12 @@ describe('PackEditor', () => {
     expect((w.find('[data-test="pack-display-name"]').element as HTMLInputElement).value).toBe('Alice')
   })
 
-  it('renders the panel editor seeded from meta.panel with a live preview', async () => {
+  it('no longer renders the legacy pack-panel section', async () => {
     const withPanel = { ...pack, meta: { panel: { html: '<span data-bind="hp">x</span>', css: '', caps: {} } } }
     const w = mount(PackEditor, { props: { pack: withPanel }, global: { stubs } })
     await flushPromises()
-    expect(w.find('[data-test="pack-panel"]').exists()).toBe(true)
-    expect((w.find('[data-test="panel-html"]').element as HTMLTextAreaElement).value).toBe('<span data-bind="hp">x</span>')
-    expect(w.find('[data-test="pack-panel"]').text()).toContain('Preview') // PanelView preview section present
-  })
-
-  it('editing the panel HTML saves meta.panel', async () => {
-    const w = mount(PackEditor, { props: { pack }, global: { stubs } })
-    await flushPromises()
-    const ta = w.find('[data-test="panel-html"]')
-    await ta.setValue('<b>{{hp}}</b>')
-    await ta.trigger('change')
-    await flushPromises()
-    expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
-      meta: expect.objectContaining({ panel: { html: '<b>{{hp}}</b>', css: '', caps: {} } }),
-    }))
-  })
-
-  it('toggling a capability saves it', async () => {
-    const w = mount(PackEditor, { props: { pack }, global: { stubs } })
-    await flushPromises()
-    await w.find('[data-test="cap-write"]').setValue(true)
-    await flushPromises()
-    expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
-      meta: expect.objectContaining({ panel: expect.objectContaining({ caps: { write: true } }) }),
-    }))
+    expect(w.find('[data-test="pack-panel"]').exists()).toBe(false)
+    expect(w.find('[data-test="panel-html"]').exists()).toBe(false)
   })
 
   it('Add panel scaffolds a panel folder with html and css bricks', async () => {
