@@ -8,6 +8,7 @@ import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import AssetPicker from './AssetPicker.vue'
+import PanelView from './PanelView.vue'
 
 const props = withDefaults(
   defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean }>(),
@@ -43,12 +44,13 @@ function updateScan(patch: { depth?: number; recursive?: boolean }) {
 }
 
 // World-info trigger + scan settings only make sense for container (lore) types,
-// not for prompt/regex_rule/tool/first_message refs.
-const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message'].includes(props.definition.type))
+// not for prompt/regex_rule/tool/first_message refs, nor for the reserved
+// non-rendering leaf bricks html/css (kept in sync with the backend RESERVED set).
+const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message', 'html', 'css'].includes(props.definition.type))
 // wrap_in_tag affects rendering, so it applies to anything that renders into the
-// prompt (i.e. everything except regex_rule and first_message, neither of
-// which render as a plain prompt fragment).
-const showWrapInTag = computed(() => !['regex_rule', 'first_message'].includes(props.definition.type))
+// prompt (i.e. everything except regex_rule and first_message, neither of which
+// render as a plain prompt fragment, and the non-rendering html/css bricks).
+const showWrapInTag = computed(() => !['regex_rule', 'first_message', 'html', 'css'].includes(props.definition.type))
 
 // Registered container types + the reserved `prompt`/`first_message`, tinted
 // per the palette. Builtin types can't be deleted; custom ones can.
@@ -292,6 +294,12 @@ function startNew() {
         @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
       />
       <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
+    </div>
+
+    <!-- live preview for html bricks: renders the content as a PanelView would -->
+    <div v-if="definition.type === 'html'" data-test="html-preview" class="mt-3">
+      <span class="text-[12px] text-muted block mb-1">{{ $t('definition.htmlPreview') }}</span>
+      <PanelView :html="definition.content" :css="''" :values="{}" />
     </div>
 
     <label v-if="!isContainerType && showWrapInTag" class="flex items-center gap-2 mt-3 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
