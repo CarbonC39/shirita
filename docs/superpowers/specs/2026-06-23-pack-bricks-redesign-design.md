@@ -65,9 +65,12 @@ children are `ref` nodes to `html` / `css` / `regex_rule` / `variables` bricks.
 - **Display name:** since all panel folders share `tag = "panel"`, a panel's
   user-facing name is stored in folder `meta.name` (e.g.
   `node.meta = { name: "Status Bar", caps: {...} }`), falling back to "Panel".
-- **Rendering** (per panel folder): concatenate enabled `css` children (tree
-  order) → one `<style>` payload; concatenate enabled `html` children (tree
-  order) → one body. The folder's `regex_rule` children are its sync rules; its
+- **Rendering** (per panel folder): join enabled `css` children (tree order)
+  with `"\n"` → one `<style>` payload; join enabled `html` children (tree order)
+  with `"\n"` → one body. The `"\n"` separator is required so adjacent bricks
+  (e.g. `<div id="a"></div>` + `<div id="b"></div>`) don't fuse — preventing
+  surprising failures of adjacent-sibling CSS selectors or inline-block
+  whitespace gaps. The folder's `regex_rule` children are its sync rules; its
   `variables` children are its declared state.
 - **CSS reuse:** a `css` brick may be ref'd into multiple `panel` folders (drop
   the same "neon theme" brick into each). No id-cross-references in meta — reuse
@@ -97,8 +100,9 @@ god-object meta facets, it does not add a priority system.
   `mounted_pack_trees`, or a small new `panels.rs`). It walks `panel` folders
   across the effective template/session tree **and** mounted-pack trees, resolves
   each folder's child brick contents, and returns one
-  `RenderedPanel { id, name, html, css, caps }` per folder (css children joined,
-  html children joined, caps from folder meta). `id` = the folder node id;
+  `RenderedPanel { id, name, html, css, caps }` per folder (css children
+  `"\n"`-joined, html children `"\n"`-joined — see §2, caps from folder meta).
+  `id` = the folder node id;
   `name` = folder `meta.name`, falling back to the first html brick's name, then
   "Panel".
 - New route **`GET /sessions/:id/panels`** (`shirita-web/src/routes/`) returning
@@ -182,7 +186,8 @@ Backend (Rust):
 - `assembly::is_non_rendering` true for the three new types → not emitted into
   the prompt (extend an existing assembly test that asserts content omission).
 - `resolve_session_panels`: a `panel` folder with multiple css/html children →
-  one combined `{html, css}`; caps from folder meta; multiple folders across
+  one combined `{html, css}` with children `"\n"`-joined (assert the separator
+  is present between two bricks); caps from folder meta; multiple folders across
   template + mounted packs → correct count and order.
 - schema from `variables` bricks: template + pack `variables` decls merge with
   mount-order precedence; conflict → later wins.
