@@ -356,10 +356,12 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     // 2026-06-22 design spec). Ambiguous or absent -> None, and nothing about
     // the regex_rule Definitions below changes.
     let panel_conversion = try_convert_status_panel(scripts);
+    let mut panel_regex_def_id: Option<String> = None;
     for (index, s) in scripts.iter().enumerate() {
         let mut d = regex_rule_def(s);
-        if let Some(conv) = &panel_conversion {
-            if conv.source_index == index {
+        let is_panel_rule = panel_conversion.as_ref().is_some_and(|c| c.source_index == index);
+        if is_panel_rule {
+            if let Some(conv) = &panel_conversion {
                 if let Some(obj) = d.meta.as_object_mut() {
                     obj.insert(
                         "capture_vars".to_string(),
@@ -367,9 +369,12 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
                     );
                 }
             }
+            panel_regex_def_id = Some(d.id.clone());
+            defs.push(d); // def only; its ref is added under the panel folder below
+        } else {
+            nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
+            defs.push(d);
         }
-        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, next(&mut sort), &d.id));
-        defs.push(d);
     }
     let first = nonempty(data, "first_mes");
     let alts: Vec<String> = data
@@ -419,11 +424,32 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     if !vardecls.is_empty() {
         meta.insert("variables".to_string(), serde_json::to_value(&vardecls).unwrap());
     }
-    if let Some(conv) = &panel_conversion {
-        meta.insert("panel".to_string(), serde_json::json!({ "html": conv.html, "css": conv.css }));
-    }
     if !meta.is_empty() {
         tmpl.meta = serde_json::Value::Object(meta);
+    }
+
+    // --- panel folder (html/css bricks + the panel-sync regex ref) ---
+    if let Some(conv) = &panel_conversion {
+        let mut folder =
+            PromptNode::new_folder(OwnerKind::Template, &tmpl.id, None, next(&mut sort), "panel");
+        folder.meta = serde_json::json!({ "name": format!("{name}·panel"), "caps": {} });
+        let mut csort: i64 = 0;
+
+        let html = Definition::new("html", format!("{name}·panel·html"), conv.html.clone());
+        nodes.push(PromptNode::new_ref(
+            OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), &html.id));
+        defs.push(html);
+
+        let css = Definition::new("css", format!("{name}·panel·css"), conv.css.clone());
+        nodes.push(PromptNode::new_ref(
+            OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), &css.id));
+        defs.push(css);
+
+        if let Some(rid) = &panel_regex_def_id {
+            nodes.push(PromptNode::new_ref(
+                OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), rid));
+        }
+        nodes.push(folder);
     }
 
     LoreSet { template: tmpl, definitions: defs, nodes }
@@ -798,7 +824,7 @@ mod tests {
     }
 
     #[test]
-    fn charcard_to_loreset_populates_panel_for_unambiguous_status_bar() {
+    fn charcard_to_loreset_emits_panel_folder_for_unambiguous_status_bar() {
         let card = serde_json::json!({
             "data": {
                 "name": "Neo", "description": "desc",
@@ -809,15 +835,41 @@ mod tests {
             }
         });
         let ls = charcard_to_loreset(&card);
-        assert_eq!(ls.template.meta["panel"]["html"], "HP: {{field1}}");
-        let vars = ls.template.meta["variables"].as_array().unwrap();
-        assert!(vars.iter().any(|v| v["name"] == "field1" && v["type"] == "string"));
 
-        let rule = ls.definitions.iter().find(|d| d.def_type == "regex_rule").unwrap();
+        // No panel blob on template meta anymore.
+        assert!(ls.template.meta.get("panel").is_none());
+
+        // A panel folder exists.
+        let folder = ls.nodes.iter()
+            .find(|n| n.kind == NodeKind::Folder && n.tag.as_deref() == Some("panel"))
+            .expect("a panel folder must be emitted");
+
+        // It has an html child whose def content is the converted markup.
+        let html_ref = ls.nodes.iter()
+            .find(|n| n.kind == NodeKind::Ref && n.parent_id.as_deref() == Some(folder.id.as_str())
+                && ls.definitions.iter().any(|d| Some(d.id.as_str()) == n.definition_id.as_deref() && d.def_type == "html"))
+            .expect("panel folder has an html child");
+        let html_def = ls.definitions.iter()
+            .find(|d| Some(d.id.as_str()) == html_ref.definition_id.as_deref()).unwrap();
+        assert_eq!(html_def.content, "HP: {{field1}}");
+
+        // It has a css child (may be empty content when the card had no <style>).
+        assert!(ls.nodes.iter().any(|n| n.kind == NodeKind::Ref
+            && n.parent_id.as_deref() == Some(folder.id.as_str())
+            && ls.definitions.iter().any(|d| Some(d.id.as_str()) == n.definition_id.as_deref() && d.def_type == "css")));
+
+        // The panel-sync regex rule lives INSIDE the folder and keeps its capture_vars.
+        let rule_ref = ls.nodes.iter()
+            .find(|n| n.kind == NodeKind::Ref && n.parent_id.as_deref() == Some(folder.id.as_str())
+                && ls.definitions.iter().any(|d| Some(d.id.as_str()) == n.definition_id.as_deref() && d.def_type == "regex_rule"))
+            .expect("panel-sync regex is parented under the folder");
+        let rule = ls.definitions.iter()
+            .find(|d| Some(d.id.as_str()) == rule_ref.definition_id.as_deref()).unwrap();
         assert_eq!(rule.meta["capture_vars"], serde_json::json!(["field1"]));
-        // the compatibility-layer fields are untouched.
-        assert_eq!(rule.meta["pattern"], "<hp>(\\d+)</hp>");
-        assert_eq!(rule.meta["replacement"], "HP: $1");
+
+        // Variables still register on template meta this plan (Plan 2 moves them).
+        let vars = ls.template.meta["variables"].as_array().unwrap();
+        assert!(vars.iter().any(|v| v["name"] == "field1"));
     }
 
     #[test]

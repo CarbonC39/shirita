@@ -75,7 +75,10 @@ async fn import_charcard_creates_pack() {
 }
 
 #[tokio::test]
-async fn import_charcard_with_status_bar_reports_a_panel_item() {
+async fn import_charcard_with_status_bar_emits_panel_bricks() {
+    // A status-bar regex now imports as a `panel` folder holding html + css
+    // brick definitions (named `<card>·panel·html` / `·css`), not a meta.panel
+    // blob — so the import summary reports them as plain definitions.
     let state = test_state().await;
     let card = r#"{"data":{"name":"Neo","description":"d","extensions":{"regex_scripts":[
         {"scriptName":"status","findRegex":"<hp>(\\d+)</hp>","replaceString":"HP: $1","disabled":false,"markdownOnly":true}
@@ -84,7 +87,9 @@ async fn import_charcard_with_status_bar_reports_a_panel_item() {
     assert_eq!(st, StatusCode::OK);
     let summary: Value = serde_json::from_str(&body).unwrap();
     let created = summary["created"].as_array().unwrap();
-    assert!(created.iter().any(|c| c["kind"] == "panel"), "expected a panel item in created: {created:?}");
+    let has = |name: &str| created.iter().any(|c| c["name"] == name);
+    assert!(has("Neo·panel·html"), "expected a panel html brick in created: {created:?}");
+    assert!(has("Neo·panel·css"), "expected a panel css brick in created: {created:?}");
 }
 
 #[tokio::test]

@@ -149,6 +149,35 @@ describe('DefinitionEditor type chips', () => {
   })
 })
 
+describe('DefinitionEditor html preview', () => {
+  it('shows a PanelView preview for html definitions', () => {
+    const def = { id: 'h', type: 'html', name: 'm', content: '<b>hi</b>', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: def, allDefinitions: [def], active: true } })
+    expect(w.find('[data-test="html-preview"]').exists()).toBe(true)
+  })
+
+  it('does not show the preview for non-html definitions', () => {
+    const def = { id: 'c', type: 'css', name: 'm', content: 'body{}', meta: {} }
+    const w = mount(DefinitionEditor, { props: { definition: def, allDefinitions: [def], active: true } })
+    expect(w.find('[data-test="html-preview"]').exists()).toBe(false)
+  })
+
+  it('html/css are leaf bricks: content editor + (html) preview, no container UI', () => {
+    for (const type of ['html', 'css'] as const) {
+      const def = { id: type, type, name: 'm', content: 'x', meta: {} }
+      const w = mount(DefinitionEditor, { props: { definition: def, allDefinitions: [def], active: true } })
+      // content editor is present
+      expect(w.find('textarea').exists()).toBe(true)
+      // html shows the preview; css does not
+      expect(w.find('[data-test="html-preview"]').exists()).toBe(type === 'html')
+      // no container UI: trigger editor, scan-depth control, or wrap-in-tag toggle
+      expect(w.find('[data-test="trigger-editor"]').exists()).toBe(false)
+      expect(w.find('[data-test="scan-depth"]').exists()).toBe(false)
+      expect(w.find('[data-test="wrap-in-tag"]').exists()).toBe(false)
+    }
+  })
+})
+
 describe('DefinitionEditor message type', () => {
   it('shows depth/role fields for first_message and hides world-info fields', () => {
     const d = { id: 'm1', type: 'first_message', name: 'Greeting', content: 'Hi', meta: {} }

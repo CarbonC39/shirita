@@ -9,6 +9,7 @@ import type {
   PackIdentity,
   PromptNode,
   Session,
+  SessionPanel,
   SessionState,
   Template,
   VarDecl,
@@ -566,4 +567,9 @@ export async function setSessionPacks(sessionId: string, packIds: string[]): Pro
     body: JSON.stringify({ pack_ids: packIds }),
   })
   if (!res.ok) throw new Error(`Set session packs failed: ${res.status}`)
+}
+
+// --- Panels ---
+export function getSessionPanels(sessionId: string): Promise<SessionPanel[]> {
+  return apiGet<SessionPanel[]>(`/sessions/${sessionId}/panels`)
 }

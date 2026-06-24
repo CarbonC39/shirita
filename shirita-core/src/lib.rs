@@ -13,6 +13,7 @@ pub mod identity;
 pub mod keyword;
 pub mod model;
 pub mod models;
+pub mod panels;
 pub mod pngcard;
 pub mod portable;
 pub mod seed;
@@ -48,6 +49,7 @@ pub use models::summary::Summary;
 pub use models::template::Template;
 pub use hashing::sha256_hex;
 pub use models::pack::{Pack, PackIdentity};
+pub use panels::{collect_panels, resolve_session_panels, RenderedPanel};
 pub use pngcard::read_card_json;
 pub use portable::{
     collect_pack_assets, export_definition, export_pack, export_template, parse_portable,
