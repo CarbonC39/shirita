@@ -111,13 +111,22 @@ god-object meta facets, it does not add a priority system.
   not interpolated).
 
 ### 4.2 Variables schema from bricks
-- `conversation::session_schema` and `state::resolve_schema_with_packs` /
-  `resolve_schema` switch from reading `*.meta.variables` to collecting
-  `VarDecl` from `variables` bricks' `meta.decls` found in the effective trees
-  (template/session) and mounted-pack trees. Same merge precedence: template
-  first, then packs in mount order; later wins on name conflict.
-- `state::parse_decls` keeps parsing a `VarDecl[]` value; callers feed it
-  `def.meta.decls` instead of `meta.variables`.
+- New pure `state::resolve_schema_from_bricks(template_decls, pack_decls,
+  override_config)` merges system ∪ template-tree decls ∪ each pack's decls
+  (mount order) ∪ `override_config.local_variables`; later wins on collision.
+  New pure `state::variables_from_nodes(nodes, defs)` extracts `VarDecl` from
+  `variables` bricks (`meta.decls`) referenced by enabled `ref` nodes.
+- New `conversation::resolve_session_schema(storage, session)` (pub) assembles
+  template/session-tree + per-pack decls via those helpers. It replaces the
+  private `conversation::session_schema` **and** is called by
+  `routes/variables::get_state` (which today duplicates the meta-based
+  resolution) — single source of truth.
+- **All producers of `*.meta.variables` switch to emitting `variables` bricks:**
+  `adapters/charcard.rs` (template loreset), `adapters/stpreset.rs:228`
+  (`tmpl.meta = {variables}`), `PackEditor.vue` (pack), and `BookView.vue`
+  template editing (`templateVars`, lines 256-261 / 1066-1067).
+  `override_config.local_variables` (session-local) is unchanged — it is not a
+  `meta.variables`.
 
 ### 4.3 Regex sync unchanged
 `effective_regex_rules` and `capture_panel_updates` are unchanged in mechanism —
@@ -140,11 +149,19 @@ trees. Panel-sync rules simply live inside `panel` folders now.
   unchanged.
 
 ### 4.5 charcard importer
-- `adapters/charcard.rs::try_convert_status_panel` / the loreset builder emit a
-  `panel` folder into the pack tree containing: an `html` brick (the converted
-  markup), a `css` brick (the gathered `<style>`), a `variables` brick
-  (`meta.decls` from the status-bar fields), and the existing `regex_rule`
-  brick(s) for capture-sync — instead of writing `meta.panel` + `meta.variables`.
+- `charcard_to_loreset` builds a **template** `LoreSet`; `loreset_to_pack` then
+  copies `pack.meta = template.meta` and rehomes Folder/Ref nodes to the pack
+  (dropping History/Content). So the importer emits a `panel` folder + bricks
+  into the **template loreset's** node tree (`OwnerKind::Template`); they travel
+  to the derived pack automatically as rehomed Folder/Ref nodes — `loreset_to_pack`
+  needs no panel-specific change.
+- The emitted `panel` folder (tag `panel`, `meta.name` + `meta.caps`) contains:
+  an `html` brick (converted markup), a `css` brick (gathered `<style>`), a
+  `variables` brick (`meta.decls` = status-bar capture fields), and the
+  panel-sync `regex_rule` ref **moved from root into the folder**. Other,
+  non-panel regex scripts stay as root refs. Card-level (tavern_helper) variables
+  become a separate root `variables` brick. This replaces writing
+  `template.meta.panel` + `template.meta.variables`.
 - `PanelConversion` and the import-summary "panel item" reporting stay; only the
   output shape (bricks vs. meta) changes.
 
