@@ -456,38 +456,55 @@ mod tests {
 
     #[test]
     fn collect_pack_assets_scans_html_css_brick_content() {
+        // Designated fields only: identity.avatar, each def's meta.avatar, and
+        // html/css def `content`. A look-alike `/assets/…` living anywhere else
+        // (a text variable's value, a non-html/css def's content) must NOT be
+        // collected — otherwise the asset bundle would over-collect.
+        let manifest = json!({
+            "format": "shirita.pack", "version": 1,
+            "pack": { "name": "P", "identity": { "avatar": "a.png" },
+                      "meta": { "variables": [{ "name": "note", "type": "string", "initial": "/assets/var.png" }] } },
+            "nodes": [],
+            "definitions": [
+                { "local_id": "h", "type": "html",   "name": "m", "content": "<img src=\"/assets/c.png\">",       "meta": { "avatar": "b.png" } },
+                { "local_id": "s", "type": "css",    "name": "t", "content": ".x{background:url(/assets/bg.png)}", "meta": {} },
+                { "local_id": "p", "type": "prompt", "name": "p", "content": "see /assets/nope.png",               "meta": {} }
+            ]
+        });
+        let assets = collect_pack_assets(&manifest);
+        assert!(assets.contains(&"a.png".to_string()));   // identity.avatar
+        assert!(assets.contains(&"b.png".to_string()));   // def meta.avatar
+        assert!(assets.contains(&"c.png".to_string()));   // html content
+        assert!(assets.contains(&"bg.png".to_string()));  // css content
+        assert!(!assets.contains(&"var.png".to_string()), "a text variable value must NOT be scanned");
+        assert!(!assets.contains(&"nope.png".to_string()), "a non-html/css def's content must NOT be scanned");
+        assert_eq!(assets.len(), 4, "exactly the four designated refs, nothing more");
+    }
+
+    #[test]
+    fn rewrite_pack_assets_remaps_html_css_brick_content() {
+        // A designated ref absent from the map is blanked so import never yields
+        // a dead link: avatar fields (identity + def meta.avatar) → null, and
+        // html/css `/assets/…` occurrences stripped.
         let manifest = json!({
             "format": "shirita.pack", "version": 1,
             "pack": { "name": "P", "identity": { "avatar": "a.png" }, "meta": {} },
             "nodes": [],
             "definitions": [
-                { "local_id": "h", "type": "html", "name": "m", "content": "<img src=\"/assets/c.png\">", "meta": {} },
-                { "local_id": "s", "type": "css",  "name": "t", "content": ".x{background:url(/assets/bg.png)}", "meta": {} }
-            ]
-        });
-        let assets = collect_pack_assets(&manifest);
-        assert!(assets.contains(&"a.png".to_string()));
-        assert!(assets.contains(&"c.png".to_string()));
-        assert!(assets.contains(&"bg.png".to_string()));
-    }
-
-    #[test]
-    fn rewrite_pack_assets_remaps_html_css_brick_content() {
-        let manifest = json!({
-            "format": "shirita.pack", "version": 1,
-            "pack": { "name": "P", "identity": {}, "meta": {} },
-            "nodes": [],
-            "definitions": [
-                { "local_id": "s", "type": "css", "name": "t",
+                { "local_id": "h", "type": "html", "name": "m", "content": "", "meta": { "avatar": "b.png" } },
+                { "local_id": "s", "type": "css",  "name": "t",
                   "content": "url(/assets/c.png) url(/assets/gone.png)", "meta": {} }
             ]
         });
         let mut map = std::collections::HashMap::new();
         map.insert("c.png".to_string(), "new/c.png".to_string());
+        // a.png, b.png, gone.png are intentionally absent from the map.
         let out = rewrite_pack_assets(&manifest, &map);
-        let css = out["definitions"][0]["content"].as_str().unwrap();
+        assert!(out["pack"]["identity"]["avatar"].is_null(), "unmapped identity avatar blanked");
+        assert!(out["definitions"][0]["meta"]["avatar"].is_null(), "unmapped def avatar blanked");
+        let css = out["definitions"][1]["content"].as_str().unwrap();
         assert!(css.contains("/assets/new/c.png"));
-        assert!(!css.contains("gone.png")); // unmapped → blanked
+        assert!(!css.contains("gone.png"), "unmapped /assets link stripped");
     }
 
     #[test]

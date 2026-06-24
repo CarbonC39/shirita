@@ -359,7 +359,7 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
     let mut panel_regex_def_id: Option<String> = None;
     for (index, s) in scripts.iter().enumerate() {
         let mut d = regex_rule_def(s);
-        let is_panel_rule = panel_conversion.as_ref().map_or(false, |c| c.source_index == index);
+        let is_panel_rule = panel_conversion.as_ref().is_some_and(|c| c.source_index == index);
         if is_panel_rule {
             if let Some(conv) = &panel_conversion {
                 if let Some(obj) = d.meta.as_object_mut() {
