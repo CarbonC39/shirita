@@ -936,7 +936,7 @@ mod tests {
     }
 
     #[test]
-    fn charcard_to_loreset_merges_converted_vars_with_tavern_helper_vars_without_duplicates() {
+    fn charcard_to_loreset_tavern_helper_vars_in_root_brick_not_template_meta() {
         let card = serde_json::json!({
             "data": {
                 "name": "Neo", "description": "desc",
