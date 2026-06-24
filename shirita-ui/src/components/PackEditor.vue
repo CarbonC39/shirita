@@ -109,6 +109,20 @@ async function createNewInContainer(parentId: string, typeId: string) {
     await reload()
   } catch (e) { error.value = (e as Error).message }
 }
+async function addPanel() {
+  try {
+    const html = await createDefinition({ type: 'html', name: 'Panel HTML', content: '', meta: {} })
+    const css = await createDefinition({ type: 'css', name: 'Panel CSS', content: '', meta: {} })
+    await library.loadDefinitions()
+    // createNode's body has no `meta` field (folder name/caps land in meta), so
+    // the folder is created bare and then immediately given its meta via updateNode.
+    const folder = await createNode('pack', props.pack.id, { parent_id: null, kind: 'folder', tag: 'panel' })
+    await updateNode(folder.id, { meta: { name: 'Panel', caps: {} } })
+    await createNode('pack', props.pack.id, { parent_id: folder.id, kind: 'ref', definition_id: html.id })
+    await createNode('pack', props.pack.id, { parent_id: folder.id, kind: 'ref', definition_id: css.id })
+    await reload()
+  } catch (e) { error.value = (e as Error).message }
+}
 async function createType(name: string) {
   if (!name.trim()) return
   try { const created = await library.addType(slugifyType(name), name.trim()); await addContainer(created.id) } catch (e) { error.value = (e as Error).message }
@@ -176,6 +190,7 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       :nodes="nodes"
       :definitions="library.definitions"
       :types="library.containerTypes"
+      :allow-panel="true"
       @toggle-enabled="toggleEnabled"
       @add-prompt="addPrompt"
       @add-container="addContainer"
@@ -188,6 +203,7 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       @update-node-meta="updateNodeMeta"
       @delete-node="handleDelete"
       @reorder="reorder"
+      @add-panel="addPanel"
     />
 
     <!-- variables -->
