@@ -53,10 +53,36 @@ async fn create_template(state: &AppState, name: &str, meta: &str) -> String {
     json(&out)["id"].as_str().unwrap().to_string()
 }
 
+/// Create a template and seed it with a `variables` brick (ref node at root)
+/// declaring `decls_json` (a JSON array literal of `{name,type,initial}`).
+async fn create_template_with_variables_brick(state: &AppState, name: &str, decls_json: &str) -> String {
+    let tid = create_template(state, name, "{}").await;
+    let (_, out) = send(state, "POST", "/api/definitions", Some(&format!(
+        r#"{{"type":"variables","name":"Vars","content":"","meta":{{"decls":{decls_json}}}}}"#
+    ))).await;
+    let did = json(&out)["id"].as_str().unwrap().to_string();
+    send(state, "POST", &format!("/api/templates/{tid}/nodes?owner_kind=template"),
+        Some(&format!(r#"{{"kind":"ref","definition_id":"{did}"}}"#))).await;
+    tid
+}
+
+/// Create a pack and seed it with a `variables` brick declaring `decls_json`.
+async fn create_pack_with_variables_brick(state: &AppState, name: &str, decls_json: &str) -> String {
+    let (_, p) = send(state, "POST", "/api/packs", Some(&format!(r#"{{"name":"{name}"}}"#))).await;
+    let pid = json(&p)["id"].as_str().unwrap().to_string();
+    let (_, out) = send(state, "POST", "/api/definitions", Some(&format!(
+        r#"{{"type":"variables","name":"Vars","content":"","meta":{{"decls":{decls_json}}}}}"#
+    ))).await;
+    let did = json(&out)["id"].as_str().unwrap().to_string();
+    send(state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"),
+        Some(&format!(r#"{{"kind":"ref","definition_id":"{did}"}}"#))).await;
+    pid
+}
+
 #[tokio::test]
 async fn creating_a_session_seeds_declared_initials() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG", r#"[{"name":"hp","type":"number","initial":100}]"#).await;
     let (st, out) = send(&state, "POST", "/api/sessions",
         Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     assert_eq!(st, StatusCode::OK);
@@ -66,7 +92,7 @@ async fn creating_a_session_seeds_declared_initials() {
 #[tokio::test]
 async fn get_state_merges_schema_seed_and_leaf() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100},{"name":"gold","type":"number","initial":0}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG", r#"[{"name":"hp","type":"number","initial":100},{"name":"gold","type":"number","initial":0}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
     // a turn that spends gold and is hit (EchoProvider can't emit tags; assert the schema/seed path instead)
@@ -83,10 +109,8 @@ async fn get_state_merges_schema_seed_and_leaf() {
 async fn state_schema_includes_mounted_pack_variables() {
     let state = test_state().await;
     let tid = create_template(&state, "T", "{}").await;
-    // A pack declaring its own variable.
-    let (_, p) = send(&state, "POST", "/api/packs",
-        Some(r#"{"name":"P","meta":{"variables":[{"name":"affection","type":"number","initial":5}]}}"#)).await;
-    let pid = json(&p)["id"].as_str().unwrap().to_string();
+    // A pack declaring its own variable (via a `variables` brick).
+    let pid = create_pack_with_variables_brick(&state, "P", r#"[{"name":"affection","type":"number","initial":5}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions",
         Some(&format!(r#"{{"name":"Chat","template_id":"{tid}","pack_ids":["{pid}"]}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
@@ -103,7 +127,7 @@ async fn state_schema_includes_mounted_pack_variables() {
 #[tokio::test]
 async fn state_updates_apply_typed_diff_and_persist() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG", r#"[{"name":"hp","type":"number","initial":100}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
 
@@ -120,8 +144,8 @@ async fn state_updates_apply_typed_diff_and_persist() {
 #[tokio::test]
 async fn state_updates_keep_multiword_values_and_ignore_undeclared() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG",
-        r#"{"variables":[{"name":"location","type":"string","initial":"Town"}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG",
+        r#"[{"name":"location","type":"string","initial":"Town"}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
 
@@ -136,7 +160,7 @@ async fn state_updates_keep_multiword_values_and_ignore_undeclared() {
 #[tokio::test]
 async fn state_updates_insert_hidden_system_node_and_advance_leaf() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG", r#"[{"name":"hp","type":"number","initial":100}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
 
@@ -164,7 +188,7 @@ async fn state_updates_insert_hidden_system_node_and_advance_leaf() {
 #[tokio::test]
 async fn set_local_variables_adds_to_the_schema() {
     let state = test_state().await;
-    let tid = create_template(&state, "RPG", r#"{"variables":[{"name":"hp","type":"number","initial":100}]}"#).await;
+    let tid = create_template_with_variables_brick(&state, "RPG", r#"[{"name":"hp","type":"number","initial":100}]"#).await;
     let (_, sout) = send(&state, "POST", "/api/sessions", Some(&format!(r#"{{"name":"Chat","template_id":"{tid}"}}"#))).await;
     let sid = json(&sout)["id"].as_str().unwrap().to_string();
 

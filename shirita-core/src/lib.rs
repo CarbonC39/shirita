@@ -30,7 +30,9 @@ pub use assembly::{
 };
 pub use budget::{over_threshold, trim_history};
 pub use config::{apply_provider_env, Config};
-pub use conversation::{effective_regex_rules, regenerate, send_message, SendEvent};
+pub use conversation::{
+    effective_regex_rules, regenerate, resolve_session_schema, send_message, SendEvent,
+};
 pub use error::{Error, Result};
 pub use model::{
     AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
@@ -60,7 +62,7 @@ pub use seed::{
     ensure_templates_have_content_node,
 };
 pub use state::{
-    apply_updates, effective_state, parse_state_updates, resolve_schema, resolve_schema_from_bricks,
+    apply_updates, effective_state, parse_state_updates, resolve_schema_from_bricks,
     schema_initials, strip_state_tags, system_variables, variables_block, variables_from_nodes, Update,
     VarDecl, VarType,
 };
