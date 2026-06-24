@@ -101,9 +101,11 @@ export interface PanelCaps {
   send?: boolean
 }
 
-/** A Pack's status panel: author HTML + scoped CSS + declared capabilities.
- *  Lives at `pack.meta.panel`; absent == the Pack has no panel. */
-export interface Panel {
+/** A server-resolved panel for a session: one `panel` folder's combined
+ *  html/css plus its caps. Returned by GET /sessions/:id/panels. */
+export interface SessionPanel {
+  id: string
+  name: string
   html: string
   css: string
   caps: PanelCaps

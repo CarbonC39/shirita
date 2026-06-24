@@ -5,7 +5,7 @@ import type { Definition, DefType, PromptNode, Trigger } from '../api/types'
 import NodeRow from './NodeRow.vue'
 import NodePicker from './NodePicker.vue'
 
-const props = defineProps<{ nodes: PromptNode[]; definitions: Definition[]; types: DefType[] }>()
+const props = defineProps<{ nodes: PromptNode[]; definitions: Definition[]; types: DefType[]; allowPanel?: boolean }>()
 const emit = defineEmits<{
   toggleEnabled: [nodeId: string]
   addPrompt: [definitionId: string]
@@ -19,6 +19,7 @@ const emit = defineEmits<{
   updateNodeMeta: [nodeId: string, meta: Record<string, unknown>]
   deleteNode: [nodeId: string]
   reorder: [orderedIds: string[]]
+  addPanel: []
 }>()
 
 const expanded = ref<Set<string>>(new Set())
@@ -45,7 +46,19 @@ const existingContainerTags = computed(() =>
   new Set(props.nodes.filter((nd) => nd.kind === 'folder' && nd.parent_id === null).map((nd) => nd.tag)))
 const availableTypes = computed(() => props.types.filter((t) => !existingContainerTags.value.has(t.id)))
 const promptDefs = computed(() => props.definitions.filter((d) => d.type === 'prompt'))
-function containerDefs(tag: string | null) { return props.definitions.filter((d) => d.type === tag) }
+// A panel folder's children are html/css bricks (two types, not one container
+// type), so it needs its own definitions/creatable-type list instead of the
+// single-tag filter every other container tag uses.
+const panelBrickTypes = ['html', 'css']
+function containerDefs(tag: string | null) {
+  if (tag === 'panel') return props.definitions.filter((d) => panelBrickTypes.includes(d.type))
+  return props.definitions.filter((d) => d.type === tag)
+}
+// Lets NodePicker's "other type" selector switch between html/css when adding
+// to a panel folder, instead of the regular container-type list.
+const panelPickerTypes = computed<DefType[]>(() =>
+  panelBrickTypes.map((id) => ({ id, label: id.toUpperCase(), sort: 0, builtin: true, created_at: '' })),
+)
 
 // Combined, ranked omnibox list: container types first, then prompt definitions.
 type OmniItem = { kind: 'container' | 'prompt'; id: string; name: string }
@@ -179,10 +192,10 @@ function onDrop(targetId: string) {
           <div v-if="activePickerParent === node.id" class="pl-[34px] pr-2 pb-2 pt-1">
             <NodePicker
               :definitions="containerDefs(node.tag)"
-              :filter-type="node.tag"
-              :types="types"
+              :filter-type="node.tag === 'panel' ? 'html' : node.tag"
+              :types="node.tag === 'panel' ? panelPickerTypes : types"
               @select="(id) => { emit('addRefToContainer', node.id, id); activePickerParent = undefined }"
-              @create-new="() => { emit('createNewInContainer', node.id, node.tag as string); activePickerParent = undefined }"
+              @create-new="(typeId) => { emit('createNewInContainer', node.id, typeId); activePickerParent = undefined }"
             />
           </div>
         </transition>
@@ -192,6 +205,16 @@ function onDrop(targetId: string) {
     <!-- root add: one omnibox for prompts + containers -->
     <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary transition-colors" @click="openRoot">
       <Plus :size="16" /> {{ $t('prompt.addNode') }}
+    </button>
+
+    <!-- add-panel: scaffolds a panel folder + blank html/css bricks in one click -->
+    <button
+      v-if="allowPanel"
+      data-test="add-panel"
+      class="flex items-center gap-2 py-1.5 pl-2 text-[13.5px] text-muted hover:text-primary transition-colors"
+      @click="emit('addPanel')"
+    >
+      <Plus :size="16" /> {{ $t('pack.addPanel') }}
     </button>
 
     <transition name="expand">

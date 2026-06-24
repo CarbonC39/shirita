@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates } from './client'
+import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates, getSessionPanels } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -246,6 +246,15 @@ describe('packs client', () => {
     const body = JSON.parse(fm.mock.calls[0][1].body)
     expect(body.pack_ids).toEqual(['p1'])
     expect(body.template_id).toBe('t1')
+  })
+
+  it('getSessionPanels GETs /sessions/:id/panels', async () => {
+    const panels = [{ id: 'F', name: 'Status', html: '<b/>', css: '.x{}', caps: { write: true } }]
+    const fetchMock = mockFetch(200, panels)
+    vi.stubGlobal('fetch', fetchMock)
+    const out = await getSessionPanels('s1')
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/sessions/s1/panels'), expect.anything())
+    expect(out).toEqual(panels)
   })
 })
 

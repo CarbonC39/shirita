@@ -6,11 +6,10 @@ import {
   createDefinition, updateDefinition,
 } from '../api/client'
 import { selectOneSiblingsToDisable } from '../utils/tree'
-import type { Pack, PromptNode, VarDecl, Trigger, Panel, PanelCaps } from '../api/types'
+import type { Pack, PromptNode, VarDecl, Trigger } from '../api/types'
 import PromptTree from './PromptTree.vue'
 import VariablesEditor from './VariablesEditor.vue'
 import AssetPicker from './AssetPicker.vue'
-import PanelView from './PanelView.vue'
 
 const props = defineProps<{ pack: Pack }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -48,37 +47,6 @@ function saveVars(vars: VarDecl[]) {
   void save({ meta: { ...(props.pack.meta as Record<string, unknown>), variables: vars } })
 }
 
-// ── panel: local editable copy seeded from meta.panel, persisted via save() ──
-const panelHtml = ref('')
-const panelCss = ref('')
-const panelCaps = ref<PanelCaps>({})
-watch(
-  () => props.pack.id,
-  () => {
-    const p = (props.pack.meta as { panel?: Panel }).panel
-    panelHtml.value = p?.html ?? ''
-    panelCss.value = p?.css ?? ''
-    panelCaps.value = { ...(p?.caps ?? {}) }
-  },
-  { immediate: true },
-)
-function savePanel() {
-  void save({
-    meta: {
-      ...(props.pack.meta as Record<string, unknown>),
-      panel: { html: panelHtml.value, css: panelCss.value, caps: panelCaps.value },
-    },
-  })
-}
-function toggleCap(cap: 'write' | 'insert' | 'send') {
-  panelCaps.value = { ...panelCaps.value, [cap]: !panelCaps.value[cap] }
-  savePanel()
-}
-// Preview binds the pack's declared variables at their initial values.
-const previewValues = computed<Record<string, unknown>>(
-  () => Object.fromEntries(packVars.value.map((v) => [v.name, v.initial])),
-)
-
 // ── content tree (owner_kind = 'pack'), mirrors the template-tree wiring ──
 function slugifyType(name: string) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -106,6 +74,20 @@ async function createNewInContainer(parentId: string, typeId: string) {
     const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: '', meta: {} })
     await library.loadDefinitions()
     await createNode('pack', props.pack.id, { parent_id: parentId, kind: 'ref', definition_id: def.id })
+    await reload()
+  } catch (e) { error.value = (e as Error).message }
+}
+async function addPanel() {
+  try {
+    const html = await createDefinition({ type: 'html', name: 'Panel HTML', content: '', meta: {} })
+    const css = await createDefinition({ type: 'css', name: 'Panel CSS', content: '', meta: {} })
+    await library.loadDefinitions()
+    // createNode's body has no `meta` field (folder name/caps land in meta), so
+    // the folder is created bare and then immediately given its meta via updateNode.
+    const folder = await createNode('pack', props.pack.id, { parent_id: null, kind: 'folder', tag: 'panel' })
+    await updateNode(folder.id, { meta: { name: 'Panel', caps: {} } })
+    await createNode('pack', props.pack.id, { parent_id: folder.id, kind: 'ref', definition_id: html.id })
+    await createNode('pack', props.pack.id, { parent_id: folder.id, kind: 'ref', definition_id: css.id })
     await reload()
   } catch (e) { error.value = (e as Error).message }
 }
@@ -176,6 +158,7 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       :nodes="nodes"
       :definitions="library.definitions"
       :types="library.containerTypes"
+      :allow-panel="true"
       @toggle-enabled="toggleEnabled"
       @add-prompt="addPrompt"
       @add-container="addContainer"
@@ -188,48 +171,12 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       @update-node-meta="updateNodeMeta"
       @delete-node="handleDelete"
       @reorder="reorder"
+      @add-panel="addPanel"
     />
 
     <!-- variables -->
     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mt-4 mb-2">{{ $t('pack.variables') }}</h3>
     <VariablesEditor :model-value="packVars" @update:model-value="saveVars" />
-
-    <!-- panel -->
-    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mt-4 mb-2">{{ $t('pack.panel') }}</h3>
-    <div data-test="pack-panel" class="space-y-2">
-      <label class="block">
-        <span class="text-[12px] text-muted block mb-1">{{ $t('pack.panelHtml') }}</span>
-        <textarea
-          data-test="panel-html"
-          v-model="panelHtml"
-          rows="6"
-          class="field w-full font-mono text-[12px]"
-          :placeholder="$t('pack.panelHtmlPlaceholder')"
-          @change="savePanel"
-        />
-      </label>
-      <label class="block">
-        <span class="text-[12px] text-muted block mb-1">{{ $t('pack.panelCss') }}</span>
-        <textarea
-          data-test="panel-css"
-          v-model="panelCss"
-          rows="5"
-          class="field w-full font-mono text-[12px]"
-          :placeholder="$t('pack.panelCssPlaceholder')"
-          @change="savePanel"
-        />
-      </label>
-      <div class="flex items-center flex-wrap gap-x-4 gap-y-1.5 text-[12px]">
-        <span class="text-muted">{{ $t('pack.panelCaps') }}</span>
-        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="cap-write" :checked="panelCaps.write" @change="toggleCap('write')" />{{ $t('pack.capWrite') }}</label>
-        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="cap-insert" :checked="panelCaps.insert" @change="toggleCap('insert')" />{{ $t('pack.capInsert') }}</label>
-        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="cap-send" :checked="panelCaps.send" @change="toggleCap('send')" />{{ $t('pack.capSend') }}</label>
-      </div>
-      <div>
-        <span class="text-[12px] text-muted block mb-1">{{ $t('pack.panelPreview') }}</span>
-        <PanelView :html="panelHtml" :css="panelCss" :values="previewValues" />
-      </div>
-    </div>
 
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
   </div>

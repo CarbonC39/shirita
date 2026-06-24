@@ -18,10 +18,11 @@ vi.mock('../stores/library', () => ({
 }))
 
 import PackEditor from './PackEditor.vue'
+import PromptTree from './PromptTree.vue'
 import * as api from '../api/client'
 
 const pack = { id: 'p1', name: 'Alice', identity: { display_name: 'Alice', avatar: null }, meta: {}, created_at: '', updated_at: '' }
-const stubs = { AssetPicker: true, PromptTree: true, VariablesEditor: true, PanelView: true }
+const stubs = { AssetPicker: true, PromptTree: true, VariablesEditor: true }
 
 describe('PackEditor', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
@@ -38,35 +39,36 @@ describe('PackEditor', () => {
     expect((w.find('[data-test="pack-display-name"]').element as HTMLInputElement).value).toBe('Alice')
   })
 
-  it('renders the panel editor seeded from meta.panel with a live preview', async () => {
+  it('no longer renders the legacy pack-panel section', async () => {
     const withPanel = { ...pack, meta: { panel: { html: '<span data-bind="hp">x</span>', css: '', caps: {} } } }
     const w = mount(PackEditor, { props: { pack: withPanel }, global: { stubs } })
     await flushPromises()
-    expect(w.find('[data-test="pack-panel"]').exists()).toBe(true)
-    expect((w.find('[data-test="panel-html"]').element as HTMLTextAreaElement).value).toBe('<span data-bind="hp">x</span>')
-    expect(w.find('[data-test="pack-panel"]').text()).toContain('Preview') // PanelView preview section present
+    expect(w.find('[data-test="pack-panel"]').exists()).toBe(false)
+    expect(w.find('[data-test="panel-html"]').exists()).toBe(false)
   })
 
-  it('editing the panel HTML saves meta.panel', async () => {
-    const w = mount(PackEditor, { props: { pack }, global: { stubs } })
-    await flushPromises()
-    const ta = w.find('[data-test="panel-html"]')
-    await ta.setValue('<b>{{hp}}</b>')
-    await ta.trigger('change')
-    await flushPromises()
-    expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
-      meta: expect.objectContaining({ panel: { html: '<b>{{hp}}</b>', css: '', caps: {} } }),
-    }))
-  })
+  it('Add panel scaffolds a panel folder with html and css bricks', async () => {
+    const createDefinitionMock = api.createDefinition as unknown as ReturnType<typeof vi.fn>
+    const createNodeMock = api.createNode as unknown as ReturnType<typeof vi.fn>
+    createDefinitionMock
+      .mockResolvedValueOnce({ id: 'html1', type: 'html', name: 'Panel HTML', content: '', meta: {} })
+      .mockResolvedValueOnce({ id: 'css1', type: 'css', name: 'Panel CSS', content: '', meta: {} })
+    createNodeMock.mockResolvedValueOnce({
+      id: 'folder1', owner_kind: 'pack', owner_id: 'p1', parent_id: null, sort_order: 0,
+      kind: 'folder', tag: 'panel', definition_id: null, enabled: true, created_at: '', meta: { name: 'Panel', caps: {} },
+    })
 
-  it('toggling a capability saves it', async () => {
     const w = mount(PackEditor, { props: { pack }, global: { stubs } })
     await flushPromises()
-    await w.find('[data-test="cap-write"]').setValue(true)
+    await w.findComponent(PromptTree).vm.$emit('add-panel')
     await flushPromises()
-    expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
-      meta: expect.objectContaining({ panel: expect.objectContaining({ caps: { write: true } }) }),
-    }))
+
+    expect(api.createDefinition).toHaveBeenCalledWith(expect.objectContaining({ type: 'html' }))
+    expect(api.createDefinition).toHaveBeenCalledWith(expect.objectContaining({ type: 'css' }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ kind: 'folder', tag: 'panel' }))
+    expect(api.updateNode).toHaveBeenCalledWith('folder1', expect.objectContaining({ meta: { name: 'Panel', caps: {} } }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ parent_id: 'folder1', definition_id: 'html1' }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ parent_id: 'folder1', definition_id: 'css1' }))
   })
 
   it('editing the display name updates identity and emits changed', async () => {

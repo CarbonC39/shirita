@@ -30,6 +30,7 @@ const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
 const isHistory = computed(() => props.node.kind === 'history')
 const isContent = computed(() => props.node.kind === 'content')
+const isPanel = computed(() => isFolder.value && props.node.tag === 'panel')
 
 const def = computed<Definition | null>(() =>
   props.node.definition_id ? props.definitions[props.node.definition_id] ?? null : null,
@@ -38,9 +39,23 @@ const def = computed<Definition | null>(() =>
 const label = computed(() => {
   if (isHistory.value) return t('prompt.chatHistory')
   if (isContent.value) return t('prompt.contentMount')
+  if (isPanel.value) return panelName.value || props.node.tag || t('prompt.folderFallback')
   if (isFolder.value) return props.node.tag || t('prompt.folderFallback')
   return def.value ? def.value.name : t('prompt.missing')
 })
+
+// Panel folder: meta carries { name, caps: {write,insert,send} }, editable
+// inline (name input + 3 cap checkboxes) like a regular ref's content editor.
+type PanelCaps = { write?: boolean; insert?: boolean; send?: boolean }
+const panelMeta = computed(() => props.node.meta as { name?: string; caps?: PanelCaps })
+const panelName = computed(() => panelMeta.value.name ?? '')
+const panelCaps = computed<PanelCaps>(() => panelMeta.value.caps ?? {})
+function updatePanelName(name: string) {
+  emit('updateNodeMeta', { ...panelMeta.value, name })
+}
+function togglePanelCap(cap: keyof PanelCaps) {
+  emit('updateNodeMeta', { ...panelMeta.value, caps: { ...panelCaps.value, [cap]: !panelCaps.value[cap] } })
+}
 
 // palette tint per definition/container type
 const typeTint: Record<string, string> = {
@@ -166,6 +181,28 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         <ChevronRight :size="16" :class="isExpanded ? 'rotate-90' : ''" class="transition-transform" />
       </button>
     </div>
+
+    <!-- panel folder: name + caps editing, inline under the row when expanded -->
+    <transition name="expand">
+    <div v-if="isPanel && isExpanded" data-test="panel-folder-editor" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5 space-y-2">
+      <label class="block">
+        <span class="text-[12px] text-muted block mb-1">{{ $t('pack.panelName') }}</span>
+        <input
+          data-test="panel-folder-name"
+          :value="panelName"
+          type="text"
+          class="field w-full"
+          @change="updatePanelName(($event.target as HTMLInputElement).value)"
+        />
+      </label>
+      <div class="flex items-center flex-wrap gap-x-4 gap-y-1.5 text-[12px]">
+        <span class="text-muted">{{ $t('pack.panelCaps') }}</span>
+        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="panel-folder-cap-write" :checked="panelCaps.write" @change="togglePanelCap('write')" />{{ $t('pack.capWrite') }}</label>
+        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="panel-folder-cap-insert" :checked="panelCaps.insert" @change="togglePanelCap('insert')" />{{ $t('pack.capInsert') }}</label>
+        <label class="flex items-center gap-1.5"><input type="checkbox" data-test="panel-folder-cap-send" :checked="panelCaps.send" @change="togglePanelCap('send')" />{{ $t('pack.capSend') }}</label>
+      </div>
+    </div>
+    </transition>
 
     <!-- inline content editor for ref nodes -->
     <transition name="expand">

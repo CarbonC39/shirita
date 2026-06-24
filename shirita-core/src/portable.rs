@@ -230,25 +230,27 @@ fn push_unique(out: &mut Vec<String>, p: &str) {
 
 /// Distinct relative asset paths a `shirita.pack` manifest references, from
 /// **designated fields only** — identity.avatar, each inlined definition's
-/// `meta.avatar`, and panel `meta.panel.{html,css}` `/assets/<path>` occurrences.
-/// Arbitrary strings (e.g. a text variable valued `123.png`) are never scanned.
+/// `meta.avatar`, and each html/css definition's `content` `/assets/<path>`
+/// occurrences. Arbitrary strings (e.g. a text variable valued `123.png`) are
+/// never scanned.
 pub fn collect_pack_assets(manifest: &Value) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     if let Some(a) = manifest["pack"]["identity"]["avatar"].as_str() {
         push_unique(&mut out, a);
     }
+    let re = &*ASSET_REF_RE;
     if let Some(defs) = manifest["definitions"].as_array() {
         for d in defs {
             if let Some(a) = d["meta"]["avatar"].as_str() {
                 push_unique(&mut out, a);
             }
-        }
-    }
-    let re = &*ASSET_REF_RE;
-    for key in ["html", "css"] {
-        if let Some(text) = manifest["pack"]["meta"]["panel"][key].as_str() {
-            for cap in re.captures_iter(text) {
-                push_unique(&mut out, &cap[1]);
+            let ty = d["type"].as_str().unwrap_or("");
+            if ty == "html" || ty == "css" {
+                if let Some(text) = d["content"].as_str() {
+                    for cap in re.captures_iter(text) {
+                        push_unique(&mut out, &cap[1]);
+                    }
+                }
             }
         }
     }
@@ -272,34 +274,32 @@ fn remap_field(field: &mut Value, map: &HashMap<String, String>) {
 
 /// Rewrite a manifest's **designated** asset refs through `map` (old rel → new
 /// rel). A designated ref present but absent from the map is blanked — avatar
-/// fields to `null`, panel `/assets/…` occurrences stripped — so import never
-/// yields a dead link.
+/// fields to `null`, html/css definition `content` `/assets/…` occurrences
+/// stripped — so import never yields a dead link.
 pub fn rewrite_pack_assets(manifest: &Value, map: &HashMap<String, String>) -> Value {
     let mut m = manifest.clone();
     if let Some(f) = field_mut(&mut m, &["pack", "identity", "avatar"]) {
         remap_field(f, map);
     }
+    let re = &*ASSET_REF_RE;
     if let Some(defs) = m.get_mut("definitions").and_then(|d| d.as_array_mut()) {
         for d in defs {
             if let Some(f) = field_mut(d, &["meta", "avatar"]) {
                 remap_field(f, map);
             }
-        }
-    }
-    let re = &*ASSET_REF_RE;
-    for key in ["html", "css"] {
-        let cur = field_mut(&mut m, &["pack", "meta", "panel", key])
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        if let Some(text) = cur {
-            let rewritten = re
-                .replace_all(&text, |c: &regex::Captures| match map.get(&c[1]) {
-                    Some(n) => format!("/assets/{n}"),
-                    None => String::new(),
-                })
-                .into_owned();
-            if let Some(f) = field_mut(&mut m, &["pack", "meta", "panel", key]) {
-                *f = Value::String(rewritten);
+            let ty = d.get("type").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            if ty == "html" || ty == "css" {
+                if let Some(text) = d.get("content").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+                    let rewritten = re
+                        .replace_all(&text, |c: &regex::Captures| match map.get(&c[1]) {
+                            Some(n) => format!("/assets/{n}"),
+                            None => String::new(),
+                        })
+                        .into_owned();
+                    if let Some(f) = d.get_mut("content") {
+                        *f = Value::String(rewritten);
+                    }
+                }
             }
         }
     }
@@ -422,8 +422,7 @@ mod tests {
         pack.identity.avatar = Some("av.png".into());
         pack.identity.display_name = Some("Alice".into());
         pack.meta = json!({
-            "variables": [{ "name": "hp", "type": "number", "initial": 100 }],
-            "panel": { "html": "<b>{{hp}}</b>", "css": ".x{}", "caps": {} }
+            "variables": [{ "name": "hp", "type": "number", "initial": 100 }]
         });
 
         // folder > enabled ref A + DISABLED ref B; both must survive (no filter).
@@ -447,7 +446,7 @@ mod tests {
             PortableDoc::Pack { name, identity, meta, nodes, defs } => {
                 assert_eq!(name, "Alice");
                 assert_eq!(identity.avatar.as_deref(), Some("av.png"));
-                assert_eq!(meta["panel"]["html"], "<b>{{hp}}</b>");
+                assert_eq!(meta["variables"][0]["name"], "hp");
                 assert_eq!(nodes.len(), 3);
                 assert_eq!(defs.len(), 2);
             }
@@ -456,38 +455,56 @@ mod tests {
     }
 
     #[test]
-    fn collect_pack_assets_designated_only_ignores_lookalike_var() {
-        let m = json!({
-            "pack": { "identity": { "avatar": "a.png" },
-                      "meta": { "panel": { "css": ".x{background:url(/assets/c.png)}", "html": "" },
-                                "variables": [{ "name": "note", "type": "string", "initial": "d.png" }] } },
-            "definitions": [ { "meta": { "avatar": "b.png" } }, { "meta": {} } ]
+    fn collect_pack_assets_scans_html_css_brick_content() {
+        // Designated fields only: identity.avatar, each def's meta.avatar, and
+        // html/css def `content`. A look-alike `/assets/…` living anywhere else
+        // (a text variable's value, a non-html/css def's content) must NOT be
+        // collected — otherwise the asset bundle would over-collect.
+        let manifest = json!({
+            "format": "shirita.pack", "version": 1,
+            "pack": { "name": "P", "identity": { "avatar": "a.png" },
+                      "meta": { "variables": [{ "name": "note", "type": "string", "initial": "/assets/var.png" }] } },
+            "nodes": [],
+            "definitions": [
+                { "local_id": "h", "type": "html",   "name": "m", "content": "<img src=\"/assets/c.png\">",       "meta": { "avatar": "b.png" } },
+                { "local_id": "s", "type": "css",    "name": "t", "content": ".x{background:url(/assets/bg.png)}", "meta": {} },
+                { "local_id": "p", "type": "prompt", "name": "p", "content": "see /assets/nope.png",               "meta": {} }
+            ]
         });
-        let got = collect_pack_assets(&m);
-        assert!(got.contains(&"a.png".to_string()));
-        assert!(got.contains(&"b.png".to_string()));
-        assert!(got.contains(&"c.png".to_string()));
-        assert!(!got.contains(&"d.png".to_string()), "look-alike text variable must NOT be collected");
-        assert_eq!(got.len(), 3);
+        let assets = collect_pack_assets(&manifest);
+        assert!(assets.contains(&"a.png".to_string()));   // identity.avatar
+        assert!(assets.contains(&"b.png".to_string()));   // def meta.avatar
+        assert!(assets.contains(&"c.png".to_string()));   // html content
+        assert!(assets.contains(&"bg.png".to_string()));  // css content
+        assert!(!assets.contains(&"var.png".to_string()), "a text variable value must NOT be scanned");
+        assert!(!assets.contains(&"nope.png".to_string()), "a non-html/css def's content must NOT be scanned");
+        assert_eq!(assets.len(), 4, "exactly the four designated refs, nothing more");
     }
 
     #[test]
-    fn rewrite_pack_assets_remaps_and_blanks_dead_links() {
-        let m = json!({
-            "pack": { "identity": { "avatar": "a.png" },
-                      "meta": { "panel": { "css": "url(/assets/c.png) url(/assets/gone.png)", "html": "" } } },
-            "definitions": [ { "meta": { "avatar": "b.png" } } ]
+    fn rewrite_pack_assets_remaps_html_css_brick_content() {
+        // A designated ref absent from the map is blanked so import never yields
+        // a dead link: avatar fields (identity + def meta.avatar) → null, and
+        // html/css `/assets/…` occurrences stripped.
+        let manifest = json!({
+            "format": "shirita.pack", "version": 1,
+            "pack": { "name": "P", "identity": { "avatar": "a.png" }, "meta": {} },
+            "nodes": [],
+            "definitions": [
+                { "local_id": "h", "type": "html", "name": "m", "content": "", "meta": { "avatar": "b.png" } },
+                { "local_id": "s", "type": "css",  "name": "t",
+                  "content": "url(/assets/c.png) url(/assets/gone.png)", "meta": {} }
+            ]
         });
-        let mut map = HashMap::new();
-        map.insert("a.png".to_string(), "x.png".to_string());
-        map.insert("c.png".to_string(), "z.png".to_string());
-        // b.png and gone.png are intentionally absent from the map.
-        let out = rewrite_pack_assets(&m, &map);
-        assert_eq!(out["pack"]["identity"]["avatar"], "x.png");
-        assert!(out["definitions"][0]["meta"]["avatar"].is_null(), "unmapped avatar blanked");
-        let css = out["pack"]["meta"]["panel"]["css"].as_str().unwrap();
-        assert!(css.contains("/assets/z.png"));
-        assert!(!css.contains("gone.png"), "dead /assets link stripped");
+        let mut map = std::collections::HashMap::new();
+        map.insert("c.png".to_string(), "new/c.png".to_string());
+        // a.png, b.png, gone.png are intentionally absent from the map.
+        let out = rewrite_pack_assets(&manifest, &map);
+        assert!(out["pack"]["identity"]["avatar"].is_null(), "unmapped identity avatar blanked");
+        assert!(out["definitions"][0]["meta"]["avatar"].is_null(), "unmapped def avatar blanked");
+        let css = out["definitions"][1]["content"].as_str().unwrap();
+        assert!(css.contains("/assets/new/c.png"));
+        assert!(!css.contains("gone.png"), "unmapped /assets link stripped");
     }
 
     #[test]

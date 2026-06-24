@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 
 /// 保留类型（代码常量，永不入 def_types 表，不进节点树容器）。
-pub const RESERVED: [&str; 5] = ["prompt", "regex_rule", "tool", "first_message", "protocol"];
+pub const RESERVED: [&str; 7] =
+    ["prompt", "regex_rule", "tool", "first_message", "protocol", "html", "css"];
 
 /// 是否保留类型（prompt / regex_rule / tool）。
 pub fn is_reserved(t: &str) -> bool {
@@ -62,6 +63,13 @@ mod tests {
     fn protocol_is_reserved() {
         assert!(is_reserved("protocol"));
         assert!(!is_prompt("protocol"));
+    }
+
+    #[test]
+    fn html_css_are_reserved() {
+        assert!(is_reserved("html"));
+        assert!(is_reserved("css"));
+        assert!(!is_reserved("char"));
     }
 
     #[test]
