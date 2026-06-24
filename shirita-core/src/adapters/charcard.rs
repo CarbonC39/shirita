@@ -258,7 +258,7 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
         .unwrap_or("Imported character")
         .to_string();
 
-    let mut tmpl = Template::new(name.clone());
+    let tmpl = Template::new(name.clone());
     // OwnerKind is not Copy and the node constructors take it by value, so we
     // pass OwnerKind::Template directly at each call (a zero-cost unit variant).
     let mut defs: Vec<Definition> = Vec::new();
@@ -410,22 +410,14 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
         }
     }
 
-    // --- register the card's default chat variables, plus any converted
-    // status-bar fields, plus the converted panel itself ---
-    let mut vardecls = tavern_helper_vardecls(data);
-    if let Some(conv) = &panel_conversion {
-        for vd in &conv.var_decls {
-            if !vardecls.iter().any(|existing| existing.name == vd.name) {
-                vardecls.push(vd.clone());
-            }
-        }
-    }
-    let mut meta = serde_json::Map::new();
-    if !vardecls.is_empty() {
-        meta.insert("variables".to_string(), serde_json::to_value(&vardecls).unwrap());
-    }
-    if !meta.is_empty() {
-        tmpl.meta = serde_json::Value::Object(meta);
+    // --- card-level (tavern_helper) variables → a root `variables` brick ---
+    let card_vars = tavern_helper_vardecls(data);
+    if !card_vars.is_empty() {
+        let mut vdef = Definition::new("variables", format!("{name}·vars"), "");
+        vdef.meta = serde_json::json!({ "decls": card_vars });
+        nodes.push(PromptNode::new_ref(
+            OwnerKind::Template, &tmpl.id, None, next(&mut sort), &vdef.id));
+        defs.push(vdef);
     }
 
     // --- panel folder (html/css bricks + the panel-sync regex ref) ---
@@ -445,6 +437,14 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
             OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), &css.id));
         defs.push(css);
 
+        if !conv.var_decls.is_empty() {
+            let mut vdef = Definition::new("variables", format!("{name}·panel·vars"), "");
+            vdef.meta = serde_json::json!({ "decls": conv.var_decls.clone() });
+            nodes.push(PromptNode::new_ref(
+                OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), &vdef.id));
+            defs.push(vdef);
+        }
+
         if let Some(rid) = &panel_regex_def_id {
             nodes.push(PromptNode::new_ref(
                 OwnerKind::Template, &tmpl.id, Some(folder.id.clone()), next(&mut csort), rid));
@@ -462,8 +462,10 @@ pub fn charcard_to_loreset(card: &serde_json::Value) -> LoreSet {
 /// separate Template row) plus an optional bound identity. This takes the
 /// `Template`-owned tree `charcard_to_loreset` builds and rewrites every
 /// node's `owner_kind`/`owner_id` to point at a new pack, carries the
-/// template's `meta` (e.g. imported `variables`) onto `pack.meta`, and sets
-/// `pack.identity` from the card's name + (optional) saved avatar filename.
+/// template's `meta` onto `pack.meta`, and sets `pack.identity` from the
+/// card's name + (optional) saved avatar filename. Imported variables now
+/// live in `variables` definition bricks (returned unchanged in
+/// `definitions`), not in template/pack meta.
 ///
 /// Definitions are returned unchanged — they have no owner field, so they are
 /// reused as-is regardless of which tree they're attached to.
@@ -748,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn imports_tavern_helper_variables_into_template_meta() {
+    fn imports_tavern_helper_variables_into_a_root_variables_brick() {
         let card = serde_json::json!({
             "data": {
                 "name": "Neo", "description": "desc",
@@ -756,7 +758,12 @@ mod tests {
             }
         });
         let s = charcard_to_loreset(&card);
-        let vars = s.template.meta["variables"].as_array().unwrap();
+        let vbrick = s
+            .definitions
+            .iter()
+            .find(|d| d.def_type == "variables" && d.name.ends_with("·vars"))
+            .expect("a root variables brick");
+        let vars = vbrick.meta["decls"].as_array().unwrap();
         let find = |n: &str| vars.iter().find(|v| v["name"] == n).unwrap();
         assert_eq!(find("hp")["type"], "number");
         assert_eq!(find("is_alive")["type"], "bool");
@@ -801,7 +808,7 @@ mod tests {
     }
 
     #[test]
-    fn loreset_to_pack_carries_template_meta_and_no_avatar_when_absent() {
+    fn loreset_to_pack_carries_variables_brick_and_no_avatar_when_absent() {
         let card = serde_json::json!({
             "data": {
                 "name": "Neo", "description": "desc",
@@ -809,9 +816,14 @@ mod tests {
             }
         });
         let ls = charcard_to_loreset(&card);
-        assert!(!ls.template.meta["variables"].as_array().unwrap().is_empty());
-        let (pack, _, _) = loreset_to_pack(ls, None);
-        assert!(!pack.meta["variables"].as_array().unwrap().is_empty());
+        let vbrick = ls
+            .definitions
+            .iter()
+            .find(|d| d.def_type == "variables" && d.name.ends_with("·vars"))
+            .expect("a root variables brick");
+        assert!(!vbrick.meta["decls"].as_array().unwrap().is_empty());
+        let (pack, defs, _) = loreset_to_pack(ls, None);
+        assert!(defs.iter().any(|d| d.def_type == "variables"));
         assert_eq!(pack.identity.avatar, None);
     }
 
@@ -867,9 +879,17 @@ mod tests {
             .find(|d| Some(d.id.as_str()) == rule_ref.definition_id.as_deref()).unwrap();
         assert_eq!(rule.meta["capture_vars"], serde_json::json!(["field1"]));
 
-        // Variables still register on template meta this plan (Plan 2 moves them).
-        let vars = ls.template.meta["variables"].as_array().unwrap();
-        assert!(vars.iter().any(|v| v["name"] == "field1"));
+        // The status-bar capture fields become a `variables` brick INSIDE
+        // the panel folder (not on template meta).
+        let panel_vars = ls
+            .nodes
+            .iter()
+            .filter(|n| n.kind == NodeKind::Ref && n.parent_id.as_deref() == Some(folder.id.as_str()))
+            .filter_map(|n| n.definition_id.as_deref())
+            .filter_map(|id| ls.definitions.iter().find(|d| d.id == id))
+            .find(|d| d.def_type == "variables")
+            .expect("panel folder has a variables child brick");
+        assert!(panel_vars.meta["decls"].as_array().unwrap().iter().any(|d| d["name"] == "field1"));
     }
 
     #[test]
@@ -930,12 +950,16 @@ mod tests {
             }
         });
         let ls = charcard_to_loreset(&card);
-        let vars = ls.template.meta["variables"].as_array().unwrap();
-        let field1_count = vars.iter().filter(|v| v["name"] == "field1").count();
-        assert_eq!(field1_count, 1, "must not declare field1 twice");
-        // the tavern_helper declaration (a string type) wins since it was added first and
-        // the converter skips names that already exist.
-        assert_eq!(vars.iter().find(|v| v["name"] == "field1").unwrap()["initial"], "already declared");
-        assert!(vars.iter().any(|v| v["name"] == "mood"));
+        // Card-level (tavern_helper) variables become a root `variables` brick,
+        // not template meta.
+        let vbrick = ls
+            .definitions
+            .iter()
+            .find(|d| d.def_type == "variables" && d.name.ends_with("·vars"))
+            .expect("a root variables brick");
+        let decls = vbrick.meta["decls"].as_array().unwrap();
+        let names: Vec<&str> = decls.iter().map(|d| d["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"field1") && names.contains(&"mood"));
+        assert!(ls.template.meta.get("variables").is_none(), "no meta.variables god-object");
     }
 }
