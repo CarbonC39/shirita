@@ -422,8 +422,7 @@ mod tests {
         pack.identity.avatar = Some("av.png".into());
         pack.identity.display_name = Some("Alice".into());
         pack.meta = json!({
-            "variables": [{ "name": "hp", "type": "number", "initial": 100 }],
-            "panel": { "html": "<b>{{hp}}</b>", "css": ".x{}", "caps": {} }
+            "variables": [{ "name": "hp", "type": "number", "initial": 100 }]
         });
 
         // folder > enabled ref A + DISABLED ref B; both must survive (no filter).
@@ -447,7 +446,7 @@ mod tests {
             PortableDoc::Pack { name, identity, meta, nodes, defs } => {
                 assert_eq!(name, "Alice");
                 assert_eq!(identity.avatar.as_deref(), Some("av.png"));
-                assert_eq!(meta["panel"]["html"], "<b>{{hp}}</b>");
+                assert_eq!(meta["variables"][0]["name"], "hp");
                 assert_eq!(nodes.len(), 3);
                 assert_eq!(defs.len(), 2);
             }
