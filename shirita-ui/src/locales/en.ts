@@ -191,6 +191,7 @@ const en = {
     scanDepth: 'Scan depth',
     recursive: 'Recursive',
     contentPlaceholder: 'Definition content…',
+    htmlPreview: 'Preview',
     wrapInTag: 'Wrap in tag',
     wrapInTagHint: 'Wrap content in a tag named after this definition',
     messageTypeHint: 'Leave depth empty for a session-start greeting (alternates become swipes). Set a depth to insert this as a note at that distance from the end of chat history every turn.',

@@ -181,6 +181,7 @@ const zhHant: MessageSchema = {
     scanDepth: '掃描深度',
     recursive: '遞迴',
     contentPlaceholder: '定義內容…',
+    htmlPreview: '預覽',
     wrapInTag: '標籤包裹',
     wrapInTagHint: '用以此定義命名的標籤包裹內容',
     messageTypeHint: '深度留空 = 對話開始時的開場白（其他備選作為滑動卡片）。設定深度 = 每輪在距歷史末尾該距離處插入一條備註。',

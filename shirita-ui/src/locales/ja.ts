@@ -181,6 +181,7 @@ const ja: MessageSchema = {
     scanDepth: 'スキャン深度',
     recursive: '再帰',
     contentPlaceholder: '定義の内容…',
+    htmlPreview: 'プレビュー',
     wrapInTag: 'タグで囲む',
     wrapInTagHint: 'この定義名のタグで内容を囲む',
     messageTypeHint: '深度を空にすると会話開始時の挨拶になります（代替案はスワイプに）。深度を設定すると、毎ターン履歴の末尾からその距離にノートとして挿入されます。',
