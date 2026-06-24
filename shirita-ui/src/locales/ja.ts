@@ -158,6 +158,8 @@ const ja: MessageSchema = {
     avatar: 'アバター',
     contentTree: '内容',
     variables: '変数',
+    addPanel: 'パネルを追加',
+    panelName: 'パネル名',
     panel: 'パネル',
     panelHtml: 'HTML',
     panelHtmlPlaceholder: 'パネル HTML…',

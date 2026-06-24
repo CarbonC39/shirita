@@ -168,6 +168,8 @@ const en = {
     avatar: 'Avatar',
     contentTree: 'Content',
     variables: 'Variables',
+    addPanel: 'Add panel',
+    panelName: 'Panel name',
     panel: 'Panel',
     panelHtml: 'HTML',
     panelHtmlPlaceholder: 'Panel HTML…',

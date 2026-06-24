@@ -18,6 +18,7 @@ vi.mock('../stores/library', () => ({
 }))
 
 import PackEditor from './PackEditor.vue'
+import PromptTree from './PromptTree.vue'
 import * as api from '../api/client'
 
 const pack = { id: 'p1', name: 'Alice', identity: { display_name: 'Alice', avatar: null }, meta: {}, created_at: '', updated_at: '' }
@@ -67,6 +68,30 @@ describe('PackEditor', () => {
     expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
       meta: expect.objectContaining({ panel: expect.objectContaining({ caps: { write: true } }) }),
     }))
+  })
+
+  it('Add panel scaffolds a panel folder with html and css bricks', async () => {
+    const createDefinitionMock = api.createDefinition as unknown as ReturnType<typeof vi.fn>
+    const createNodeMock = api.createNode as unknown as ReturnType<typeof vi.fn>
+    createDefinitionMock
+      .mockResolvedValueOnce({ id: 'html1', type: 'html', name: 'Panel HTML', content: '', meta: {} })
+      .mockResolvedValueOnce({ id: 'css1', type: 'css', name: 'Panel CSS', content: '', meta: {} })
+    createNodeMock.mockResolvedValueOnce({
+      id: 'folder1', owner_kind: 'pack', owner_id: 'p1', parent_id: null, sort_order: 0,
+      kind: 'folder', tag: 'panel', definition_id: null, enabled: true, created_at: '', meta: { name: 'Panel', caps: {} },
+    })
+
+    const w = mount(PackEditor, { props: { pack }, global: { stubs } })
+    await flushPromises()
+    await w.findComponent(PromptTree).vm.$emit('add-panel')
+    await flushPromises()
+
+    expect(api.createDefinition).toHaveBeenCalledWith(expect.objectContaining({ type: 'html' }))
+    expect(api.createDefinition).toHaveBeenCalledWith(expect.objectContaining({ type: 'css' }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ kind: 'folder', tag: 'panel' }))
+    expect(api.updateNode).toHaveBeenCalledWith('folder1', expect.objectContaining({ meta: { name: 'Panel', caps: {} } }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ parent_id: 'folder1', definition_id: 'html1' }))
+    expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ parent_id: 'folder1', definition_id: 'css1' }))
   })
 
   it('editing the display name updates identity and emits changed', async () => {

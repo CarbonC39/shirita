@@ -158,6 +158,8 @@ const zhHans: MessageSchema = {
     avatar: '头像',
     contentTree: '内容',
     variables: '变量',
+    addPanel: '添加面板',
+    panelName: '面板名称',
     panel: '面板',
     panelHtml: 'HTML',
     panelHtmlPlaceholder: '面板 HTML…',
