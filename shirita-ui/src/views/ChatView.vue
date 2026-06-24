@@ -6,8 +6,8 @@ import { useChatStore } from '../stores/chat'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
-import { getSessionState, getSessionIdentity, getSession, getPack, applyStateUpdates, assetUrl } from '../api/client'
-import type { SessionState, Identity, Pack, Panel, PanelAction } from '../api/types'
+import { getSessionState, getSessionIdentity, getSessionPanels, applyStateUpdates, assetUrl } from '../api/client'
+import type { SessionState, Identity, SessionPanel, PanelAction } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
@@ -44,24 +44,18 @@ async function loadIdentity() {
     /* keep fallback */
   }
 }
-// Mounted packs that ship a panel, in mount order.
-const panelPacks = ref<Pack[]>([])
-function panelOf(p: Pack): Panel {
-  return (p.meta as { panel: Panel }).panel
-}
+// Server-resolved panels for the session (one per `panel` folder), in resolution order.
+const panels = ref<SessionPanel[]>([])
 async function loadPanels() {
   try {
-    const session = await getSession(sessionId)
-    const ids = session.mounted_packs ?? []
-    const packs = await Promise.all(ids.map((pid) => getPack(pid)))
-    panelPacks.value = packs.filter((p) => (p.meta as { panel?: Panel }).panel)
+    panels.value = await getSessionPanels(sessionId)
   } catch {
-    panelPacks.value = []
+    panels.value = []
   }
 }
 
-async function onPanelAction(pack: Pack, action: PanelAction) {
-  const caps = panelOf(pack).caps || {}
+async function onPanelAction(panel: SessionPanel, action: PanelAction) {
+  const caps = panel.caps || {}
   if (action.kind === 'diff') {
     if (!caps.write) return
     try {
@@ -172,11 +166,11 @@ async function handleFork(id: string) {
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
     </div>
 
-    <div v-if="panelPacks.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
-      <details v-for="p in panelPacks" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
-        <summary class="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-muted">{{ p.identity.display_name || p.name }}</summary>
+    <div v-if="panels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
+      <details v-for="p in panels" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
+        <summary class="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-muted">{{ p.name }}</summary>
         <div class="px-2 pb-2">
-          <PanelView :html="panelOf(p).html" :css="panelOf(p).css" :values="sessionState.values" @action="onPanelAction(p, $event)" />
+          <PanelView :html="p.html" :css="p.css" :values="sessionState.values" @action="onPanelAction(p, $event)" />
         </div>
       </details>
     </div>
