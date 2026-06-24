@@ -351,6 +351,24 @@ pub async fn get_packs(
     Ok(Json(s.mounted_packs))
 }
 
+/// Renderable panels for a session: panel folders across the effective
+/// template/session tree + mounted packs, html/css joined server-side.
+pub async fn get_panels(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<shirita_core::panels::RenderedPanel>>, StatusCode> {
+    let session = state
+        .storage
+        .get_session(&id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let panels = shirita_core::panels::resolve_session_panels(&*state.storage, &session)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(panels))
+}
+
 #[derive(Deserialize)]
 pub struct SetMounts {
     pub definition_ids: Vec<String>,
