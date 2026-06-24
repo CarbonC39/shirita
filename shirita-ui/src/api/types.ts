@@ -109,6 +109,16 @@ export interface Panel {
   caps: PanelCaps
 }
 
+/** A server-resolved panel for a session: one `panel` folder's combined
+ *  html/css plus its caps. Returned by GET /sessions/:id/panels. */
+export interface SessionPanel {
+  id: string
+  name: string
+  html: string
+  css: string
+  caps: PanelCaps
+}
+
 /** A user interaction reported by a panel; the host decides whether to honor it. */
 export type PanelAction =
   | { kind: 'diff'; key: string; op: string; value: string | null }
