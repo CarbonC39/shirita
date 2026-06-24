@@ -377,9 +377,8 @@ async fn persist_loreset_as_pack(
     for d in &defs {
         summary.created.push(item("definition", &d.id, &d.name));
     }
-    if pack.meta.get("panel").is_some() {
-        summary.created.push(item("panel", &pack.id, &pack.name));
-    }
+    // A panel is no longer a meta blob; it imports as a `panel` folder whose
+    // html/css bricks are reported above as plain `definition` items.
     // Container nodes (folder/history) before refs — import_pack requires
     // parent-before-child order for the self-referential FK.
     nodes.sort_by_key(|n| if n.kind == NodeKind::Ref { 1 } else { 0 });
