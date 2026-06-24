@@ -380,10 +380,11 @@ pub struct DepthInsert {
     pub content: String,
 }
 
-/// regex_rule / first_message refs do not render as prompt segments — they are
-/// consumed by their own subsystems (regex engine / session greeting seeder).
+/// regex_rule / first_message / html / css refs do not render as prompt
+/// segments — they are consumed by their own subsystems (regex engine /
+/// session greeting seeder / panel builder), never emitted into the LLM prompt.
 fn is_non_rendering(def_type: &str) -> bool {
-    matches!(def_type, "regex_rule" | "first_message")
+    matches!(def_type, "regex_rule" | "first_message" | "html" | "css")
 }
 
 /// 取定义的有效 trigger：会话局部覆盖优先，否则用 definition.meta。
@@ -1387,5 +1388,13 @@ mod tests {
         assert_eq!(plan.depth_inserts[0].depth, 2);
         assert_eq!(plan.depth_inserts[0].role, Role::System);
         assert_eq!(plan.depth_inserts[0].content, "Remember: stay calm");
+    }
+
+    #[test]
+    fn html_and_css_are_non_rendering() {
+        assert!(is_non_rendering("html"));
+        assert!(is_non_rendering("css"));
+        assert!(is_non_rendering("regex_rule"));
+        assert!(!is_non_rendering("prompt"));
     }
 }
