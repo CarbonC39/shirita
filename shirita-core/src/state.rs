@@ -1,8 +1,13 @@
 //! 变量状态沙箱：声明 schema、合并有效状态、解析/应用 <state_update> 指令。
 //! 纯函数、无 I/O；写侧（apply）与读侧（effective_state）共用同一 schema 兜底。
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+
+use crate::models::definition::Definition;
+use crate::models::prompt_node::{NodeKind, PromptNode};
 
 /// 变量类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,6 +211,62 @@ pub fn resolve_schema_with_packs(
 /// Back-compat: resolve a schema with no mounted packs.
 pub fn resolve_schema(template_meta: Option<&Value>, override_config: &Value) -> Vec<VarDecl> {
     resolve_schema_with_packs(template_meta, &[], override_config)
+}
+
+/// Parse a brick's `meta.decls` array into VarDecls (scope left `None`; the
+/// caller tags scope when merging).
+fn decls_of(meta: &Value) -> Vec<VarDecl> {
+    meta.get("decls")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| serde_json::from_value::<VarDecl>(item.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn tag_scope(mut decls: Vec<VarDecl>, scope: &str) -> Vec<VarDecl> {
+    for d in &mut decls {
+        d.scope = Some(scope.to_string());
+    }
+    decls
+}
+
+/// Extract VarDecls from `variables` bricks referenced by enabled `ref` nodes in
+/// one tree, in `sort_order`. Decls come from each brick's `meta.decls`; scope is
+/// left `None` (the schema resolver tags it per source).
+pub fn variables_from_nodes(nodes: &[PromptNode], defs: &HashMap<String, Definition>) -> Vec<VarDecl> {
+    let mut refs: Vec<&PromptNode> =
+        nodes.iter().filter(|n| n.kind == NodeKind::Ref && n.enabled).collect();
+    refs.sort_by_key(|n| n.sort_order);
+    let mut out = Vec::new();
+    for n in refs {
+        let Some(def) = n.definition_id.as_deref().and_then(|id| defs.get(id)) else {
+            continue;
+        };
+        if def.def_type == "variables" {
+            out.extend(decls_of(&def.meta));
+        }
+    }
+    out
+}
+
+/// Resolve a session's effective schema from `variables` bricks: system ∪
+/// template-tree decls ∪ each mounted pack's decls (mount order) ∪ session
+/// `override_config.local_variables`. Later sources win on name collision.
+pub fn resolve_schema_from_bricks(
+    template_decls: Vec<VarDecl>,
+    pack_decls: Vec<Vec<VarDecl>>,
+    override_config: &Value,
+) -> Vec<VarDecl> {
+    let mut out = system_variables();
+    merge_decls(&mut out, tag_scope(template_decls, "template"));
+    for pd in pack_decls {
+        merge_decls(&mut out, tag_scope(pd, "pack"));
+    }
+    merge_decls(&mut out, parse_decls(override_config.get("local_variables"), "local"));
+    out
 }
 
 fn num_value(n: f64) -> Value {
@@ -425,5 +486,57 @@ mod tests {
         let hp = s.iter().find(|d| d.name == "hp").unwrap();
         assert_eq!(hp.initial, 250);
         assert_eq!(hp.scope.as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn variables_from_nodes_reads_enabled_variables_bricks_in_order() {
+        use crate::models::definition::Definition;
+        use crate::models::prompt_node::{OwnerKind, PromptNode};
+        use std::collections::HashMap;
+
+        let mut a = Definition::new("variables", "A", "");
+        a.id = "a".into();
+        a.meta = json!({ "decls": [{ "name": "hp", "type": "number", "initial": 100 }] });
+        let mut b = Definition::new("variables", "B", "");
+        b.id = "b".into();
+        b.meta = json!({ "decls": [{ "name": "mood", "type": "string", "initial": "calm" }] });
+        let mut other = Definition::new("char", "C", "x"); // not a variables brick
+        other.id = "c".into();
+        let mut disabled = Definition::new("variables", "D", "");
+        disabled.id = "d".into();
+        disabled.meta = json!({ "decls": [{ "name": "secret", "type": "string", "initial": "x" }] });
+
+        let r_b = PromptNode::new_ref(OwnerKind::Pack, "p", None, 1, "b");
+        let r_a = PromptNode::new_ref(OwnerKind::Pack, "p", None, 0, "a");
+        let r_c = PromptNode::new_ref(OwnerKind::Pack, "p", None, 2, "c");
+        let mut r_d = PromptNode::new_ref(OwnerKind::Pack, "p", None, 3, "d");
+        r_d.enabled = false;
+        let nodes = vec![r_b, r_a, r_c, r_d];
+
+        let mut defs = HashMap::new();
+        for d in [a, b, other, disabled] {
+            defs.insert(d.id.clone(), d);
+        }
+
+        let decls = variables_from_nodes(&nodes, &defs);
+        let names: Vec<&str> = decls.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names, vec!["hp", "mood"], "sort_order, only enabled variables bricks");
+    }
+
+    #[test]
+    fn resolve_schema_from_bricks_merges_with_mount_order_precedence() {
+        let template = vec![VarDecl { name: "hp".into(), var_type: VarType::Number, initial: json!(100), scope: None }];
+        let pack_a = vec![VarDecl { name: "hp".into(), var_type: VarType::Number, initial: json!(50), scope: None }];
+        let pack_b = vec![VarDecl { name: "gold".into(), var_type: VarType::Number, initial: json!(7), scope: None }];
+        let cfg = json!({ "local_variables": [{ "name": "hp", "type": "number", "initial": 250 }] });
+
+        let schema = resolve_schema_from_bricks(template, vec![pack_a, pack_b], &cfg);
+        let hp = schema.iter().find(|d| d.name == "hp").unwrap();
+        assert_eq!(hp.initial, json!(250), "local wins over template/packs");
+        assert_eq!(hp.scope.as_deref(), Some("local"));
+        let gold = schema.iter().find(|d| d.name == "gold").unwrap();
+        assert_eq!(gold.scope.as_deref(), Some("pack"));
+        // system variables ($avatar/$background) are always present
+        assert!(schema.iter().any(|d| d.name == "$avatar"));
     }
 }

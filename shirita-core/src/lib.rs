@@ -60,8 +60,9 @@ pub use seed::{
     ensure_templates_have_content_node,
 };
 pub use state::{
-    apply_updates, effective_state, parse_state_updates, resolve_schema, schema_initials,
-    strip_state_tags, system_variables, variables_block, Update, VarDecl, VarType,
+    apply_updates, effective_state, parse_state_updates, resolve_schema, resolve_schema_from_bricks,
+    schema_initials, strip_state_tags, system_variables, variables_block, variables_from_nodes, Update,
+    VarDecl, VarType,
 };
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
