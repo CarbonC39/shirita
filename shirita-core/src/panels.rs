@@ -88,23 +88,6 @@ pub fn collect_panels(
     out
 }
 
-async fn load_defs(
-    storage: &dyn Storage,
-    nodes: &[PromptNode],
-) -> crate::Result<HashMap<String, Definition>> {
-    let mut defs = HashMap::new();
-    for n in nodes {
-        if let Some(did) = &n.definition_id {
-            if !defs.contains_key(did) {
-                if let Ok(Some(d)) = storage.get_definition(did).await {
-                    defs.insert(did.clone(), d);
-                }
-            }
-        }
-    }
-    Ok(defs)
-}
-
 /// Async: all panels for a session — effective template/session tree first, then
 /// each mounted pack's tree (mount order).
 pub async fn resolve_session_panels(
@@ -114,12 +97,12 @@ pub async fn resolve_session_panels(
     let mut out = Vec::new();
 
     let nodes = crate::conversation::effective_nodes(storage, session).await?;
-    let defs = load_defs(storage, &nodes).await?;
+    let defs = crate::conversation::load_defs(storage, &nodes).await?;
     out.extend(collect_panels(&nodes, &defs));
 
     for pid in &session.mounted_packs {
         let pnodes = storage.list_nodes(&OwnerKind::Pack, pid).await?;
-        let pdefs = load_defs(storage, &pnodes).await?;
+        let pdefs = crate::conversation::load_defs(storage, &pnodes).await?;
         out.extend(collect_panels(&pnodes, &pdefs));
     }
     Ok(out)

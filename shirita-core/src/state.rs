@@ -191,28 +191,6 @@ fn merge_decls(out: &mut Vec<VarDecl>, decls: Vec<VarDecl>) {
     }
 }
 
-/// Resolve a session's effective schema: system ∪ template `meta.variables` ∪
-/// each mounted pack's `meta.variables` ∪ session `override_config.local_variables`.
-/// Later sources win on name collision (local is authoritative).
-pub fn resolve_schema_with_packs(
-    template_meta: Option<&Value>,
-    pack_metas: &[Value],
-    override_config: &Value,
-) -> Vec<VarDecl> {
-    let mut out = system_variables();
-    merge_decls(&mut out, parse_decls(template_meta.and_then(|m| m.get("variables")), "template"));
-    for pm in pack_metas {
-        merge_decls(&mut out, parse_decls(pm.get("variables"), "pack"));
-    }
-    merge_decls(&mut out, parse_decls(override_config.get("local_variables"), "local"));
-    out
-}
-
-/// Back-compat: resolve a schema with no mounted packs.
-pub fn resolve_schema(template_meta: Option<&Value>, override_config: &Value) -> Vec<VarDecl> {
-    resolve_schema_with_packs(template_meta, &[], override_config)
-}
-
 /// Parse a brick's `meta.decls` array into VarDecls (scope left `None`; the
 /// caller tags scope when merging).
 fn decls_of(meta: &Value) -> Vec<VarDecl> {
@@ -342,25 +320,6 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    #[test]
-    fn pack_variables_merge_between_template_and_local() {
-        let tmeta = serde_json::json!({ "variables": [ { "name": "tone", "type": "string", "initial": "calm" } ] });
-        let pmeta = serde_json::json!({ "variables": [ { "name": "affection", "type": "number", "initial": "0" } ] });
-        let cfg = serde_json::json!({});
-        let schema = resolve_schema_with_packs(Some(&tmeta), std::slice::from_ref(&pmeta), &cfg);
-        assert!(schema.iter().any(|d| d.name == "tone"));
-        assert!(schema.iter().any(|d| d.name == "affection"), "pack variable is in the schema");
-    }
-
-    #[test]
-    fn local_overrides_pack_variable() {
-        let pmeta = serde_json::json!({ "variables": [ { "name": "affection", "type": "number", "initial": "0" } ] });
-        let cfg = serde_json::json!({ "local_variables": [ { "name": "affection", "type": "string", "initial": "x" } ] });
-        let schema = resolve_schema_with_packs(None, std::slice::from_ref(&pmeta), &cfg);
-        let d = schema.iter().find(|d| d.name == "affection").unwrap();
-        assert_eq!(d.var_type, VarType::String, "local declaration wins over pack");
-    }
-
     fn schema() -> Vec<VarDecl> {
         vec![
             VarDecl { name: "hp".into(), var_type: VarType::Number, initial: json!(100), scope: None },
@@ -463,29 +422,6 @@ mod tests {
         let st = json!({ "bag": ["key", "map", "key"] });
         let out = apply_updates(&st, &s, &[Update { action: Action::Remove, key: "bag".into(), value: Some("key".into()) }]);
         assert_eq!(out["bag"], json!(["map", "key"]));
-    }
-
-    #[test]
-    fn resolve_schema_unions_system_template_local() {
-        let tmeta = json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
-        let cfg = json!({ "local_variables": [ {"name":"reputation","type":"number","initial":0} ] });
-        let s = resolve_schema(Some(&tmeta), &cfg);
-        let names: Vec<&str> = s.iter().map(|d| d.name.as_str()).collect();
-        assert!(names.contains(&"$avatar")); // system always present
-        assert!(names.contains(&"$assistant_name"));
-        assert!(names.contains(&"hp")); // template
-        assert!(names.contains(&"reputation")); // local
-        assert_eq!(s.iter().find(|d| d.name == "hp").unwrap().scope.as_deref(), Some("template"));
-    }
-
-    #[test]
-    fn local_overrides_template_on_name_clash() {
-        let tmeta = json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
-        let cfg = json!({ "local_variables": [ {"name":"hp","type":"number","initial":250} ] });
-        let s = resolve_schema(Some(&tmeta), &cfg);
-        let hp = s.iter().find(|d| d.name == "hp").unwrap();
-        assert_eq!(hp.initial, 250);
-        assert_eq!(hp.scope.as_deref(), Some("local"));
     }
 
     #[test]
