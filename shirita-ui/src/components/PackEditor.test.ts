@@ -19,6 +19,7 @@ vi.mock('../stores/library', () => ({
 
 import PackEditor from './PackEditor.vue'
 import PromptTree from './PromptTree.vue'
+import VariablesEditor from './VariablesEditor.vue'
 import * as api from '../api/client'
 
 const pack = { id: 'p1', name: 'Alice', identity: { display_name: 'Alice', avatar: null }, meta: {}, created_at: '', updated_at: '' }
@@ -47,9 +48,11 @@ describe('PackEditor', () => {
     expect(w.find('[data-test="panel-html"]').exists()).toBe(false)
   })
 
-  it('no longer renders the pack variables section', () => {
+  it('no longer renders a pack variables editor (vars are tree bricks now)', () => {
+    // VariablesEditor is not in `stubs`, so it would render for real if the
+    // pack still mounted one — findComponent durably catches a reintroduction.
     const w = mount(PackEditor, { props: { pack }, global: { stubs } })
-    expect(w.find('[data-test="pack-variables"]').exists()).toBe(false)
+    expect(w.findComponent(VariablesEditor).exists()).toBe(false)
   })
 
   it('Add panel scaffolds a panel folder with html and css bricks', async () => {
