@@ -258,7 +258,9 @@ fn num_value(n: f64) -> Value {
 fn coerce(value: &Option<String>, vt: VarType) -> Option<Value> {
     let s = value.as_ref()?;
     match vt {
-        VarType::Number => s.parse::<f64>().ok().map(num_value),
+        // Reject non-finite (NaN/inf) so the update is ignored rather than stored
+        // as Null — a Null reads back as 0.0 on the next Add/Sub (a silent reset).
+        VarType::Number => s.parse::<f64>().ok().filter(|n| n.is_finite()).map(num_value),
         VarType::Bool => match s.to_ascii_lowercase().as_str() {
             "true" => Some(Value::Bool(true)),
             "false" => Some(Value::Bool(false)),
@@ -284,9 +286,11 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
             }
             (Action::Add, VarType::Number) | (Action::Sub, VarType::Number) => {
                 let cur = obj.get(&u.key).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                if let Some(n) = u.value.as_ref().and_then(|s| s.parse::<f64>().ok()) {
+                if let Some(n) = u.value.as_ref().and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite()) {
                     let next = if u.action == Action::Add { cur + n } else { cur - n };
-                    obj.insert(u.key.clone(), num_value(next));
+                    if next.is_finite() {
+                        obj.insert(u.key.clone(), num_value(next));
+                    }
                 }
             }
             (Action::Toggle, VarType::Bool) => {
@@ -414,6 +418,19 @@ mod tests {
         assert_eq!(out["name"], "Ada");
         assert_eq!(out["bag"], json!(["key"]));
         assert!(out.get("ghost").is_none());
+    }
+
+    #[test]
+    fn non_finite_number_updates_are_ignored() {
+        let s = full_schema(); // hp: Number, initial 100
+        let st = json!({ "hp": 100 });
+        // SET to NaN / inf and ADD NaN must leave hp untouched (not null/zeroed).
+        let out = apply_updates(&st, &s, &[Update { action: Action::Set, key: "hp".into(), value: Some("NaN".into()) }]);
+        assert_eq!(out["hp"], 100);
+        let out = apply_updates(&out, &s, &[Update { action: Action::Set, key: "hp".into(), value: Some("inf".into()) }]);
+        assert_eq!(out["hp"], 100);
+        let out = apply_updates(&out, &s, &[Update { action: Action::Add, key: "hp".into(), value: Some("NaN".into()) }]);
+        assert_eq!(out["hp"], 100);
     }
 
     #[test]

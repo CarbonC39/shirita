@@ -74,9 +74,9 @@ pub async fn run(
     let prev_idx = prev.as_ref().map(|(_, i)| *i);
     let prev_content = prev.as_ref().map(|(s, _)| s.content.clone());
 
-    let window = setting_usize(storage.as_ref(), "context.window", 200_000).await;
-    let threshold = setting_f64(storage.as_ref(), "context.threshold", 0.8).await;
-    let keep_recent = setting_usize(storage.as_ref(), "context.keep_recent", 10).await;
+    let window = setting_usize(storage.as_ref(), "context.window", crate::budget::DEFAULT_CONTEXT_WINDOW).await;
+    let threshold = setting_f64(storage.as_ref(), "context.threshold", crate::budget::DEFAULT_OVER_THRESHOLD).await;
+    let keep_recent = setting_usize(storage.as_ref(), "context.keep_recent", crate::budget::DEFAULT_KEEP_RECENT).await;
 
     // Self-check: whether the tokens from the unfolded history (visible after the cutoff) and the previous summary have crossed the trigger threshold.
     let start_visible = prev_idx.map(|i| i + 1).unwrap_or(0);

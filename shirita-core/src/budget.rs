@@ -4,6 +4,12 @@ use crate::model::ChatMessage;
 use crate::models::message::Role;
 use crate::tokenizer::TokenCounter;
 
+/// Default context-budget settings, shared by the request assembler and the
+/// summarizer so their fallbacks can't drift apart.
+pub const DEFAULT_CONTEXT_WINDOW: usize = 200_000;
+pub const DEFAULT_OVER_THRESHOLD: f64 = 0.8;
+pub const DEFAULT_KEEP_RECENT: usize = 10;
+
 /// Checks whether usage has exceeded the threshold (window * threshold).
 pub fn over_threshold(prompt_tokens: usize, window: usize, threshold: f64) -> bool {
     (prompt_tokens as f64) > (window as f64) * threshold
