@@ -178,6 +178,7 @@ const zhHans: MessageSchema = {
     recursive: '递归',
     contentPlaceholder: '定义内容…',
     htmlPreview: '预览',
+    variablesDecls: '变量',
     wrapInTag: '标签包裹',
     wrapInTagHint: '用以此定义命名的标签包裹内容',
     messageTypeHint: '深度留空 = 会话开始时的开场白（其他备选作为滑动卡片）。设置深度 = 每轮在距历史末尾该距离处插入一条备注。',
