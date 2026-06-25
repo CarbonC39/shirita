@@ -122,7 +122,6 @@ const zhHant: MessageSchema = {
     followsTemplate: '本對話沿用其範本。',
     customizeLocally: '本機自訂',
     variablesThisChat: '變數（本對話）',
-    variables: '變數',
     selectTemplate: '選擇一個範本…',
     newTemplate: '+ 新增範本',
     importConflictFound: '{skipped} 個項目因名稱衝突已跳過，是否改為覆寫？',

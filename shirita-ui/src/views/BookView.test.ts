@@ -32,22 +32,22 @@ vi.mock('../api/client', () => ({
   getOrphanDefinitionsForPack: vi.fn().mockResolvedValue([]),
 }))
 
-vi.mock('../stores/library', () => ({
-  useLibraryStore: () => ({
-    templates: [], definitions: [], containerTypes: [],
-    packs: [{ id: 'imported-pack', name: 'Imported', identity: {}, meta: {} }],
-    loadTemplates: vi.fn(), loadDefinitions: vi.fn(), loadTypes: vi.fn(),
-    loadPacks: vi.fn(), loadAll: vi.fn(),
-    addType: vi.fn(), removeType: vi.fn(),
-  }),
+const libraryMock = vi.hoisted(() => ({
+  templates: [] as any[], definitions: [] as any[], containerTypes: [] as any[],
+  packs: [{ id: 'imported-pack', name: 'Imported', identity: {}, meta: {} }],
+  loadTemplates: vi.fn(), loadDefinitions: vi.fn(), loadTypes: vi.fn(),
+  loadPacks: vi.fn(), loadAll: vi.fn(), addType: vi.fn(), removeType: vi.fn(),
 }))
+vi.mock('../stores/library', () => ({ useLibraryStore: () => libraryMock }))
 
 import BookView from './BookView.vue'
 import * as api from '../api/client'
+import VariablesEditor from '../components/VariablesEditor.vue'
 
 describe('BookView scopes', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
+    libraryMock.templates = []
     ;(api.getSession as any).mockResolvedValue({ id: 'c1', template_id: null, override_config: {} })
   })
 
@@ -130,5 +130,23 @@ describe('BookView scopes', () => {
     await w.find('input[type="file"]').trigger('change')
     await flushPromises()
     expect(w.text()).toContain('Detected a status bar')
+  })
+
+  it('does not render a template-meta variables editor (global view)', async () => {
+    libraryMock.templates = [{ id: 't1', name: 'T', meta: { variables: [{ name: 'hp', type: 'number', initial: 1 }] } }]
+    const ui = useUiStore(); ui.setActiveChatId(null)
+    const w = mount(BookView)
+    await flushPromises()
+    // a template is auto-selected, so the global template editor is shown…
+    expect(w.find('[data-test="book-global"]').exists()).toBe(true)
+    // …but it no longer hosts a (template-meta) VariablesEditor
+    expect(w.findAllComponents(VariablesEditor).length).toBe(0)
+  })
+
+  it('still renders the per-chat local variables editor', async () => {
+    const ui = useUiStore(); ui.setActiveChatId('c1')
+    const w = mount(BookView)
+    await flushPromises()
+    expect(w.find('[data-test="local-variables"]').exists()).toBe(true)
   })
 })

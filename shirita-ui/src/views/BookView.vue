@@ -250,23 +250,7 @@ async function setLocalPatch(defId: string, fields: Record<string, unknown>) {
     }
 }
 
-// ── variables: global (template meta) + local (this chat) ──
-const templateVars = computed<VarDecl[]>(() => {
-    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
-    return ((t?.meta as Record<string, unknown> | undefined)?.variables as VarDecl[]) ?? [];
-});
-async function saveTemplateVars(vars: VarDecl[]) {
-    if (!selectedTemplateId.value) return;
-    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
-    const meta = { ...((t?.meta as Record<string, unknown>) ?? {}), variables: vars };
-    try {
-        await updateTemplate(selectedTemplateId.value, templateName.value.trim() || "Template", meta);
-        await library.loadTemplates();
-    } catch (e) {
-        error.value = (e as Error).message;
-    }
-}
-
+// ── variables: local (this chat) ────────────────────────────
 const localVars = computed<VarDecl[]>(
     () => ((localSession.value?.override_config as Record<string, unknown> | undefined)?.local_variables as VarDecl[]) ?? [],
 );
@@ -905,7 +889,7 @@ async function duplicateDef() {
                     <div class="h-px bg-line my-5" />
                 </template>
 
-                <div class="mb-4">
+                <div data-test="local-variables" class="mb-4">
                     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
                     <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
                 </div>
@@ -1062,10 +1046,6 @@ async function duplicateDef() {
                 @delete-node="handleDeleteNode"
                 @reorder="handleReorder"
             />
-            <div v-if="selectedTemplateId" class="mt-4">
-                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variables") }}</h3>
-                <VariablesEditor :model-value="templateVars" @update:model-value="saveTemplateVars" />
-            </div>
             </div>
 
             <!-- PACK section (teal accent) -->
