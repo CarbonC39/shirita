@@ -419,6 +419,8 @@ pub async fn delete_session(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
+    // Abort and forget any in-flight generation for this session before it's gone.
+    state.generations.remove(&id);
     state.storage.delete_session(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
