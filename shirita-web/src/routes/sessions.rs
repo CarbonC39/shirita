@@ -15,8 +15,13 @@ use shirita_core::state::schema_initials;
 use crate::AppState;
 
 /// Recreate `messages` under `new_session_id`, minting fresh ids and rewiring
-/// parent links so the reply tree survives a copy.
-async fn clone_messages(state: &AppState, messages: &[Message], new_session_id: &str) -> Result<(), StatusCode> {
+/// parent links so the reply tree survives a copy. Returns the old→new id map so
+/// the caller can remap the source's active leaf onto the copied message.
+async fn clone_messages(
+    state: &AppState,
+    messages: &[Message],
+    new_session_id: &str,
+) -> Result<HashMap<String, String>, StatusCode> {
     let idmap: HashMap<String, String> = messages
         .iter()
         .map(|m| (m.id.clone(), uuid::Uuid::new_v4().to_string()))
@@ -28,7 +33,7 @@ async fn clone_messages(state: &AppState, messages: &[Message], new_session_id: 
         nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
         state.storage.create_message(&nm).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
-    Ok(())
+    Ok(idmap)
 }
 
 #[derive(Deserialize)]
@@ -46,7 +51,7 @@ pub async fn create_session(
     Json(body): Json<CreateSession>,
 ) -> Result<Json<Session>, StatusCode> {
     let mut session = Session::new(body.name);
-    // 会话引用模板，不再深拷贝节点；组装时按 effective_nodes 解析（自有优先，否则引用模板）。
+    // Session reference template; no longer deep-copies nodes; parses according to `effective_nodes` during assembly (prioritizes built-in nodes, otherwise uses the reference template).
     session.template_id = body.template_id.clone();
     session.avatar = body.avatar.clone();
     session.mounted_packs = body.pack_ids.clone();
@@ -430,7 +435,16 @@ pub async fn duplicate_session(
     // copy any session-owned (forked) node tree; no-op for reference-only sessions
     let _ = state.storage.copy_nodes(&OwnerKind::Session, &id, &OwnerKind::Session, &dup.id).await;
     let msgs = state.storage.list_messages(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    clone_messages(&state, &msgs, &dup.id).await?;
+    let idmap = clone_messages(&state, &msgs, &dup.id).await?;
+    // Carry the active branch onto the copy: remap the source's leaf to its clone.
+    if let Some(new_leaf) = src.active_leaf_id.as_ref().and_then(|l| idmap.get(l)) {
+        state
+            .storage
+            .set_session_active_leaf(&dup.id, Some(new_leaf))
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        dup.active_leaf_id = Some(new_leaf.clone());
+    }
     Ok(Json(dup))
 }
 
@@ -465,6 +479,15 @@ pub async fn import_session(
     s.mounted_definitions = body.session.mounted_definitions.clone();
     s.mounted_packs = body.session.mounted_packs.clone();
     state.storage.create_session(&s).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    clone_messages(&state, &body.messages, &s.id).await?;
+    let idmap = clone_messages(&state, &body.messages, &s.id).await?;
+    // Preserve which branch was active by remapping the exported leaf to its clone.
+    if let Some(new_leaf) = body.session.active_leaf_id.as_ref().and_then(|l| idmap.get(l)) {
+        state
+            .storage
+            .set_session_active_leaf(&s.id, Some(new_leaf))
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        s.active_leaf_id = Some(new_leaf.clone());
+    }
     Ok(Json(s))
 }

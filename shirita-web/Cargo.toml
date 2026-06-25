@@ -8,6 +8,7 @@ license.workspace = true
 shirita-core = { path = "../shirita-core" }
 axum = { version = "0.8", features = ["multipart"] }
 chrono = { version = "0.4", features = ["serde"] }
+mime_guess = "2.0"
 tokio.workspace = true
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "fs", "cors"] }

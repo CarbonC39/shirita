@@ -147,8 +147,8 @@ pub async fn fork_session(
     }
     let _ = state.storage.set_session_active_leaf(&dup.id, new_leaf.as_deref()).await;
 
-    // 复制源会话的滚动摘要，把 cutoff 重映射到新会话的消息 id（与消息深拷的 idmap 一致）。
-    // idmap 只覆盖 active path slice（root→message_id）；fork 点之后的摘要不带（合理）。
+    // Copy the rolling digest from the source session and remap the cutoff to the message IDs in the new session (matching the idmap from the deep copy of the messages).
+    // The idmap only covers the active path slice (root→message_id); digests after the fork point are omitted (as expected).
     if let Ok(summaries) = state.storage.list_summaries(&session_id).await {
         for s in summaries {
             if let Some(new_cutoff) = idmap.get(&s.cutoff_message_id) {

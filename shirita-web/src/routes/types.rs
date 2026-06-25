@@ -28,7 +28,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<CreateTypeBody>,
 ) -> Result<Json<DefType>, StatusCode> {
-    // id 不得与保留类型冲突，也不得空。
+    // The ID must not conflict with reserved types and must not be empty.
     if body.id.trim().is_empty() || shirita_core::is_reserved(&body.id) {
         return Err(StatusCode::BAD_REQUEST);
     }
@@ -45,7 +45,7 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    // 内置类型不可删。
+    // Built-in types cannot be deleted.
     let containers = state
         .storage
         .list_container_types()

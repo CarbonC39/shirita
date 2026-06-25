@@ -7,7 +7,7 @@ use shirita_core::OwnerKind;
 
 use crate::AppState;
 
-/// 存在性检查：会话不存在返回 404（保持既有行为）。
+/// Existence check: If the session does not exist, return a 404 (maintain existing behavior).
 async fn ensure_session(state: &AppState, session_id: &str) -> Result<(), StatusCode> {
     match state.storage.get_session(session_id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
         Some(_) => Ok(()),
@@ -15,7 +15,7 @@ async fn ensure_session(state: &AppState, session_id: &str) -> Result<(), Status
     }
 }
 
-/// Write/replace the field-level patch for `def_id`（原子合并，无读改写竞争）。
+/// Write/replace the field-level patch for `def_id`。
 pub async fn set_local_definition(
     State(state): State<AppState>,
     Path((session_id, def_id)): Path<(String, String)>,
@@ -30,7 +30,7 @@ pub async fn set_local_definition(
     Ok(StatusCode::OK)
 }
 
-/// Revert: drop the local patch for `def_id`（原子删除）。
+/// Revert: drop the local patch for `def_id`。
 pub async fn clear_local_definition(
     State(state): State<AppState>,
     Path((session_id, def_id)): Path<(String, String)>,

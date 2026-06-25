@@ -91,6 +91,57 @@ async fn export_then_import_round_trips() {
     assert_ne!(json(&out2)["id"].as_str().unwrap(), id);
 }
 
+/// Advance a session's active leaf onto a fresh state-carrier node and return it.
+async fn seed_active_leaf(state: &AppState, id: &str) -> String {
+    let (st, _) =
+        send(state, "POST", &format!("/api/sessions/{id}/state-updates"), Some(r#"{"updates":[]}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    let (_, s) = send(state, "GET", &format!("/api/sessions/{id}"), None).await;
+    json(&s)["active_leaf_id"].as_str().expect("seeded session has an active leaf").to_string()
+}
+
+async fn active_leaf_points_to_own_message(state: &AppState, id: &str) -> String {
+    let (_, s) = send(state, "GET", &format!("/api/sessions/{id}"), None).await;
+    let leaf = json(&s)["active_leaf_id"].as_str().unwrap_or("").to_string();
+    assert!(!leaf.is_empty(), "session {id} must carry an active leaf");
+    let (_, msgs) = send(state, "GET", &format!("/api/sessions/{id}/messages"), None).await;
+    assert!(
+        json(&msgs).as_array().unwrap().iter().any(|m| m["id"] == leaf.as_str()),
+        "active leaf must reference a message that exists in session {id}",
+    );
+    leaf
+}
+
+#[tokio::test]
+async fn duplicate_preserves_active_leaf() {
+    let state = test_state().await;
+    let id = create(&state, "Branched").await;
+    let src_leaf = seed_active_leaf(&state, &id).await;
+
+    let (st, out) = send(&state, "POST", &format!("/api/sessions/{id}/duplicate"), None).await;
+    assert_eq!(st, StatusCode::OK);
+    let dup_id = json(&out)["id"].as_str().unwrap().to_string();
+
+    let dup_leaf = active_leaf_points_to_own_message(&state, &dup_id).await;
+    assert_ne!(dup_leaf, src_leaf, "the copy's leaf must be a remapped id, not the source's");
+}
+
+#[tokio::test]
+async fn import_preserves_active_leaf() {
+    let state = test_state().await;
+    let id = create(&state, "Branched").await;
+    seed_active_leaf(&state, &id).await;
+
+    let (st, exported) = send(&state, "GET", &format!("/api/sessions/{id}/export"), None).await;
+    assert_eq!(st, StatusCode::OK);
+
+    let (st2, out2) = send(&state, "POST", "/api/sessions/import", Some(&exported)).await;
+    assert_eq!(st2, StatusCode::OK);
+    let imp_id = json(&out2)["id"].as_str().unwrap().to_string();
+
+    active_leaf_points_to_own_message(&state, &imp_id).await;
+}
+
 #[tokio::test]
 async fn patch_renames_session() {
     let state = test_state().await;
