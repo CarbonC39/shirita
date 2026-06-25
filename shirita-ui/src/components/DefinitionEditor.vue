@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
-import type { Definition, DefType } from '../api/types'
+import type { Definition, DefType, VarDecl, VariablesMeta } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -9,6 +9,7 @@ import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 import AssetPicker from './AssetPicker.vue'
 import PanelView from './PanelView.vue'
+import VariablesEditor from './VariablesEditor.vue'
 
 const props = withDefaults(
   defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean }>(),
@@ -46,11 +47,11 @@ function updateScan(patch: { depth?: number; recursive?: boolean }) {
 // World-info trigger + scan settings only make sense for container (lore) types,
 // not for prompt/regex_rule/tool/first_message refs, nor for the reserved
 // non-rendering leaf bricks html/css (kept in sync with the backend RESERVED set).
-const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message', 'html', 'css'].includes(props.definition.type))
+const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message', 'html', 'css', 'variables'].includes(props.definition.type))
 // wrap_in_tag affects rendering, so it applies to anything that renders into the
 // prompt (i.e. everything except regex_rule and first_message, neither of which
-// render as a plain prompt fragment, and the non-rendering html/css bricks).
-const showWrapInTag = computed(() => !['regex_rule', 'first_message', 'html', 'css'].includes(props.definition.type))
+// render as a plain prompt fragment, and the non-rendering html/css/variables bricks).
+const showWrapInTag = computed(() => !['regex_rule', 'first_message', 'html', 'css', 'variables'].includes(props.definition.type))
 
 // Registered container types + the reserved `prompt`/`first_message`, tinted
 // per the palette. Builtin types can't be deleted; custom ones can.
@@ -87,6 +88,12 @@ const chipTint: Record<string, string> = {
   char: 'bg-sky/30 border-sky/40', persona: 'bg-coral/30 border-coral/40',
   world: 'bg-mauve/25 border-mauve/40', prompt: 'bg-line/60 border-line',
   first_message: 'bg-line/60 border-line',
+}
+
+// variables brick: declarations live in meta.decls (not the free-text content field)
+const decls = computed<VarDecl[]>(() => (props.definition.meta as unknown as VariablesMeta).decls ?? [])
+function saveDecls(next: VarDecl[]) {
+  emit('update:meta', { ...props.definition.meta, decls: next })
 }
 
 const search = ref('')
@@ -284,8 +291,8 @@ function startNew() {
       </div>
     </div>
 
-    <!-- content -->
-    <div class="relative">
+    <!-- content (free-text payload); variables bricks declare in meta.decls instead -->
+    <div v-if="definition.type !== 'variables'" class="relative">
       <textarea
         :value="definition.content"
         rows="5"
@@ -294,6 +301,12 @@ function startNew() {
         @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
       />
       <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
+    </div>
+
+    <!-- variables brick: declarations live in meta.decls -->
+    <div v-if="definition.type === 'variables'" data-test="variables-editor" class="mt-1">
+      <span class="text-[12px] text-muted block mb-1">{{ $t('definition.variablesDecls') }}</span>
+      <VariablesEditor :model-value="decls" @update:model-value="saveDecls" />
     </div>
 
     <!-- live preview for html bricks: renders the content as a PanelView would -->

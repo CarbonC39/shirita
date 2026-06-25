@@ -1,14 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useLibraryStore } from '../stores/library'
 import {
   updatePack, listNodes, createNode, updateNode, deleteNode, reorderNodes,
   createDefinition, updateDefinition,
 } from '../api/client'
 import { selectOneSiblingsToDisable } from '../utils/tree'
-import type { Pack, PromptNode, VarDecl, Trigger } from '../api/types'
+import type { Pack, PromptNode, Trigger } from '../api/types'
 import PromptTree from './PromptTree.vue'
-import VariablesEditor from './VariablesEditor.vue'
 import AssetPicker from './AssetPicker.vue'
 
 const props = defineProps<{ pack: Pack }>()
@@ -23,7 +22,7 @@ async function reload() {
 }
 watch(() => props.pack.id, reload, { immediate: true })
 
-// ── identity + variables: persist via updatePack (name is required) ──
+// ── identity: persist via updatePack (name is required) ──
 async function save(patch: { identity?: Pack['identity']; meta?: Record<string, unknown> }) {
   try {
     await updatePack(props.pack.id, {
@@ -40,13 +39,6 @@ function updateDisplayName(name: string) {
 function updateAvatar(avatar: string) {
   void save({ identity: { ...props.pack.identity, avatar: avatar || null } })
 }
-const packVars = computed<VarDecl[]>(
-  () => ((props.pack.meta as Record<string, unknown>).variables as VarDecl[]) ?? [],
-)
-function saveVars(vars: VarDecl[]) {
-  void save({ meta: { ...(props.pack.meta as Record<string, unknown>), variables: vars } })
-}
-
 // ── content tree (owner_kind = 'pack'), mirrors the template-tree wiring ──
 function slugifyType(name: string) {
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
@@ -69,7 +61,7 @@ async function createNewPrompt(name: string) {
     await reload()
   } catch (e) { error.value = (e as Error).message }
 }
-async function createNewInContainer(parentId: string, typeId: string) {
+async function createNewInContainer(parentId: string | null, typeId: string) {
   try {
     const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: '', meta: {} })
     await library.loadDefinitions()
@@ -173,10 +165,6 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       @reorder="reorder"
       @add-panel="addPanel"
     />
-
-    <!-- variables -->
-    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mt-4 mb-2">{{ $t('pack.variables') }}</h3>
-    <VariablesEditor :model-value="packVars" @update:model-value="saveVars" />
 
     <p v-if="error" class="text-coral text-sm mt-3">{{ error }}</p>
   </div>

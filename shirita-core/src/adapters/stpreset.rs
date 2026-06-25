@@ -143,7 +143,7 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
     } else {
         name.trim().to_string()
     };
-    let mut tmpl = Template::new(tname);
+    let tmpl = Template::new(tname);
     let mut defs: Vec<Definition> = Vec::new();
     let mut nodes: Vec<PromptNode> = Vec::new();
 
@@ -223,9 +223,6 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
             }
         }
         cleaned.insert(id, clean);
-    }
-    if !vars.is_empty() {
-        tmpl.meta = serde_json::json!({ "variables": vars });
     }
 
     // --- Phase 1: build ordered elements for the active order. ---
@@ -445,6 +442,15 @@ pub fn stpreset_to_loreset(preset: &serde_json::Value, name: &str) -> LoreSet {
             defs.push(d);
             i += 1;
         }
+    }
+
+    // Variables declared via {{setvar}} macros -> one root `variables` brick.
+    if !vars.is_empty() {
+        let mut vdef = Definition::new("variables", "Variables", "");
+        vdef.meta = serde_json::json!({ "decls": vars });
+        let sort = nodes.iter().map(|n| n.sort_order).max().unwrap_or(-1) + 1;
+        nodes.push(PromptNode::new_ref(OwnerKind::Template, &tmpl.id, None, sort, &vdef.id));
+        defs.push(vdef);
     }
 
     LoreSet { template: tmpl, definitions: defs, nodes }
@@ -688,9 +694,16 @@ mod tests {
         let ls = stpreset_to_loreset(&preset, "P");
         // "vars" emptied by stripping -> no def; its variables registered on the template
         assert!(ls.definitions.iter().all(|d| d.name != "Vars"));
-        let vars = ls.template.meta["variables"].as_array().unwrap();
-        assert!(vars.iter().any(|v| v["name"] == "hp" && v["type"] == "number"));
-        assert!(vars.iter().any(|v| v["name"] == "tone" && v["type"] == "string"));
+        // Variables register as a root `variables` brick, not template meta.
+        let vbrick = ls
+            .definitions
+            .iter()
+            .find(|d| d.def_type == "variables")
+            .expect("a variables brick");
+        let decls = vbrick.meta["decls"].as_array().unwrap();
+        assert!(decls.iter().any(|v| v["name"] == "hp" && v["type"] == "number"));
+        assert!(decls.iter().any(|v| v["name"] == "tone" && v["type"] == "string"));
+        assert!(ls.template.meta.get("variables").is_none());
         // getvar rewritten to {{hp}} in main's content
         let main = ls.definitions.iter().find(|d| d.name == "Main").unwrap();
         assert_eq!(main.content, "use {{hp}}");

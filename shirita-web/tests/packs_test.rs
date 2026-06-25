@@ -105,11 +105,8 @@ async fn session_pack_mounts_roundtrip() {
 #[tokio::test]
 async fn create_session_mounts_packs_and_seeds_pack_variables() {
     let state = test_state().await;
-    // a pack declaring a variable + carrying a greeting
-    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({
-        "name": "Alice",
-        "meta": { "variables": [ { "name": "affection", "type": "number", "initial": "5" } ] }
-    }))).await;
+    // a pack declaring a variable (via a `variables` brick) + carrying a greeting
+    let (_, b) = send(&state, "POST", "/api/packs", Some(json!({ "name": "Alice" }))).await;
     let pid = body_json(&b)["id"].as_str().unwrap().to_string();
     let (_, b) = send(&state, "POST", "/api/definitions", Some(json!({
         "type": "first_message", "name": "hello", "content": "Hi, I'm Alice."
@@ -117,6 +114,13 @@ async fn create_session_mounts_packs_and_seeds_pack_variables() {
     let gid = body_json(&b)["id"].as_str().unwrap().to_string();
     send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"),
         Some(json!({ "kind": "ref", "definition_id": gid }))).await;
+    let (_, b) = send(&state, "POST", "/api/definitions", Some(json!({
+        "type": "variables", "name": "Vars", "content": "",
+        "meta": { "decls": [ { "name": "affection", "type": "number", "initial": "5" } ] }
+    }))).await;
+    let vid = body_json(&b)["id"].as_str().unwrap().to_string();
+    send(&state, "POST", &format!("/api/packs/{pid}/nodes?owner_kind=pack"),
+        Some(json!({ "kind": "ref", "definition_id": vid }))).await;
     // a template (gets content+history)
     let (_, b) = send(&state, "POST", "/api/templates", Some(json!({ "name": "T" }))).await;
     let tid = body_json(&b)["id"].as_str().unwrap().to_string();

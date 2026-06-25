@@ -19,19 +19,38 @@ use crate::state::{
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
 
-/// 解析会话的有效变量 schema（系统 ∪ 模板 meta ∪ 挂载 packs meta ∪ 会话 local）。
-async fn session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl> {
-    let template_meta = match &session.template_id {
-        Some(tid) => storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
-        None => None,
-    };
-    let mut pack_metas = Vec::new();
-    for pid in &session.mounted_packs {
-        if let Ok(Some(p)) = storage.get_pack(pid).await {
-            pack_metas.push(p.meta);
+/// Load the definitions referenced by a node tree, de-duplicated by id.
+pub(crate) async fn load_defs(
+    storage: &dyn Storage,
+    nodes: &[PromptNode],
+) -> crate::Result<std::collections::HashMap<String, Definition>> {
+    let mut defs = std::collections::HashMap::new();
+    for n in nodes {
+        if let Some(did) = &n.definition_id {
+            if !defs.contains_key(did) {
+                if let Ok(Some(d)) = storage.get_definition(did).await {
+                    defs.insert(did.clone(), d);
+                }
+            }
         }
     }
-    crate::state::resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config)
+    Ok(defs)
+}
+
+/// Resolve a session's effective variable schema from `variables` bricks across
+/// the effective template/session tree and each mounted pack (mount order).
+pub async fn resolve_session_schema(storage: &dyn Storage, session: &Session) -> Vec<VarDecl> {
+    let nodes = effective_nodes(storage, session).await.unwrap_or_default();
+    let defs = load_defs(storage, &nodes).await.unwrap_or_default();
+    let template_decls = crate::state::variables_from_nodes(&nodes, &defs);
+
+    let mut pack_decls = Vec::new();
+    for pid in &session.mounted_packs {
+        let pnodes = storage.list_nodes(&OwnerKind::Pack, pid).await.unwrap_or_default();
+        let pdefs = load_defs(storage, &pnodes).await.unwrap_or_default();
+        pack_decls.push(crate::state::variables_from_nodes(&pnodes, &pdefs));
+    }
+    crate::state::resolve_schema_from_bricks(template_decls, pack_decls, &session.override_config)
 }
 
 /// 读上下文窗口（settings `context.window`，默认 200000）。
@@ -213,7 +232,7 @@ async fn assemble_request(
     let has_card = context.iter().any(|m| {
         crate::html_patch::is_html_document(&m.content) || crate::html_patch::has_patch_blocks(&m.content)
     });
-    let schema = session_schema(storage, session).await;
+    let schema = resolve_session_schema(storage, session).await;
     let protocols = storage.list_definitions().await?;
     for pdef in protocols.iter().filter(|d| d.def_type == "protocol") {
         let kind = pdef.meta.get("kind").and_then(|v| v.as_str()).unwrap_or("");
@@ -345,7 +364,7 @@ pub fn send_message(
         let parent_id = path.last().map(|m| m.id.clone());
 
         // 分支有效状态：schema 初值 < seed < 当前叶子快照（读侧/写侧共用同一兜底）。
-        let schema = session_schema(storage.as_ref(), &session).await;
+        let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
@@ -460,7 +479,7 @@ pub fn regenerate(
         }
 
         // 父分支有效状态：折叠基准与 send_message 相同（schema 兜底 + seed + 父叶子快照）。
-        let schema = session_schema(storage.as_ref(), &session).await;
+        let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
@@ -520,6 +539,24 @@ mod tests {
         let s = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         s.run_migrations().await.unwrap();
         s
+    }
+
+    /// Add a `variables` brick (ref node) to a template's root, declaring `decls`
+    /// (each a `{"name", "type", "initial"}` json object). Mirrors what the UI
+    /// does when a user drops a `variables` brick into a template tree.
+    async fn add_variables_brick(
+        storage: &dyn Storage,
+        template_id: &str,
+        decls: serde_json::Value,
+    ) {
+        use crate::models::definition::Definition;
+        use crate::models::prompt_node::{OwnerKind, PromptNode};
+
+        let mut def = Definition::new("variables", "Vars", "");
+        def.meta = serde_json::json!({ "decls": decls });
+        storage.create_definition(&def).await.unwrap();
+        let r = PromptNode::new_ref(OwnerKind::Template, template_id, None, 0, &def.id);
+        storage.create_node(&r).await.unwrap();
     }
 
     #[tokio::test]
@@ -836,9 +873,14 @@ mod tests {
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
 
         // Template declaring a user variable `hp`.
-        let mut t = crate::models::template::Template::new("T");
-        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        let t = crate::models::template::Template::new("T");
         storage.create_template(&t).await.unwrap();
+        add_variables_brick(
+            storage.as_ref(),
+            &t.id,
+            serde_json::json!([ {"name":"hp","type":"number","initial":100} ]),
+        )
+        .await;
         let mut session = Session::new("s");
         session.template_id = Some(t.id.clone());
         storage.create_session(&session).await.unwrap();
@@ -982,12 +1024,59 @@ mod tests {
         assert_eq!(nodes[0].tag.as_deref(), Some("char"));
     }
 
+    async fn seed_template_with_variables_brick(
+        decls: &[(&str, &str, serde_json::Value)],
+    ) -> (Arc<dyn Storage>, Session) {
+        use crate::models::definition::Definition;
+        use crate::models::prompt_node::{OwnerKind, PromptNode};
+        use crate::models::template::Template;
+
+        let storage: Arc<dyn Storage> = Arc::new(temp_storage().await);
+
+        let mut def = Definition::new("variables", "Vars", "");
+        let decl_json: Vec<serde_json::Value> = decls
+            .iter()
+            .map(|(name, ty, initial)| {
+                serde_json::json!({ "name": name, "type": ty, "initial": initial })
+            })
+            .collect();
+        def.meta = serde_json::json!({ "decls": decl_json });
+        storage.create_definition(&def).await.unwrap();
+
+        let t = Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let r = PromptNode::new_ref(OwnerKind::Template, &t.id, None, 0, &def.id);
+        storage.create_node(&r).await.unwrap();
+
+        let mut sess = Session::new("s");
+        sess.template_id = Some(t.id.clone());
+        storage.create_session(&sess).await.unwrap();
+
+        (storage, sess)
+    }
+
+    #[tokio::test]
+    async fn resolve_session_schema_reads_template_variables_bricks() {
+        use serde_json::json;
+        let (storage, session) =
+            seed_template_with_variables_brick(&[("hp", "number", json!(100))]).await;
+
+        let schema = super::resolve_session_schema(storage.as_ref(), &session).await;
+        assert!(schema.iter().any(|d| d.name == "hp" && d.scope.as_deref() == Some("template")));
+        assert!(schema.iter().any(|d| d.name == "$avatar")); // system always present
+    }
+
     #[tokio::test]
     async fn state_update_folds_into_snapshot_and_strips_display() {
         let storage = Arc::new(temp_storage().await);
-        let mut t = crate::models::template::Template::new("T");
-        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        let t = crate::models::template::Template::new("T");
         storage.create_template(&t).await.unwrap();
+        add_variables_brick(
+            storage.as_ref(),
+            &t.id,
+            serde_json::json!([ {"name":"hp","type":"number","initial":100} ]),
+        )
+        .await;
         let mut session = Session::new("s");
         session.template_id = Some(t.id.clone());
         session.current_state = serde_json::json!({ "hp": 100 });
@@ -1013,12 +1102,17 @@ mod tests {
     #[tokio::test]
     async fn converted_panel_capture_folds_into_snapshot_alongside_state_update_tags() {
         let storage = Arc::new(temp_storage().await);
-        let mut t = crate::models::template::Template::new("T");
-        t.meta = serde_json::json!({ "variables": [
-            { "name": "hp", "type": "number", "initial": 100 },
-            { "name": "field1", "type": "string", "initial": "" }
-        ] });
+        let t = crate::models::template::Template::new("T");
         storage.create_template(&t).await.unwrap();
+        add_variables_brick(
+            storage.as_ref(),
+            &t.id,
+            serde_json::json!([
+                { "name": "hp", "type": "number", "initial": 100 },
+                { "name": "field1", "type": "string", "initial": "" }
+            ]),
+        )
+        .await;
 
         // An orphan (unreferenced) regex_rule with capture_vars — same shape
         // `try_convert_status_panel` produces — is globally effective per
@@ -1059,11 +1153,14 @@ mod tests {
         // the model's deliberate instruction — must win, not whichever update
         // happens to be appended last.
         let storage = Arc::new(temp_storage().await);
-        let mut t = crate::models::template::Template::new("T");
-        t.meta = serde_json::json!({ "variables": [
-            { "name": "mood", "type": "string", "initial": "" }
-        ] });
+        let t = crate::models::template::Template::new("T");
         storage.create_template(&t).await.unwrap();
+        add_variables_brick(
+            storage.as_ref(),
+            &t.id,
+            serde_json::json!([ { "name": "mood", "type": "string", "initial": "" } ]),
+        )
+        .await;
 
         let mut rule = Definition::new("regex_rule", "status", "");
         rule.meta = serde_json::json!({
@@ -1250,9 +1347,14 @@ mod tests {
     #[tokio::test]
     async fn regenerate_folds_state_from_the_parent_branch() {
         let storage = Arc::new(temp_storage().await);
-        let mut t = crate::models::template::Template::new("T");
-        t.meta = serde_json::json!({ "variables": [ {"name":"hp","type":"number","initial":100} ] });
+        let t = crate::models::template::Template::new("T");
         storage.create_template(&t).await.unwrap();
+        add_variables_brick(
+            storage.as_ref(),
+            &t.id,
+            serde_json::json!([ {"name":"hp","type":"number","initial":100} ]),
+        )
+        .await;
         let mut session = Session::new("s");
         session.template_id = Some(t.id.clone());
         session.current_state = serde_json::json!({ "hp": 100 });

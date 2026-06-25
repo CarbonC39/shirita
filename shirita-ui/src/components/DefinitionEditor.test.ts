@@ -36,6 +36,28 @@ describe('DefinitionEditor wrap_in_tag', () => {
   })
 })
 
+describe('DefinitionEditor variables brick', () => {
+  it('shows a variables editor bound to meta.decls and hides the content textarea', () => {
+    const d = { id: 'v1', type: 'variables', name: 'Vars', content: '', meta: { decls: [{ name: 'hp', type: 'number', initial: 100 }] } }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    expect(w.find('[data-test="variables-editor"]').exists()).toBe(true)
+    // raw content textarea is not shown for variables bricks
+    expect(w.find('textarea').exists()).toBe(false)
+  })
+
+  it('emits update:meta with new decls when the variables editor changes', async () => {
+    const d = { id: 'v1', type: 'variables', name: 'Vars', content: '', meta: { decls: [] } }
+    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
+    const VariablesEditor = (await import('./VariablesEditor.vue')).default
+    w.findComponent(VariablesEditor).vm.$emit('update:modelValue', [{ name: 'gold', type: 'number', initial: 0 }])
+    await w.vm.$nextTick()
+    const ev = w.emitted('update:meta')
+    expect(ev).toBeTruthy()
+    const last = ev![ev!.length - 1][0] as Record<string, unknown>
+    expect((last.decls as unknown[]).length).toBe(1)
+  })
+})
+
 describe('DefinitionEditor header actions', () => {
   const d = { id: 'd1', type: 'char', name: 'Alice', content: '', meta: {} }
 

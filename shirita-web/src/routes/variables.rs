@@ -4,7 +4,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use shirita_core::state::{apply_updates, effective_state, resolve_schema_with_packs, Action, Update};
+use shirita_core::state::{apply_updates, effective_state, Action, Update};
 use shirita_core::tree::active_path;
 use shirita_core::{Message, Role};
 
@@ -18,17 +18,7 @@ pub async fn get_state(
     let session = state.storage.get_session(&id).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
-    let template_meta = match &session.template_id {
-        Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
-        None => None,
-    };
-    let mut pack_metas = Vec::new();
-    for pid in &session.mounted_packs {
-        if let Ok(Some(p)) = state.storage.get_pack(pid).await {
-            pack_metas.push(p.meta);
-        }
-    }
-    let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
+    let schema = shirita_core::conversation::resolve_session_schema(state.storage.as_ref(), &session).await;
     let all = state.storage.list_messages(&id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let leaf = active_path(&all, session.active_leaf_id.as_deref())
         .last()
@@ -69,17 +59,7 @@ pub async fn apply_state_updates(
         .ok_or(StatusCode::NOT_FOUND)?;
 
     // Same schema GET …/state resolves: template + mounted packs + locals.
-    let template_meta = match &session.template_id {
-        Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
-        None => None,
-    };
-    let mut pack_metas = Vec::new();
-    for pid in &session.mounted_packs {
-        if let Ok(Some(p)) = state.storage.get_pack(pid).await {
-            pack_metas.push(p.meta);
-        }
-    }
-    let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
+    let schema = shirita_core::conversation::resolve_session_schema(state.storage.as_ref(), &session).await;
 
     // Current branch state = the active leaf's folded snapshot.
     let all = state.storage.list_messages(&id).await
