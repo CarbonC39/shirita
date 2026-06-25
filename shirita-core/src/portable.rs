@@ -422,7 +422,7 @@ mod tests {
         pack.identity.avatar = Some("av.png".into());
         pack.identity.display_name = Some("Alice".into());
         pack.meta = json!({
-            "variables": [{ "name": "hp", "type": "number", "initial": 100 }]
+            "settings": [{ "name": "hp", "type": "number", "initial": 100 }]
         });
 
         // folder > enabled ref A + DISABLED ref B; both must survive (no filter).
@@ -446,7 +446,7 @@ mod tests {
             PortableDoc::Pack { name, identity, meta, nodes, defs } => {
                 assert_eq!(name, "Alice");
                 assert_eq!(identity.avatar.as_deref(), Some("av.png"));
-                assert_eq!(meta["variables"][0]["name"], "hp");
+                assert_eq!(meta["settings"][0]["name"], "hp");
                 assert_eq!(nodes.len(), 3);
                 assert_eq!(defs.len(), 2);
             }
@@ -463,7 +463,7 @@ mod tests {
         let manifest = json!({
             "format": "shirita.pack", "version": 1,
             "pack": { "name": "P", "identity": { "avatar": "a.png" },
-                      "meta": { "variables": [{ "name": "note", "type": "string", "initial": "/assets/var.png" }] } },
+                      "meta": { "settings": [{ "name": "note", "type": "string", "initial": "/assets/var.png" }] } },
             "nodes": [],
             "definitions": [
                 { "local_id": "h", "type": "html",   "name": "m", "content": "<img src=\"/assets/c.png\">",       "meta": { "avatar": "b.png" } },
