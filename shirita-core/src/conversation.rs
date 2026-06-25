@@ -62,7 +62,7 @@ async fn context_window(storage: &dyn Storage) -> usize {
         .flatten()
         .and_then(|v| v.as_u64())
         .map(|n| n as usize)
-        .unwrap_or(200_000)
+        .unwrap_or(crate::budget::DEFAULT_CONTEXT_WINDOW)
 }
 
 /// The maximum number of tokens for reading replies (output) (settings `provider_max_tokens`). If `None`, the default value is determined by each provider.

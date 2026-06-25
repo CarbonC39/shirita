@@ -32,8 +32,14 @@ fn filter_enabled(nodes: &[PromptNode]) -> Vec<&PromptNode> {
         .iter()
         .filter(|n| {
             let mut cur: &PromptNode = n;
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
             loop {
                 if !cur.enabled {
+                    return false;
+                }
+                // Guard a malformed parent cycle: the 2-level API prevents one,
+                // but corrupt data must not spin this ancestor walk forever.
+                if !seen.insert(cur.id.as_str()) {
                     return false;
                 }
                 match cur.parent_id.as_deref().and_then(|p| by_id.get(p)) {
@@ -510,5 +516,19 @@ mod tests {
     #[test]
     fn unknown_format_errors() {
         assert!(parse_portable(&json!({ "format": "whatever" })).is_err());
+    }
+
+    #[test]
+    fn filter_enabled_terminates_on_a_parent_cycle() {
+        // Corrupt data: two nodes that are each other's parent. The 2-level API
+        // prevents this, but the ancestor walk must terminate (and exclude them)
+        // rather than loop forever.
+        let mut a = PromptNode::new_folder(OwnerKind::Template, "t", None, 0, "a");
+        a.id = "A".into();
+        a.parent_id = Some("B".into());
+        let mut b = PromptNode::new_folder(OwnerKind::Template, "t", None, 1, "b");
+        b.id = "B".into();
+        b.parent_id = Some("A".into());
+        assert!(filter_enabled(&[a, b]).is_empty());
     }
 }

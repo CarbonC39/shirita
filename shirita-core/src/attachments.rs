@@ -25,6 +25,11 @@ pub async fn resolve_images(storage: &dyn Storage, assets_dir: &str, attachment_
     let mut out = Vec::new();
     for id in attachment_ids {
         let Ok(Some(asset)) = storage.get_asset(id).await else { continue };
+        // Defense-in-depth: stored paths are app-generated UUID filenames, but
+        // never let a stray `..` segment escape assets_dir.
+        if asset.path.split(['/', '\\']).any(|seg| seg == "..") {
+            continue;
+        }
         let full = format!("{}/{}", assets_dir.trim_end_matches('/'), asset.path.trim_start_matches('/'));
         let Ok(bytes) = tokio::fs::read(&full).await else { continue };
         let mime = mime_from_ext(&asset.path);
@@ -79,6 +84,19 @@ mod tests {
         let (storage, dir) = temp_storage_and_dir().await;
         let urls = resolve_images(&storage, dir.path().to_str().unwrap(), &["missing".to_string()]).await;
         assert!(urls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejects_path_traversal_in_asset_path() {
+        let (storage, dir) = temp_storage_and_dir().await;
+        let assets_dir = dir.path().join("assets");
+        tokio::fs::create_dir_all(&assets_dir).await.unwrap();
+        // A secret file OUTSIDE the assets dir; a `..` path must not reach it.
+        tokio::fs::write(dir.path().join("secret.txt"), b"top-secret").await.unwrap();
+        let asset = Asset { id: "a1".into(), name: "x".into(), path: "../secret.txt".into(), kind: "background".into(), hash: None, created_at: "".into() };
+        storage.create_asset(&asset).await.unwrap();
+        let urls = resolve_images(&storage, assets_dir.to_str().unwrap(), &["a1".to_string()]).await;
+        assert!(urls.is_empty(), "a traversal path must not be read");
     }
 
     #[tokio::test]
