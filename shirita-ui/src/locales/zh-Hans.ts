@@ -156,7 +156,6 @@ const zhHans: MessageSchema = {
     displayNamePlaceholder: '聊天中显示的名称…',
     avatar: '头像',
     contentTree: '内容',
-    variables: '变量',
     addPanel: '添加面板',
     panelName: '面板名称',
     panelCaps: '允许：',

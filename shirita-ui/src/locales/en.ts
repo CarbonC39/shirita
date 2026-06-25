@@ -166,7 +166,6 @@ const en = {
     displayNamePlaceholder: 'Name shown in chat…',
     avatar: 'Avatar',
     contentTree: 'Content',
-    variables: 'Variables',
     addPanel: 'Add panel',
     panelName: 'Panel name',
     panelCaps: 'Allow:',

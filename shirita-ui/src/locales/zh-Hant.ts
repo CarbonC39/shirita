@@ -156,7 +156,6 @@ const zhHant: MessageSchema = {
     displayNamePlaceholder: '聊天中顯示的名稱…',
     avatar: '頭像',
     contentTree: '內容',
-    variables: '變數',
     addPanel: '新增面板',
     panelName: '面板名稱',
     panelCaps: '允許：',
