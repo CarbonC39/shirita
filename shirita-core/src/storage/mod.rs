@@ -172,6 +172,11 @@ pub trait Storage: Send + Sync {
     async fn delete_asset(&self, id: &str) -> Result<()>;
     /// First asset whose content hash matches, if any (dedup lookup).
     async fn find_asset_by_hash(&self, hash: &str) -> Result<Option<Asset>>;
+    /// The asset whose stored `path` matches, if any.
+    async fn get_asset_by_path(&self, path: &str) -> Result<Option<Asset>>;
+    /// Whether any pack identity, definition meta, or session still points at this
+    /// avatar `path` — one EXISTS query instead of scanning those three tables.
+    async fn is_avatar_referenced(&self, path: &str) -> Result<bool>;
     /// Set/replace an asset's content hash (used by the startup backfill).
     async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()>;
 }

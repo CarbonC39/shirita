@@ -1057,6 +1057,33 @@ impl Storage for SqliteStorage {
         Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
     }
 
+    async fn get_asset_by_path(&self, path: &str) -> Result<Option<Asset>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+            "SELECT id, name, path, kind, created_at, hash FROM assets WHERE path = ? LIMIT 1",
+        )
+        .bind(path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
+    }
+
+    async fn is_avatar_referenced(&self, path: &str) -> Result<bool> {
+        // Avatar paths live in JSON (pack identity, definition meta) and a plain
+        // session column; one EXISTS beats loading three whole tables.
+        let referenced: i64 = sqlx::query_scalar(
+            "SELECT EXISTS( \
+                SELECT 1 FROM packs WHERE json_extract(identity_json, '$.avatar') = ? \
+                UNION ALL SELECT 1 FROM definitions WHERE json_extract(meta, '$.avatar') = ? \
+                UNION ALL SELECT 1 FROM chat_sessions WHERE avatar = ?)",
+        )
+        .bind(path)
+        .bind(path)
+        .bind(path)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(referenced != 0)
+    }
+
     async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()> {
         sqlx::query("UPDATE assets SET hash = ? WHERE id = ?")
             .bind(hash)
@@ -1828,5 +1855,33 @@ mod tests {
         s.create_template_with_nodes(&t, std::slice::from_ref(&node)).await.unwrap();
         let refs = s.template_definition_refs().await.unwrap();
         assert!(refs.iter().any(|(name, did)| name == "MyTmpl" && did == &def.id));
+    }
+
+    #[tokio::test]
+    async fn is_avatar_referenced_spots_each_source() {
+        let s = temp_storage().await;
+        assert!(!s.is_avatar_referenced("/x.png").await.unwrap());
+        let mut sess = Session::new("S");
+        sess.avatar = Some("/s.png".into());
+        s.create_session(&sess).await.unwrap();
+        assert!(s.is_avatar_referenced("/s.png").await.unwrap());
+        let mut def = Definition::new("char", "D", "x");
+        def.meta = serde_json::json!({ "avatar": "/d.png" });
+        s.create_definition(&def).await.unwrap();
+        assert!(s.is_avatar_referenced("/d.png").await.unwrap());
+        let mut pack = Pack::new("P");
+        pack.identity.avatar = Some("/k.png".into());
+        s.create_pack(&pack).await.unwrap();
+        assert!(s.is_avatar_referenced("/k.png").await.unwrap());
+        assert!(!s.is_avatar_referenced("/nope.png").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn get_asset_by_path_finds_the_row() {
+        let s = temp_storage().await;
+        let a = Asset::new("name", "stored-xyz.png");
+        s.create_asset(&a).await.unwrap();
+        assert_eq!(s.get_asset_by_path("stored-xyz.png").await.unwrap().unwrap().id, a.id);
+        assert!(s.get_asset_by_path("missing.png").await.unwrap().is_none());
     }
 }

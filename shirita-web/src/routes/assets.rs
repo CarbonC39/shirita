@@ -45,20 +45,12 @@ pub async fn gc_avatar_if_orphaned(state: &AppState, avatar_path: &str) -> Resul
     if avatar_path.is_empty() {
         return Ok(());
     }
-    let packs = state.storage.list_packs().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if packs.iter().any(|p| p.identity.avatar.as_deref() == Some(avatar_path)) {
+    // One existence query across pack identities, definition metas and sessions,
+    // instead of loading those three tables into memory and scanning.
+    if state.storage.is_avatar_referenced(avatar_path).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
         return Ok(());
     }
-    let defs = state.storage.list_definitions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if defs.iter().any(|d| d.meta.get("avatar").and_then(|v| v.as_str()) == Some(avatar_path)) {
-        return Ok(());
-    }
-    let sessions = state.storage.list_sessions().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if sessions.iter().any(|s| s.avatar.as_deref() == Some(avatar_path)) {
-        return Ok(());
-    }
-    let assets = state.storage.list_assets(Some("avatar")).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(a) = assets.iter().find(|a| a.path == avatar_path) {
+    if let Some(a) = state.storage.get_asset_by_path(avatar_path).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
         let path = FsPath::new(&state.config.assets_dir).join(&a.path);
         let _ = tokio::fs::remove_file(&path).await; // best-effort; record removal is what matters
         state.storage.delete_asset(&a.id).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
