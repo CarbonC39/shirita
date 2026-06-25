@@ -1,4 +1,4 @@
-//! Anthropic Messages API 流式适配器（POST /v1/messages, stream=true）。
+//! Anthropic Messages API streaming adapter (POST /v1/messages, stream=true).
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
@@ -17,7 +17,7 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
-    /// 复用共享的 `reqwest::Client`（克隆即共享连接池），避免 per-call `Client::new()`。
+    /// Reuse a shared `request::Client` (cloning it shares the connection pool) to avoid calling `Client::new()` for each request.
     pub fn new(
         client: reqwest::Client,
         base_url: impl Into<String>,
@@ -27,9 +27,9 @@ impl AnthropicProvider {
     }
 }
 
-/// 单条消息的 Anthropic `content`：无图时是纯字符串；有图时是
-/// `[{type:text}, {type:image, source:{type:base64,...}}...]` content-blocks 数组。
-/// 图片以 data URL（`data:<mime>;base64,<data>`）传入，按 `;base64,` 拆出 media_type/data。
+/// The Anthropic `content` for a single message: a plain string if there are no images; if there are images, it is
+/// an array of content blocks in the format `[{type:text}, {type:image, source:{type:base64,...}}...]`.
+/// Images are passed as data URLs (`data:<mime>;base64,<data>`), and the media_type and data are extracted using `;base64,` as a delimiter.
 fn anthropic_content(m: &ChatMessage) -> serde_json::Value {
     if m.images.is_empty() {
         return json!(m.content);
@@ -53,8 +53,8 @@ fn split_data_url(url: &str) -> Option<(&str, &str)> {
     url.strip_prefix("data:")?.split_once(";base64,")
 }
 
-/// 把摘要文本前插到一个消息的 content 前面：字符串 content 直接拼接；
-/// content-parts 数组（带图）则在数组最前插一个 text part，保留图片块。
+/// Insert the summary text before the content of a message: concatenate the string directly to the content;
+/// For an array of content parts (with images), insert a text part at the beginning of the array, while preserving the image blocks.
 fn prepend_text(content: &mut serde_json::Value, prefix: &str) {
     if let Some(s) = content.as_str() {
         *content = json!(format!("{prefix}\n\n{s}"));
@@ -63,8 +63,8 @@ fn prepend_text(content: &mut serde_json::Value, prefix: &str) {
     }
 }
 
-/// 构造 Anthropic 请求体：System 段合并进顶层 `system`；`summary` 包成 `<history_summary>`
-/// **prepend 到第一条 user 消息开头**（保持 user/assistant 交替，避免连续同 role）；无 user 则作首条 user。
+/// Construct the Anthropic request body: Merge the System segment into the top-level `system`; wrap `summary` in `<history_summary>`
+/// **Prepend to the beginning of the first user message** (maintain an alternating pattern of user/assistant to avoid consecutive messages from the same role); if there is no user message, treat this as the first user message.
 pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     let mut system = String::new();
     let mut messages: Vec<serde_json::Value> = Vec::new();
@@ -97,9 +97,9 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     })
 }
 
-/// 解析出的 Anthropic SSE 事件：思考块的起始/正文，或文本块正文；其余事件忽略。
-/// extended thinking 用独立的 `thinking` 类型内容块（`content_block_start` →
-/// 多个 `thinking_delta` → 由下一个块的开始隐式结束），文本块用 `text_delta`。
+/// Parsed Anthropic SSE events: the start and body of a thinking block, or the body of a text block; all other events are ignored.
+/// “extended thinking” uses a separate `thinking` content block type (`content_block_start` →
+/// multiple `thinking_delta` → implicitly ends at the start of the next block), while text blocks use `text_delta`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AnthropicEvent {
     ThinkingStart,
@@ -108,7 +108,7 @@ pub enum AnthropicEvent {
     Other,
 }
 
-/// 解析 Anthropic SSE `data:` 之后的 JSON 为一个 [`AnthropicEvent`]。
+/// Parse the JSON following `data:` in Anthropic SSE into an array of [`AnthropicEvent`] objects.
 pub fn parse_anthropic_event(json_after_data: &str) -> Result<AnthropicEvent> {
     let v: serde_json::Value = serde_json::from_str(json_after_data)?;
     match v["type"].as_str().unwrap_or("") {
@@ -155,22 +155,22 @@ impl ModelProvider for AnthropicProvider {
         let stream = async_stream::stream! {
             let mut buf = String::new();
             let mut pending_bytes = Vec::new();
-            // extended thinking 块用独立的 content_block_start/_delta 事件流式吐出；
-            // 折进既有的 <think>…</think> 前端约定（见 thinking.ts），下一个文本块开始时补闭合标签。
+            // The “extended thinking” block is streamed using separate content_block_start and _delta events;
+            // It is nested within the existing <think>…</think> front-end convention (see thinking.ts), and a closing tag is added when the next text block begins.
             let mut in_thinking = false;
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => { yield Err(Error::Config(format!("stream error: {e}"))); return; }
                 };
-                // 多字节字符可能正好被切在两个 chunk 边界之间；见 model/mod.rs::decode_utf8_chunk。
+                // Multi-byte characters may fall exactly between two chunk boundaries; see model/mod.rs::decode_utf8_chunk.
                 buf.push_str(&decode_utf8_chunk(&mut pending_bytes, &chunk));
                 while let Some(pos) = buf.find('\n') {
                     let line = buf[..pos].trim_end_matches('\r').to_string();
                     buf.drain(..=pos);
                     let data = match line.strip_prefix("data:") {
                         Some(d) => d.trim(),
-                        None => continue, // 忽略 event: 行与空行
+                        None => continue,
                     };
                     match parse_anthropic_event(data) {
                         Ok(AnthropicEvent::ThinkingStart) => {
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn body_max_tokens_defaults_to_8192_and_honors_override() {
         let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], None);
-        assert_eq!(anthropic_body(&r)["max_tokens"], 8192); // None → 默认 8192
+        assert_eq!(anthropic_body(&r)["max_tokens"], 8192); // None → default 8192
         r.max_tokens = Some(2000);
         assert_eq!(anthropic_body(&r)["max_tokens"], 2000);
     }
@@ -235,7 +235,7 @@ mod tests {
         ], Some("earlier"));
         let b = anthropic_body(&r);
         let msgs = b["messages"].as_array().unwrap();
-        assert_eq!(msgs.len(), 2); // 没有额外多出一条 user
+        assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0]["role"], "user");
         let first = msgs[0]["content"].as_str().unwrap();
         assert!(first.contains("<history_summary>"));

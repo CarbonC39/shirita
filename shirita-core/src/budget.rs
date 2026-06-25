@@ -1,17 +1,16 @@
-//! 上下文预算与 best-effort 历史裁剪：纯函数、无 I/O。
-//! 既定决策：保守安全边际、不做严格逐 token 裁剪，溢出优雅暴露（见 M6 spec §1）。
+//! Context budget and best-effort historical pruning: pure functions, no I/O.
 
 use crate::model::ChatMessage;
 use crate::models::message::Role;
 use crate::tokenizer::TokenCounter;
 
-/// 用量是否越过触发线（window * threshold）。
+/// Checks whether usage has exceeded the threshold (window * threshold).
 pub fn over_threshold(prompt_tokens: usize, window: usize, threshold: f64) -> bool {
     (prompt_tokens as f64) > (window as f64) * threshold
 }
 
-/// best-effort 裁剪：保留前导 system（若有）与末条（当前 user 轮），从最旧的中段历史
-/// 逐条丢弃直到总用量 <= window 或只剩受保护的首末。返回（保留的消息，丢弃条数）。
+/// Best-effort pruning: Retain the leading `system` message (if any) and the last message (the current `user` round), starting from the middle of the oldest history.
+/// Discard messages one by one until the total count is ≤ `window` or only the protected first and last messages remain. Return (the retained messages, the number of messages discarded).
 pub fn trim_history(
     messages: &[ChatMessage],
     window: usize,
@@ -22,12 +21,12 @@ pub fn trim_history(
     if running <= window || messages.len() <= 2 {
         return (messages.to_vec(), 0);
     }
-    // 仅当首条确为 system 时才将其纳入受保护前导；否则中段从 0 开始（最旧历史也可丢）。
+    // Include the first entry in the protected lead-in only if it is definitely “system”; otherwise, the middle section starts at 0 (the oldest history may be discarded).
     let mid_start = if messages[0].role == Role::System { 1 } else { 0 };
     let mut keep = vec![true; messages.len()];
     let last = messages.len() - 1;
     let mut dropped = 0usize;
-    // 中段 = 索引 mid_start..last，最旧的先丢。
+    // Middle segment = index range mid_start..last; the oldest elements are removed first.
     for i in mid_start..last {
         if running <= window {
             break;
@@ -77,11 +76,11 @@ mod tests {
             msg(Role::User, "zz"),
         ];
         let (out, dropped) = trim_history(&msgs, 20, &CharCounter);
-        assert_eq!(dropped, 2); // h1,h2 丢弃
+        assert_eq!(dropped, 2); // h1,h2 dropped
         assert_eq!(out.len(), 3);
-        assert_eq!(out[0].content, "ss"); // 首条 system 保留
-        assert_eq!(out[1].content, "cccccccccc"); // 最近 history 保留
-        assert_eq!(out[2].content, "zz"); // 末条保留
+        assert_eq!(out[0].content, "ss"); // first system message reserved
+        assert_eq!(out[1].content, "cccccccccc"); // recent history reserved
+        assert_eq!(out[2].content, "zz"); // last message reserved
     }
 
     #[test]

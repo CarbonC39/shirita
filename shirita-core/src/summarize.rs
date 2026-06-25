@@ -1,5 +1,5 @@
-//! 滚动总结管道：自检阈值 → 选水位线 → 构造请求 → 聚合 provider → 落库摘要。
-//! 后台 fire-and-forget 调用（web 层 spawn），幂等可重入（见 M6 spec §2）。
+//! Rolling summary pipeline: self-check threshold → select waterline → construct request → aggregation provider → store summary in database.
+//! Background “fire-and-forget” call (spawned by the web layer), idempotent and reentrant (see M6 spec §2).
 
 use std::sync::Arc;
 
@@ -11,13 +11,13 @@ use crate::models::summary::Summary;
 use crate::storage::Storage;
 use crate::tokenizer::TokenCounter;
 
-/// 内置默认总结指令（settings `summarize.instruction` 可整体覆盖）。
+/// Built-in default summary instruction (can be overridden globally via the `summarize.instruction` setting).
 pub const DEFAULT_INSTRUCTION: &str = "Summarize the prior conversation faithfully and concisely. \
 Preserve facts, decisions, character state, world details and any unresolved threads. \
 Write plain prose, third person, no preamble and no meta commentary.";
 
-/// 选待折叠区间 `[start, end)`（path 下标）：start = 上一水位线之后，end = 保留最近
-/// `keep_recent` 条之前。无可折叠时返回 None。
+/// Selects the range to be collapsed `[start, end)` (path indices): start = after the previous waterline, end = `keep_recent`
+/// positions before. Returns None if there is nothing to collapse.
 pub fn fold_range(path_len: usize, prev_cutoff_idx: Option<usize>, keep_recent: usize) -> Option<(usize, usize)> {
     let start = prev_cutoff_idx.map(|i| i + 1).unwrap_or(0);
     let end = path_len.saturating_sub(keep_recent);
@@ -44,8 +44,8 @@ async fn setting_bool(s: &dyn Storage, key: &str, default: bool) -> bool {
     s.get_setting(key).await.ok().flatten().and_then(|v| v.as_bool()).unwrap_or(default)
 }
 
-/// 后台执行一次滚动总结尝试（幂等可重入）：未超阈值或无可折叠则静默返回；
-/// 否则把"上一摘要 + 待折叠原文"喂给总结指令，聚合 provider 输出，写入 `summaries`。
+/// Attempts to run a rolling summary in the background (idempotent and reentrant): returns silently if the threshold is not exceeded or there is no content to collapse;
+/// Otherwise, feeds the “previous summary + original text to be collapsed” to the summary command, aggregates the provider's output, and writes it to `summaries`.
 pub async fn run(
     storage: Arc<dyn Storage>,
     provider: Arc<dyn ModelProvider>,
@@ -65,7 +65,7 @@ pub async fn run(
         return;
     }
 
-    // 上一摘要：cutoff 落在 active path 上、最靠后的那条。
+    // Previous summary: The cutoff is on the active path, specifically the one furthest to the back.
     let summaries = storage.list_summaries(&session_id).await.unwrap_or_default();
     let prev = summaries
         .iter()
@@ -78,7 +78,7 @@ pub async fn run(
     let threshold = setting_f64(storage.as_ref(), "context.threshold", 0.8).await;
     let keep_recent = setting_usize(storage.as_ref(), "context.keep_recent", 10).await;
 
-    // 自检：未折叠历史（cutoff 之后可见）+ 上一摘要 的 token 是否越过触发线。
+    // Self-check: whether the tokens from the unfolded history (visible after the cutoff) and the previous summary have crossed the trigger threshold.
     let start_visible = prev_idx.map(|i| i + 1).unwrap_or(0);
     let mut hist_tokens = prev_content.as_deref().map(|c| counter.count(c)).unwrap_or(0);
     for m in &path[start_visible..] {
@@ -90,11 +90,9 @@ pub async fn run(
         return;
     }
 
-    // 选折叠区间。
     let Some((s, e)) = fold_range(path.len(), prev_idx, keep_recent) else { return };
     let new_cutoff = path[e - 1].id.clone();
 
-    // 构造折叠正文：上一摘要 + 待折叠原文（跳过 hidden）。
     let mut body = String::new();
     if let Some(pc) = &prev_content {
         body.push_str("[Previous summary]\n");
@@ -129,7 +127,7 @@ pub async fn run(
         max_tokens,
     };
 
-    // 聚合调用（非流式语义：收集全部 delta）。
+    // Aggregate call (non-streaming semantics: collects all deltas).
     let Ok(mut stream) = provider.stream_chat(req).await else { return };
     let mut full = String::new();
     while let Some(item) = stream.next().await {
@@ -198,7 +196,7 @@ mod tests {
     async fn run_folds_history_when_over_threshold() {
         let storage = Arc::new(temp_storage().await);
         let (session, leaf) = long_session(&storage, 14).await;
-        storage.set_setting("context.window", &json!(50)).await.unwrap(); // 小窗口 → 超阈值
+        storage.set_setting("context.window", &json!(50)).await.unwrap(); // small window → exceed threshold
 
         let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("SUMMARY-TEXT".into()));
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
@@ -216,8 +214,7 @@ mod tests {
     #[tokio::test]
     async fn run_noop_when_under_threshold() {
         let storage = Arc::new(temp_storage().await);
-        let (session, _leaf) = long_session(&storage, 4).await; // 短历史
-        // 默认 window 200k → 远未超阈值
+        let (session, _leaf) = long_session(&storage, 4).await; // short history
         let provider: Arc<dyn ModelProvider> = Arc::new(FixedProvider("X".into()));
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
         run(storage.clone(), provider, counter, "m".into(), session.id.clone()).await;

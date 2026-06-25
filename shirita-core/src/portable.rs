@@ -1,5 +1,5 @@
-//! Shirita 原创导入导出格式编解码（纯数据变换，不触库）。
-//! 节点/定义间引用用 `local_id`（与真实 UUID 解耦），导入侧再重映射为新 UUID。
+//! Original import/export format codec by Shirita (pure data transformation, does not access the database).
+//! `local_id` is used for references between nodes/definitions (decoupled from actual UUIDs), and is remapped to new UUIDs on the import side.
 
 use std::collections::HashMap;
 
@@ -11,7 +11,7 @@ use crate::models::pack::{Pack, PackIdentity};
 use crate::models::template::Template;
 use crate::{Error, Result};
 
-/// 单定义 → 原创信封。
+/// single definition
 pub fn export_definition(def: &Definition) -> Value {
     json!({
         "format": "shirita.definition",
@@ -25,7 +25,7 @@ pub fn export_definition(def: &Definition) -> Value {
     })
 }
 
-/// 仅保留自身及全部祖先都 enabled 的节点（排除 disabled 子树）。
+/// Retain only nodes for which both the node itself and all its ancestors are enabled (excluding disabled subtrees).
 fn filter_enabled(nodes: &[PromptNode]) -> Vec<&PromptNode> {
     let by_id: HashMap<&str, &PromptNode> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
     nodes
@@ -45,9 +45,9 @@ fn filter_enabled(nodes: &[PromptNode]) -> Vec<&PromptNode> {
         .collect()
 }
 
-/// Pack a selected node list + the defs they reference into local_id-keyed
-/// `(nodes, definitions)` JSON arrays. Shared by template + pack export.
-/// Refs with a dangling `definition_id` are skipped (+ warn) for referential safety.
+/// Pack a selected node list and the definitions they reference into `(nodes, definitions)` JSON arrays indexed by `local_id`.
+/// Shared by the `template` and `pack` exports.
+/// Refs with a dangling `definition_id` are skipped (and a warning is issued) for referential safety.
 fn inline_subtree(
     kept: &[&PromptNode],
     defs: &HashMap<String, Definition>,
@@ -99,8 +99,8 @@ fn inline_subtree(
     (out_nodes, out_defs)
 }
 
-/// 模板「启用部分」→ 原创信封：排除 disabled 子树；defs 只含被保留 ref 实际引用者（去重）；
-/// 悬空 definition_id 的 ref 节点跳过 + warn，保证产出引用完整。
+/// Template “Enable Section” → Original Envelope: Exclude the “disabled” subtree; ‘defs’ contains only the actual referrers of retained “ref” nodes (deduplicated);
+/// Skip ref nodes with dangling “definition_id” values and issue a warning to ensure the output contains all references.
 pub fn export_template(
     template: &Template,
     nodes: &[PromptNode],
@@ -140,7 +140,7 @@ pub fn export_pack(
     })
 }
 
-/// 解析后的可移植节点（local_id 形态，未落库）。
+/// Parsed portable node (in local_id format, not yet stored in the database).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortableNode {
     pub local_id: String,
@@ -153,7 +153,7 @@ pub struct PortableNode {
     pub meta: Value,
 }
 
-/// 解析后的可移植定义（带 local_id）。
+/// Parsed portable definition (with local_id).
 #[derive(Debug, Clone, PartialEq)]
 pub struct PortableDef {
     pub local_id: String,
@@ -163,7 +163,7 @@ pub struct PortableDef {
     pub meta: Value,
 }
 
-/// 解析结果：单定义或模板 bundle 或 pack。
+/// Parsing result: Single definition, template bundle, or pack.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PortableDoc {
     Definition(Definition),
@@ -306,7 +306,7 @@ pub fn rewrite_pack_assets(manifest: &Value, map: &HashMap<String, String>) -> V
     m
 }
 
-/// 解析原创信封。`format` 不识别 → Err。
+/// Parse the original envelope. If `format` is unrecognized → Err.
 pub fn parse_portable(v: &Value) -> Result<PortableDoc> {
     match v.get("format").and_then(|f| f.as_str()) {
         Some("shirita.definition") => {
@@ -374,7 +374,7 @@ mod tests {
         let tmpl = Template::new("T");
         let v = export_template(&tmpl, &[fa, ra, fb, rb], &defs);
 
-        // 只剩 fa + ra（2 节点），defs 只含 A。
+        // Only fa + ra (2 nodes) remain; defs contains only A.
         assert_eq!(v["nodes"].as_array().unwrap().len(), 2);
         assert_eq!(v["definitions"].as_array().unwrap().len(), 1);
         assert_eq!(v["definitions"][0]["name"], "A");
@@ -382,7 +382,7 @@ mod tests {
 
     #[test]
     fn template_export_skips_dangling_ref() {
-        // ref 指向 defs 里不存在的 id → 跳过该 ref，bundle 无 dangling。
+        // If a ref points to an ID that does not exist in defs → skip that ref; the bundle has no dangling references.
         let r = PromptNode::new_ref(OwnerKind::Template, "t", None, 0, "missing-def-id");
         let defs: HashMap<String, Definition> = HashMap::new();
         let v = export_template(&Template::new("T"), &[r], &defs);

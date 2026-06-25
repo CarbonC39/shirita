@@ -1,18 +1,16 @@
-//! 关键词多模式匹配（Aho-Corasick）：一次扫描得全部命中 id。
-
+//! Multi-mode keyword matching (Aho-Corasick): Retrieves all matching IDs in a single pass.
 use std::collections::HashSet;
-
 use aho_corasick::AhoCorasick;
 
-/// 把若干 (id, keys) 编成一个自动机，对文本一次扫描即得命中 id 集合。
+/// Constructs an automaton from a set of (id, keys) pairs, allowing a single scan of the text to yield the set of matching IDs.
 pub struct KeywordIndex {
     ac: Option<AhoCorasick>,
-    /// pattern 序号 → owner id。
+    /// Pattern index → owner ID.
     owners: Vec<String>,
 }
 
 impl KeywordIndex {
-    /// `entries`: (id, 该 id 的关键词列表)。空关键词会被跳过。
+    /// `entries`: (id, a list of keywords associated with that id). Empty keywords are skipped.
     pub fn build(entries: &[(String, Vec<String>)]) -> Self {
         let mut patterns: Vec<String> = Vec::new();
         let mut owners: Vec<String> = Vec::new();
@@ -34,7 +32,7 @@ impl KeywordIndex {
         Self { ac, owners }
     }
 
-    /// 对 `text` 一次扫描，返回命中（任一关键词）的 id 集合。
+    /// Performs a single scan of `text` and returns a set of IDs that match any of the keywords.
     pub fn scan(&self, text: &str) -> HashSet<String> {
         let mut hit = HashSet::new();
         if let Some(ac) = &self.ac {

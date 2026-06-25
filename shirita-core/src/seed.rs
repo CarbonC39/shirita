@@ -6,7 +6,7 @@ use crate::models::template::Template;
 use crate::storage::Storage;
 use crate::Result;
 
-/// 状态变量更新协议说明（注入给模型；内容随 builtin 定义可被用户编辑）。
+/// Description of the state variable update protocol (injected into the model; content can be edited by the user as defined by `builtin`).
 const STATE_PROTOCOL_TEXT: &str = "\
 You can update tracked story variables by emitting self-closing <state_update> \
 tags inline in your reply. They are folded into the running state and stripped \

@@ -1,4 +1,4 @@
-//! 会话模型。
+//! Session model.
 
 use serde::{Deserialize, Serialize};
 

@@ -1,4 +1,4 @@
-//! Prompt 组装：局部覆盖 → 变量渲染 → XML 封包；以及 regex_rule 输出清洗。
+//! Prompt assembly: partial substitution → variable rendering → XML wrapping; and regex_rule output sanitization.
 
 use std::collections::{HashMap, HashSet};
 
@@ -28,12 +28,12 @@ pub struct Trigger {
 pub const DEFAULT_SCAN_DEPTH: usize = 4;
 pub const DEFAULT_RECURSIVE: bool = true;
 
-/// 一个待激活条目（来自某 ref 节点解析后的定义）。
+/// An entry awaiting activation (from a definition parsed from a ref node).
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub id: String,
     pub trigger: Trigger,
-    pub content: String, // 已是有效内容（局部覆盖优先），用于递归扫描
+    pub content: String, // Already valid content (partial overwriting takes precedence), used for recursive scanning
     /// How many recent chat messages this entry's keywords scan.
     pub scan_depth: usize,
     /// Whether this entry takes part in recursive activation (as a source of
@@ -41,7 +41,7 @@ pub struct Entry {
     pub recursive: bool,
 }
 
-/// 从 `definition.meta`（即整个 meta 对象）解析 trigger；缺省 constant。
+/// Parse the trigger from `definition.meta` (i.e., the entire meta object); the default is `constant`.
 pub fn parse_trigger(meta: &serde_json::Value) -> Trigger {
     let t = meta.get("trigger");
     let mode = match t.and_then(|v| v.get("mode")).and_then(|v| v.as_str()) {
@@ -62,9 +62,9 @@ pub fn parse_trigger(meta: &serde_json::Value) -> Trigger {
     Trigger { mode, keys, probability }
 }
 
-/// 计算激活集：constant 恒激活；random 按 roll；keyword 命中扫描缓冲（每条目
-/// 按自己的 scan_depth 取最近若干条消息）；带 recursive 的条目把已激活内容并入
-/// 缓冲再扫，直到收敛（限 3 轮）。`recent` 为最近消息（旧→新），`roll() -> [0,1)`。
+/// Calculate the activation set: constant = always active; random = based on roll; keyword = hits the scan buffer (For each entry
+/// retrieve the most recent messages based on its own `scan_depth`); entries marked as `recursive` merge the already activated content into
+/// the buffer and scan again, until convergence (limited to 3 rounds). `recent` refers to the most recent messages (old to new), and `roll()` returns [0,1).
 pub fn activate(
     entries: &[Entry],
     recent: &[String],
@@ -72,7 +72,6 @@ pub fn activate(
 ) -> HashSet<String> {
     let mut active: HashSet<String> = HashSet::new();
 
-    // constant + random 先定。
     for e in entries {
         match e.trigger.mode {
             TriggerMode::Constant => {
@@ -87,7 +86,7 @@ pub fn activate(
         }
     }
 
-    // keyword：按 scan_depth 分组，每组对各自的「最近 N 条」窗口扫描一次。
+    // keyword: Group by scan_depth, and scan each group's “most recent N” window once.
     let mut by_depth: HashMap<usize, Vec<(String, Vec<String>)>> = HashMap::new();
     for e in entries {
         if e.trigger.mode == TriggerMode::Keyword {
@@ -106,7 +105,7 @@ pub fn activate(
         }
     }
 
-    // 递归：仅 recursive=true 的条目参与（既作扫描来源，也可被递归命中激活）。
+    // Recursion: Only entries with `recursive=true` are included (they serve as both scan sources and can be activated by recursive hits).
     if entries.iter().any(|e| e.recursive) {
         let mut scan_text = String::new();
         for e in entries {
@@ -141,7 +140,7 @@ pub fn activate(
     active
 }
 
-/// 用 state 渲染 `{{var}}`；未知键保留原占位符。
+/// Render `{{var}}` using state; unknown keys retain their original placeholders.
 pub fn render_vars(content: &str, state: &serde_json::Value) -> String {
     let re = regex::Regex::new(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}").unwrap();
     re.replace_all(content, |caps: &regex::Captures| {
@@ -231,13 +230,13 @@ pub(crate) fn normalize_js_regex_literal(pattern: &str) -> String {
     }
 }
 
-/// 校验一条 regex_rule 的 pattern 能否编译（创作期使用；空 pattern 视为合法/无操作）。
-/// 用 fancy-regex 引擎（支持 lookaround / 反向引用，吃下 ST 兼容）。
+/// Checks whether a regex_rule pattern can be compiled (for use during development; an empty pattern is considered valid and results in no action).
+/// Uses the fancy-regex engine (supports lookarounds and backreferences, and is ST-compatible).
 pub fn is_valid_regex(pattern: &str) -> bool {
     fancy_regex::Regex::new(&normalize_js_regex_literal(pattern)).is_ok()
 }
 
-/// 编译错误信息（合法或空 pattern 返回 None），供 UI 标记失效规则。
+/// Compilation error message (a valid or empty pattern returns `None`), used by the UI to flag invalid rules.
 pub fn regex_error(pattern: &str) -> Option<String> {
     if pattern.is_empty() {
         return None;
@@ -245,23 +244,23 @@ pub fn regex_error(pattern: &str) -> Option<String> {
     fancy_regex::Regex::new(&normalize_js_regex_literal(pattern)).err().map(|e| e.to_string())
 }
 
-/// regex_rule 作用对象（哪一侧消息）。
+/// The target of the regex_rule (which side of the message).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegexTarget {
     AiOutput,
     UserInput,
 }
-/// regex_rule 作用阶段（改显示 / 改发给模型的内容）。
+/// regex_rule processing stage (modifies the content displayed / sent to the model).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RegexPhase {
     Display,
     Prompt,
 }
 
-/// 依挂载顺序对文本应用适用的 regex_rule。按 (target, phase) 过滤：
-/// `disabled` 跳过；phase 须匹配 `scope`（display→{display,both}，prompt→{prompt,both}）；
-/// target 须在 `targets` 内（空/缺省 = 广义）。返回 None 表示没有任何适用规则真正执行。
-/// 运行期宽容：非法 pattern 仅 warn 跳过（校验在创作期做）。
+/// Applies the applicable regex_rule to the text in the order they are mounted. Filters by (target, phase):
+/// `disabled` skips the rule; phase must match `scope` (`display` → {`display`, `both`}, `prompt` → {`prompt`, `both`});
+/// `target` must be in `targets` (empty/default = generic). Returning `None` indicates that no applicable rules were actually executed.
+/// runtime tolerance: Invalid patterns are simply skipped with a warning (validation is performed at creation time).
 pub fn apply_regex_rules_for(
     text: &str,
     rules: &[Definition],
@@ -306,7 +305,7 @@ pub fn apply_regex_rules_for(
     ran.then_some(out)
 }
 
-/// AI 输出、显示侧的便捷封装（沿用旧调用点的语义）。
+/// Convenient wrapper for AI output and display (preserving the semantics of the old call points).
 pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
     apply_regex_rules_for(text, rules, RegexTarget::AiOutput, RegexPhase::Display)
 }
@@ -342,23 +341,23 @@ pub fn capture_panel_updates(text: &str, rules: &[Definition]) -> Vec<Update> {
     out
 }
 
-/// 段落落点：历史消息节点之前 / 之后。
+/// Paragraph break: Before / after the historical message node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Placement {
     BeforeHistory,
     AfterHistory,
 }
 
-/// 组装产物中的一个 system 段落（未拼接，保留来源与落点）。
+/// A “system” section from the assembled output (un concatenated, with source and destination retained).
 #[derive(Debug, Clone)]
 pub struct PromptSegment {
     pub placement: Placement,
     pub content: String,
-    /// 来源标识（容器 tag 或定义 id），便于调试/导出。
+    /// Source identifier (container tag or defined ID) for debugging and exporting.
     pub source: String,
 }
 
-/// 树驱动组装的结构化结果：段落 + 是否启用真实历史。
+/// Structured results of tree-driven assembly: paragraphs + whether true history is enabled.
 #[derive(Debug, Clone)]
 pub struct AssembledPlan {
     pub segments: Vec<PromptSegment>,
@@ -387,7 +386,7 @@ fn is_non_rendering(def_type: &str) -> bool {
     matches!(def_type, "regex_rule" | "first_message" | "html" | "css" | "variables")
 }
 
-/// 取定义的有效 trigger：会话局部覆盖优先，否则用 definition.meta。
+/// Retrieve the valid trigger from the definition: session-local overrides take precedence; otherwise, use `definition.meta`.
 fn effective_trigger(def: &Definition, overrides: &serde_json::Value) -> Trigger {
     if let Some(t) = overrides.get(&def.id).and_then(|o| o.get("trigger")) {
         return parse_trigger(&serde_json::json!({ "trigger": t }));
@@ -395,7 +394,7 @@ fn effective_trigger(def: &Definition, overrides: &serde_json::Value) -> Trigger
     parse_trigger(&def.meta)
 }
 
-/// 取定义的有效扫描设置：会话局部覆盖优先，否则取 `meta.scan`，再否则默认值。
+/// Retrieve the valid scan settings: session-local overrides take precedence; otherwise, use `meta.scan`; otherwise, use the default value.
 fn effective_scan(def: &Definition, overrides: &serde_json::Value) -> (usize, bool) {
     let scan = overrides
         .get(&def.id)
@@ -413,7 +412,7 @@ fn effective_scan(def: &Definition, overrides: &serde_json::Value) -> (usize, bo
     (depth.max(1), recursive)
 }
 
-/// 取定义的有效内容：会话局部覆盖（结构化 {content}）优先，否则用全局 content。
+/// Retrieve the valid content from the definition: session-local overrides (structured {content}) take precedence; otherwise, use the global content.
 fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> String {
     overrides
         .get(&def.id)
@@ -423,9 +422,9 @@ fn effective_def_content(def: &Definition, overrides: &serde_json::Value) -> Str
         .unwrap_or_else(|| def.content.clone())
 }
 
-/// 把定义名净化为可用作 XML 标签的字符串：trim → 连续空白折叠为单个 `_` →
-/// 移除 XML 致命字符 `< > & " ' /` → 保留其余（含中文/字母/数字/`_`/`-`）。
-/// 结果可能为空（名字全是被剔字符）；兜底由调用方负责。
+/// Sanitize the defined name into a string suitable for use as an XML tag: trim → collapse consecutive whitespace into a single `_` →
+/// Remove XML-invalid characters `< > & " ' /` → retain the rest (including Chinese characters, letters, numbers, `_`, and `-`).
+/// The result may be empty (if the name consists entirely of disallowed characters); the caller is responsible for handling such cases.
 pub fn sanitize_tag(name: &str) -> String {
     let mut out = String::new();
     let mut pending_us = false;
@@ -454,8 +453,8 @@ pub fn sanitize_tag(name: &str) -> String {
     }
 }
 
-/// 若 `wrap_in_tag` 开着，用其 `sanitize_tag(name)`（空则兜底 def_type）包裹内容。节点级
-/// `meta.wrap_in_tag`（这一处使用的覆盖）优先于定义自身的设置，未设置则回退到定义的值。
+/// If `wrap_in_tag` is enabled, wrap the content using its `sanitize_tag(name)` (falling back to `def_type` if empty). Node-level
+/// `meta.wrap_in_tag` (overridden here) takes precedence over the setting defined within the node itself; if not set, it falls back to the defined value.
 fn maybe_wrap(def: &Definition, node: &PromptNode, content: String) -> String {
     let on = node
         .meta
@@ -484,11 +483,11 @@ pub fn assemble_from_nodes(
     assemble_from_nodes_with_packs(nodes, &[], definitions, overrides, state, recent_msgs, roll)
 }
 
-/// 树驱动组装：遍历节点树，按触发激活筛选 ref，容器封包，history 节点切分前后。
-/// 接受可选的挂载包树集合（pack_trees），在 content 节点按类型分组注入包内容。
+/// Tree-driven assembly: Traverse the node tree, filter refs based on triggers and activations, package containers, and split history nodes into “before” and “after” segments.
+/// Accepts an optional set of mount package trees (pack_trees) and injects package content into content nodes grouped by type.
 ///
-/// - 仅启用 + 激活的 ref 进入结果；空容器被省略。
-/// - history 节点（启用）把后续段落落点切到 `AfterHistory` 并置 `history_enabled`。
+/// - Only refs that are both enabled and activated are included in the result; empty containers are omitted.
+/// - The history node (when enabled) shifts the landing point of subsequent segments to `AfterHistory` and sets `history_enabled`.
 pub fn assemble_from_nodes_with_packs(
     nodes: &[PromptNode],
     pack_trees: &[Vec<PromptNode>],
@@ -498,7 +497,7 @@ pub fn assemble_from_nodes_with_packs(
     recent_msgs: &[String],
     roll: &mut impl FnMut() -> f64,
 ) -> AssembledPlan {
-    // 1) 从所有 ref 节点构建 Entry（用于激活计算）。
+    // Build an Entry from all ref nodes (used for activation computation).
     let mut entries: Vec<Entry> = Vec::new();
     for n in nodes {
         if n.kind != NodeKind::Ref {
@@ -544,10 +543,10 @@ pub fn assemble_from_nodes_with_packs(
         }
     }
 
-    // 2) 计算激活集（每条目按自己的 scan_depth/recursive）。
+    // Compute the activation set (each entry is processed according to its own `scan_depth/recursive`).
     let active = activate(&entries, recent_msgs, roll);
 
-    // ref 是否纳入及其渲染内容。
+    // Whether to include the reference and its rendered content.
     let resolve = |n: &PromptNode| -> Option<String> {
         if !n.enabled || n.kind != NodeKind::Ref {
             return None;
@@ -619,7 +618,7 @@ pub fn assemble_from_nodes_with_packs(
         pairs
     };
 
-    // 3) 按 sort_order 遍历根节点；history 切换落点。
+    // 3) Iterate through the root nodes in sort_order; use history to switch the landing point.
     let mut roots: Vec<&PromptNode> = nodes.iter().filter(|n| n.parent_id.is_none()).collect();
     roots.sort_by_key(|n| n.sort_order);
 
@@ -734,12 +733,12 @@ pub fn assemble_from_nodes_with_packs(
     AssembledPlan { segments, history_enabled, regex_rules, depth_inserts }
 }
 
-/// 段 + 真实历史 → provider 消息数组；末了合并相邻同角色。
+/// Segment + actual history → provider message array; finally, merge adjacent segments with the same role.
 ///
-/// before-history 段作为 system 注入历史之前，after-history 段注入历史之后。
-/// 落点切分已编码在各段的 `placement` 里（启用的 history 节点会把后续段切到
-/// after），故此处只按调用方意图 `history_enabled` 决定是否编入真实历史：无
-/// history 节点时全部段都是 before，历史自然追加其后。
+/// The “before-history” segment is before the history is injected as “system,” and the “after-history” segment is after the history is injected.
+/// The placement of segments is encoded in the `placement` of each segment (if a `history` node is enabled, subsequent segments are moved to
+/// `after`); therefore, whether to include them in the actual history is determined solely by the caller’s intent via `history_enabled`: if there is no
+/// `history` node, all segments are `before`, and the history is naturally appended after them.
 pub fn build_chat_messages(
     plan: &AssembledPlan,
     history: &[ChatMessage],
@@ -884,7 +883,7 @@ mod tests {
     fn maybe_wrap_wraps_only_when_flag_on() {
         let mut d = Definition::new("char", "Alice Smith", "body");
         let n = plain_ref_node();
-        assert_eq!(maybe_wrap(&d, &n, "body".into()), "body"); // 默认关
+        assert_eq!(maybe_wrap(&d, &n, "body".into()), "body");
         d.meta = serde_json::json!({ "wrap_in_tag": true });
         assert_eq!(maybe_wrap(&d, &n, "body".into()), "<Alice_Smith>\nbody\n</Alice_Smith>");
     }

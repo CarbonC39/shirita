@@ -1,4 +1,4 @@
-//! 模型适配层：统一的流式聊天接口。
+//! Model adaptation layer: Unified streaming chat interface.
 
 pub mod anthropic;
 pub mod echo;
@@ -14,7 +14,7 @@ pub use anthropic::AnthropicProvider;
 pub use echo::EchoProvider;
 pub use openai::OpenAiProvider;
 
-/// 发给模型的单条消息（与持久化的 Message 解耦）。
+/// A single message sent to the model
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChatMessage {
     pub role: Role,
@@ -31,26 +31,26 @@ impl Default for ChatMessage {
     }
 }
 
-/// 一次聊天补全请求。
+/// A single chat autocomplete request.
 #[derive(Debug, Clone)]
 pub struct ChatRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
-    /// 当前分支的滚动摘要（若有）。放进请求体哪里由各 provider 决定（见 M6 spec §4）。
+    /// Rolling summary for the current branch (if available). The location within the request body is determined by each provider.
     pub summary: Option<String>,
-    /// 回复（输出）最大 token 数。非上下文窗口。`None` 时 Anthropic 取内置默认、
-    /// OpenAI 省略该字段（用服务端默认）。来源：settings `provider_max_tokens`。
+    /// Maximum number of tokens in the response (output). Non-contextual window. When `None`, Anthropic uses the built-in default,
+    /// OpenAI omits this field (uses the server-side default). Source: `provider_max_tokens` setting.
     pub max_tokens: Option<u32>,
 }
 
-/// 流式聊天：每个元素是一段文本增量；流结束即 done。
+/// Stream-based chat: Each element is a text increment; when the stream ends, the process is complete.
 #[async_trait]
 pub trait ModelProvider: Send + Sync {
     async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>>;
 }
 
-/// 解析 OpenAI SSE 中 `data:` 之后的 JSON，提取 `choices[0].delta.content`。
-/// 仅含 role（无 content）的首帧返回 `Ok(None)`。
+/// Parses the JSON following `data:` in OpenAI SSE and extracts `choices[0].delta.content`.
+/// Returns `Ok(None)` for the first frame that contains only a role (no content).
 pub fn parse_delta(json_after_data: &str) -> Result<Option<String>> {
     let v: serde_json::Value = serde_json::from_str(json_after_data)?;
     Ok(v["choices"][0]["delta"]["content"]
@@ -58,8 +58,7 @@ pub fn parse_delta(json_after_data: &str) -> Result<Option<String>> {
         .map(|s| s.to_string()))
 }
 
-/// 一个解析出的 OpenAI 兼容 delta：可见内容，或推理模型（如 DeepSeek）原生的
-/// `reasoning_content` 思考增量。
+/// A parsed OpenAI-compatible delta: visible content, or the `reasoning_content` reasoning increment native to inference models (such as DeepSeek).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Delta {
     Content(String),
@@ -67,8 +66,8 @@ pub enum Delta {
     None,
 }
 
-/// 解析 OpenAI 兼容 SSE 的 `delta`：优先识别 `reasoning_content`（DeepSeek 等原生推理字段），
-/// 否则取 `content`；都没有（如仅 role 的首帧）则 `Delta::None`。
+/// Parse OpenAI's SSE-compatible `delta`: First check for `reasoning_content` (native reasoning fields such as DeepSeek),
+/// otherwise use `content`; if neither is present (e.g., the first frame of a role-only response), return `Delta::None`.
 pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
     let v: serde_json::Value = serde_json::from_str(json_after_data)?;
     let delta = &v["choices"][0]["delta"];
@@ -81,9 +80,9 @@ pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
     Ok(Delta::None)
 }
 
-/// 把网络分片字节流安全地解码为 UTF-8：跨分片被截断的多字节字符不会被
-/// 当场替换成 U+FFFD，而是留在 `pending` 里等下一片字节补全后再解码。
-/// 真正非法的字节序列才会被替换并跳过（不会无限堆积在 `pending` 里）。
+/// Safely decode a network-segmented byte stream into UTF-8: multi-byte characters that are truncated across segments are not
+/// immediately replaced with U+FFFD, but are left in `pending` to be decoded once the next segment of bytes is received.
+/// Only truly invalid byte sequences are replaced and skipped (so they do not accumulate indefinitely in `pending`).
 pub fn decode_utf8_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
     pending.extend_from_slice(chunk);
     let mut out = String::new();
@@ -118,9 +117,9 @@ pub fn decode_utf8_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
     out
 }
 
-/// 把一个 `Delta` 渲染成要 yield 的文本增量，沿用既有的 `<think>…</think>` 前端折叠约定
-/// （见 `shirita-ui/src/utils/thinking.ts`），在推理段与正文段切换时补上开/闭标签。
-/// `in_reasoning` 在调用间持有状态（每个流一个），纯函数便于单测。
+/// Render a `Delta` as the text increment to be yielded, following the existing `<think>…</think>` front-end folding convention
+/// (see `shirita-ui/src/utils/thinking.ts`), adding opening and closing tags when switching between reasoning and body paragraphs.
+/// `in_reasoning` maintains state between calls (one per stream); being a pure function makes it easy to unit test.
 pub fn render_delta(in_reasoning: &mut bool, delta: Delta) -> Option<String> {
     match delta {
         Delta::Reasoning(t) => {

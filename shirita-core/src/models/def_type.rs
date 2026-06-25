@@ -1,22 +1,22 @@
-//! def_type：可扩展「容器类型」注册表行 + 保留类型常量。
+//! def_type: Extensible “container type” registry entries + reserved type constants.
 
 use serde::{Deserialize, Serialize};
 
-/// 保留类型（代码常量，永不入 def_types 表，不进节点树容器）。
+/// Reserved types (code constants that are never added to the def_types table or included in the node tree container).。
 pub const RESERVED: [&str; 8] =
     ["prompt", "regex_rule", "tool", "first_message", "protocol", "html", "css", "variables"];
 
-/// 是否保留类型（prompt / regex_rule / tool）。
+/// Whether a type is reserved (prompt / regex_rule / tool).
 pub fn is_reserved(t: &str) -> bool {
     RESERVED.contains(&t)
 }
 
-/// 是否根级裸文本的 prompt 类型。
+/// Whether the root-level raw text is of type `prompt`.
 pub fn is_prompt(t: &str) -> bool {
     t == "prompt"
 }
 
-/// 容器类型注册表的一行。
+/// A row in the container type registry.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DefType {
     pub id: String,
@@ -27,7 +27,7 @@ pub struct DefType {
 }
 
 impl DefType {
-    /// 新建一个用户自定义容器类型（builtin = false）。
+    /// Create a user-defined container type (builtin = false).
     pub fn new(id: impl Into<String>, label: impl Into<String>, sort: i64) -> Self {
         Self {
             id: id.into(),

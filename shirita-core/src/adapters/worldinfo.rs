@@ -1,8 +1,8 @@
-//! SillyTavern World Info / lorebook ↔ 我们的 world 类型定义（带 meta.trigger）。
+//! SillyTavern World Info / lorebook ↔ world type definition (with meta.trigger).
 
 use crate::models::definition::Definition;
 
-/// 把 ST 世界书 JSON（map 形 或 array 形 entries）转成 world 定义列表。
+/// Converts the ST world book JSON (map- or array-style entries) into a list of world definitions.
 pub fn worldinfo_to_defs(wi: &serde_json::Value) -> Vec<Definition> {
     let entries = match wi.get("entries") {
         Some(serde_json::Value::Object(map)) => map.values().cloned().collect::<Vec<_>>(),
@@ -19,7 +19,6 @@ fn str_array(v: Option<&serde_json::Value>) -> Vec<String> {
 }
 
 fn entry_to_def(e: &serde_json::Value) -> Definition {
-    // keys：ST 标准用 "key"，character_book 用 "keys"。
     let keys = if e.get("key").is_some() { str_array(e.get("key")) } else { str_array(e.get("keys")) };
     let constant = e.get("constant").and_then(|v| v.as_bool()).unwrap_or(false);
     let use_prob = e.get("useProbability").and_then(|v| v.as_bool()).unwrap_or(false);

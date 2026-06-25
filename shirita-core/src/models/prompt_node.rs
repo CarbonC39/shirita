@@ -1,4 +1,4 @@
-//! PromptNode：模板/会话节点树的一员。
+//! PromptNode: part of the template/session node tree.
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

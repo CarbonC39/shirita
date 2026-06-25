@@ -1,8 +1,8 @@
-//! 只读解析 PNG 内嵌的 SillyTavern 角色卡 JSON（tEXt chunk）。纯函数，不解码像素、不触库。
+//! Read-only parsing of the JSON (text chunk) for SillyTavern character cards embedded in PNG files. A pure function that does not decode pixels or access any libraries.
 //!
-//! PNG = 8 字节签名 + 一串 chunk：`length(4 BE) | type(4) | data(length) | crc(4)`。
-//! ST 把卡 JSON 以 base64 存在 tEXt chunk，keyword `chara`（V2）或 `ccv3`（V3）；
-//! tEXt data = `keyword\0text`。
+//! PNG = 8-byte signature + a chunk sequence: `length(4 BE) | type(4) | data(length) | crc(4)`.
+//! ST stores the card JSON as Base64 in the tEXt chunk, with the keyword `chara` (V2) or `ccv3` (V3);
+//! tEXt data = `keyword\0text`.
 
 use base64::Engine;
 
@@ -10,12 +10,12 @@ use crate::{Error, Result};
 
 const PNG_SIGNATURE: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
 
-/// 单个 tEXt chunk 的大小上限（Sanity Limit）：纯文本角色卡远小于此。
-/// 超过则报错且**绝不**按声明长度预分配，保护服务器内存。
+/// Maximum size of a single text chunk (Sanity Limit): Plain text character cards are much smaller than this.
+/// If this limit is exceeded, an error is reported, and memory is **never** pre-allocated based on the declared length, to protect server memory.
 pub const MAX_TEXT_CHUNK: usize = 8 * 1024 * 1024;
 
-/// 从 PNG 字节提取内嵌角色卡 JSON：扫 tEXt chunk，keyword 优先 `ccv3` 再 `chara`，
-/// base64 解码其 text 为 UTF-8 JSON。非 PNG / 无匹配 / 超限 / 解码失败 → Err。
+/// Extract the embedded character card JSON from PNG bytes: Scan the tEXt chunk, prioritizing the keyword `ccv3` followed by `chara`,
+/// then decode the text using base64 to UTF-8 JSON. Non-PNG / no match / out of bounds / decoding failure → Err.
 pub fn read_card_json(png: &[u8]) -> Result<serde_json::Value> {
     if png.len() < 8 || png[..8] != PNG_SIGNATURE {
         return Err(Error::Config("not a PNG file".into()));
@@ -26,14 +26,14 @@ pub fn read_card_json(png: &[u8]) -> Result<serde_json::Value> {
     while pos + 8 <= png.len() {
         let len = u32::from_be_bytes([png[pos], png[pos + 1], png[pos + 2], png[pos + 3]]) as usize;
         let ctype = &png[pos + 4..pos + 8];
-        // 越过 length 上限 → 直接报错，不读、不分配。
+        // Exceeds the length limit → Throws an error immediately; does not read or allocate.
         if len > MAX_TEXT_CHUNK {
             return Err(Error::Config(format!("PNG chunk too large: {len} bytes")));
         }
         let data_start = pos + 8;
         let data_end = data_start + len;
         if data_end + 4 > png.len() {
-            break; // 截断/损坏，停止扫描
+            break; // Truncated/corrupted, stop scanning
         }
         if ctype == b"tEXt" {
             let data = &png[data_start..data_end];
@@ -50,7 +50,7 @@ pub fn read_card_json(png: &[u8]) -> Result<serde_json::Value> {
         if ctype == b"IEND" {
             break;
         }
-        pos = data_end + 4; // 跳过 CRC
+        pos = data_end + 4; // skip CRC
     }
     let b64 = ccv3.or(chara).ok_or_else(|| Error::Config("no character card tEXt chunk".into()))?;
     let bytes = base64::engine::general_purpose::STANDARD
@@ -66,7 +66,7 @@ mod tests {
     use super::*;
     use base64::Engine;
 
-    /// 造一个最小 PNG：签名 + 一个 tEXt(keyword) + IEND。CRC 置零（read 不校验）。
+    /// Create a minimal PNG: signature + a text (keyword) + IEND. Set the CRC to zero (no checksum during read).
     fn png_with_text(keyword: &str, text: &str) -> Vec<u8> {
         let mut out = Vec::new();
         out.extend_from_slice(&PNG_SIGNATURE);
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn ccv3_takes_precedence_over_chara() {
-        // 两个 tEXt：chara=Old, ccv3=New → 取 ccv3。
+        // Two texts: chara=Old, ccv3=New → Select ccv3.
         let mut png = PNG_SIGNATURE.to_vec();
         for (kw, name) in [("chara", "Old"), ("ccv3", "New")] {
             let body = b64(&format!(r#"{{"data":{{"name":"{name}"}}}}"#));
@@ -140,11 +140,11 @@ mod tests {
 
     #[test]
     fn rejects_oversized_chunk_without_allocating() {
-        // 构造一个声明超大 length 的 tEXt chunk（实际数据不提供）→ 必须在分配前报错。
+        // Construct a tEXt chunk with an excessively large length (no actual data provided) → An error must be raised before allocation.
         let mut png = PNG_SIGNATURE.to_vec();
         png.extend_from_slice(&((MAX_TEXT_CHUNK as u32) + 1).to_be_bytes());
         png.extend_from_slice(b"tEXt");
-        // 不追加真实数据：函数应在检查 length 时即 Err，不读到这里。
+        // Do not append actual data: the function should raise an Err when checking the length and should not execute beyond this point.
         assert!(read_card_json(&png).is_err());
     }
 }

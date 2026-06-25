@@ -1,4 +1,4 @@
-//! OpenAI 兼容流式适配器（POST /chat/completions, stream=true）。
+//! OpenAI-compatible streaming adapter (POST /chat/completions, stream=true).
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
@@ -15,8 +15,8 @@ pub struct OpenAiProvider {
     api_key: String,
 }
 
-/// 构造 OpenAI 请求体：messages 同 `openai_messages`；仅当 `req.max_tokens` 为 `Some` 时下发
-/// `max_tokens`（否则用服务端默认，保持历史行为）。
+/// Construct the OpenAI request body: `messages` is the same as `openai_messages`; send only when `req.max_tokens` is `Some`
+/// `max_tokens` (otherwise, use the server default to maintain historical behavior).
 pub fn openai_body(req: &ChatRequest) -> serde_json::Value {
     let mut body = json!({
         "model": req.model,
@@ -29,8 +29,8 @@ pub fn openai_body(req: &ChatRequest) -> serde_json::Value {
     body
 }
 
-/// 单条消息的 OpenAI `content`：无图时是纯字符串；有图时是 `[{type:text}, {type:image_url}...]`
-/// content-parts 数组（vision 格式）。空文本配图片时省略 text part。
+/// OpenAI `content` for a single message: a plain string if there is no image; `[{type:text}, {type:image_url}...]` if there is an image.
+/// `content-parts` array (vision format). The `text` part is omitted when empty text is paired with an image.
 fn openai_content(m: &super::ChatMessage) -> serde_json::Value {
     if m.images.is_empty() {
         return json!(m.content);
@@ -45,7 +45,7 @@ fn openai_content(m: &super::ChatMessage) -> serde_json::Value {
     json!(parts)
 }
 
-/// 构造 OpenAI `messages` 数组：把 `req.summary`（若有）拼到首条 system 尾部；无 system 则前插一条 system。
+/// Construct the OpenAI `messages` array: append `req.summary` (if present) to the end of the first `system` message; if there is no `system` message, insert a `system` message at the beginning.
 pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
     let mut msgs: Vec<serde_json::Value> = req
         .messages
@@ -65,7 +65,7 @@ pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
 }
 
 impl OpenAiProvider {
-    /// 复用共享的 `reqwest::Client`（克隆即共享连接池），避免 per-call `Client::new()`。
+    /// Reuse a shared `request::Client` (cloning it shares the connection pool) to avoid calling `Client::new()` for each request.
     pub fn new(
         client: reqwest::Client,
         base_url: impl Into<String>,
@@ -100,31 +100,31 @@ impl ModelProvider for OpenAiProvider {
             return Err(Error::Config(format!("provider {status}: {text}")));
         }
 
-        // 把字节流解析为 content 增量流。
+        // Parse the byte stream into an incremental content stream.
         let mut bytes = resp.bytes_stream();
         let stream = async_stream::stream! {
             let mut buf = String::new();
             let mut pending_bytes = Vec::new();
-            // DeepSeek 等推理模型在 content 之前先流式吐出 reasoning_content；
-            // 这段状态把它折进既有的 <think>…</think> 前端约定（见 model/mod.rs::render_delta）。
+            // Inference models such as DeepSeek stream `reasoning_content` before `content`;
+            // This section wraps it into the existing <think>…</think> frontend convention (see model/mod.rs::render_delta).
             let mut in_reasoning = false;
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => { yield Err(Error::Config(format!("stream error: {e}"))); return; }
                 };
-                // 多字节字符可能正好被切在两个 chunk 边界之间；用 decode_utf8_chunk
-                // 而非逐 chunk 各自 from_utf8_lossy，避免把截断的字符吞成乱码。
+                // Multi-byte characters may be split exactly between two chunk boundaries; use `decode_utf8_chunk`
+                // instead of applying `from_utf8_lossy` to each chunk individually, to avoid converting truncated characters into garbled text.
                 buf.push_str(&decode_utf8_chunk(&mut pending_bytes, &chunk));
 
-                // 逐行处理已完整接收的行（以 '\n' 结尾）。
+                 // Process fully received lines (terminated by ‘\n’) one by one.
                 while let Some(pos) = buf.find('\n') {
                     let line = buf[..pos].trim_end_matches('\r').to_string();
                     buf.drain(..=pos);
 
                     let data = match line.strip_prefix("data:") {
                         Some(d) => d.trim(),
-                        None => continue, // 跳过空行/注释行
+                        None => continue,
                     };
                     if data == "[DONE]" {
                         return;
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn body_includes_max_tokens_only_when_set() {
         let mut r = req(vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }], None);
-        assert!(openai_body(&r).get("max_tokens").is_none()); // None → 省略
+        assert!(openai_body(&r).get("max_tokens").is_none()); // None → ignore
         r.max_tokens = Some(8192);
         assert_eq!(openai_body(&r)["max_tokens"], 8192);
     }
