@@ -123,7 +123,15 @@ fn to_plain_text(text: &str) -> String {
 /// One-line snippet of a message for the home list: newlines collapsed, trimmed,
 /// capped so the payload stays small.
 fn message_preview(text: &str) -> String {
-    let flat = to_plain_text(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    // Bound the markup-stripping work: the preview shows at most 140 visible
+    // chars and realistic markup can't shrink 2000 chars below that, so we never
+    // run the cleanup passes over more than that much of a huge latest message.
+    const SCAN_LIMIT: usize = 2000;
+    let scan: &str = match text.char_indices().nth(SCAN_LIMIT) {
+        Some((i, _)) => &text[..i],
+        None => text,
+    };
+    let flat = to_plain_text(scan).split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() > 140 {
         format!("{}…", flat.chars().take(140).collect::<String>())
     } else {
@@ -1245,6 +1253,16 @@ mod tests {
         assert!(got.contains("Heading"));
         assert!(got.contains("quoted"));
         assert!(got.contains("item one"));
+    }
+
+    #[test]
+    fn message_preview_is_length_bounded() {
+        // A latest message far larger than the scan limit still yields a small
+        // preview (140 visible chars + ellipsis), without scanning all of it.
+        let raw = "word ".repeat(5000); // 25k chars
+        let got = message_preview(&raw);
+        assert_eq!(got.chars().count(), 141);
+        assert!(got.ends_with('…'));
     }
 
     #[tokio::test]
