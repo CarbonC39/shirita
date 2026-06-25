@@ -517,6 +517,11 @@ impl Storage for SqliteStorage {
             .bind(id).fetch_optional(&self.pool).await?;
         match row { Some(r) => Ok(Some(row_to_template(&r)?)), None => Ok(None) }
     }
+    async fn get_template_by_name(&self, name: &str) -> Result<Option<Template>> {
+        let row = sqlx::query("SELECT id, name, meta, created_at, updated_at FROM templates WHERE name = ? LIMIT 1")
+            .bind(name).fetch_optional(&self.pool).await?;
+        match row { Some(r) => Ok(Some(row_to_template(&r)?)), None => Ok(None) }
+    }
 
     async fn list_templates(&self) -> Result<Vec<Template>> {
         let rows = sqlx::query("SELECT id, name, meta, created_at, updated_at FROM templates ORDER BY name")
@@ -583,6 +588,11 @@ impl Storage for SqliteStorage {
     async fn get_pack(&self, id: &str) -> Result<Option<Pack>> {
         let row = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs WHERE id = ?")
             .bind(id).fetch_optional(&self.pool).await?;
+        match row { Some(r) => Ok(Some(row_to_pack(&r)?)), None => Ok(None) }
+    }
+    async fn get_pack_by_name(&self, name: &str) -> Result<Option<Pack>> {
+        let row = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs WHERE name = ? LIMIT 1")
+            .bind(name).fetch_optional(&self.pool).await?;
         match row { Some(r) => Ok(Some(row_to_pack(&r)?)), None => Ok(None) }
     }
 
@@ -1883,5 +1893,18 @@ mod tests {
         s.create_asset(&a).await.unwrap();
         assert_eq!(s.get_asset_by_path("stored-xyz.png").await.unwrap().unwrap().id, a.id);
         assert!(s.get_asset_by_path("missing.png").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_pack_and_template_by_name() {
+        let s = temp_storage().await;
+        let p = Pack::new("My Pack");
+        s.create_pack(&p).await.unwrap();
+        assert_eq!(s.get_pack_by_name("My Pack").await.unwrap().unwrap().id, p.id);
+        assert!(s.get_pack_by_name("nope").await.unwrap().is_none());
+        let t = Template::new("My Tmpl");
+        s.create_template(&t).await.unwrap();
+        assert_eq!(s.get_template_by_name("My Tmpl").await.unwrap().unwrap().id, t.id);
+        assert!(s.get_template_by_name("nope").await.unwrap().is_none());
     }
 }
