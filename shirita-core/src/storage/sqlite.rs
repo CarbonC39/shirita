@@ -371,6 +371,47 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn create_messages(&self, messages: &[Message]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for m in messages {
+            let snapshot = serde_json::to_string(&m.snapshot_state)?;
+            let attachments = serde_json::to_string(&m.attachments)?;
+            sqlx::query(
+                "INSERT INTO messages \
+                 (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&m.id).bind(&m.session_id).bind(&m.parent_id).bind(m.role.as_str())
+            .bind(&m.raw_content).bind(&m.display_content).bind(m.is_hidden as i64)
+            .bind(m.is_anchor as i64).bind(attachments).bind(snapshot).bind(&m.created_at)
+            .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn create_message_and_advance_leaf(&self, message: &Message) -> Result<()> {
+        let snapshot = serde_json::to_string(&message.snapshot_state)?;
+        let attachments = serde_json::to_string(&message.attachments)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO messages \
+             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&message.id).bind(&message.session_id).bind(&message.parent_id).bind(message.role.as_str())
+        .bind(&message.raw_content).bind(&message.display_content).bind(message.is_hidden as i64)
+        .bind(message.is_anchor as i64).bind(attachments).bind(snapshot).bind(&message.created_at)
+        .execute(&mut *tx).await?;
+        // Advance the leaf and bump activity in the same row update / transaction.
+        let now = chrono::Utc::now();
+        sqlx::query("UPDATE chat_sessions SET active_leaf_id = ?, updated_at = ?, sort_order = ? WHERE id = ?")
+            .bind(&message.id).bind(now.to_rfc3339()).bind(now.timestamp_millis()).bind(&message.session_id)
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let rows = sqlx::query(
             "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at \
@@ -428,6 +469,25 @@ impl Storage for SqliteStorage {
             .bind(&template.id).bind(&template.name).bind(meta)
             .bind(&template.created_at).bind(&template.updated_at)
             .execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn create_template_with_nodes(&self, template: &Template, nodes: &[PromptNode]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let tmeta = serde_json::to_string(&template.meta)?;
+        sqlx::query("INSERT INTO templates (id, name, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(&template.id).bind(&template.name).bind(tmeta)
+            .bind(&template.created_at).bind(&template.updated_at)
+            .execute(&mut *tx).await?;
+        // Caller guarantees parent-before-child order for the self-referential FK.
+        for n in nodes {
+            let nmeta = serde_json::to_string(&n.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&n.id).bind(n.owner_kind.as_str()).bind(&n.owner_id).bind(&n.parent_id).bind(n.sort_order)
+                .bind(n.kind.as_str()).bind(&n.tag).bind(&n.definition_id).bind(n.enabled as i64).bind(&n.created_at).bind(nmeta)
+                .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -700,6 +760,40 @@ impl Storage for SqliteStorage {
         Ok(id_map)
     }
 
+    async fn materialize_session_nodes(&self, session_id: &str, template_id: &str) -> Result<bool> {
+        // Source nodes are read before the write transaction; the emptiness check
+        // and the inserts share that transaction, so a second concurrent call —
+        // which serialises behind this write — won't also copy the tree.
+        let source = self.list_nodes(&OwnerKind::Template, template_id).await?;
+        let mut tx = self.pool.begin().await?;
+        let existing: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?")
+                .bind(session_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if existing > 0 {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        let mut sorted = source.clone();
+        sorted.sort_by_key(|n| (n.parent_id.is_some(), n.sort_order));
+        for node in &sorted {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            let new_parent_id = node.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned());
+            let nmeta = serde_json::to_string(&node.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&new_id).bind(OwnerKind::Session.as_str()).bind(session_id)
+                .bind(&new_parent_id).bind(node.sort_order).bind(node.kind.as_str())
+                .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64)
+                .bind(chrono::Utc::now().to_rfc3339()).bind(nmeta)
+                .execute(&mut *tx).await?;
+            id_map.insert(node.id.clone(), new_id);
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()> {
         let json = serde_json::to_string(config)?;
@@ -737,6 +831,27 @@ impl Storage for SqliteStorage {
         .bind(session_id)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    async fn promote_local_definition(&self, session_id: &str, def_id: &str, def: &Definition) -> Result<()> {
+        let meta = serde_json::to_string(&def.meta)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE definitions SET type = ?, name = ?, content = ?, meta = ? WHERE id = ?")
+            .bind(def.def_type.as_str()).bind(&def.name).bind(&def.content).bind(meta).bind(&def.id)
+            .execute(&mut *tx).await?;
+        // RFC7396: null removes the promoted def's local patch, leaving siblings intact.
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_patch(\
+                COALESCE(override_config, '{}'), \
+                json_object('local_definitions', json_object(?, json('null')))) \
+             WHERE id = ?",
+        )
+        .bind(def_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -804,6 +919,17 @@ impl Storage for SqliteStorage {
         let raw = serde_json::to_string(value)?;
         sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .bind(key).bind(raw).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn set_settings(&self, pairs: &[(String, serde_json::Value)]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for (key, value) in pairs {
+            let raw = serde_json::to_string(value)?;
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                .bind(key).bind(raw).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -1534,5 +1660,127 @@ mod tests {
         assert!(s.get_template(&tmpl.id).await.unwrap().is_none());
         assert!(s.get_definition(&def.id).await.unwrap().is_none());
         assert!(s.list_nodes(&OwnerKind::Template, &tmpl.id).await.unwrap().is_empty());
+    }
+
+    // --- Tier 2 atomicity: batched / transactional storage methods ---
+
+    #[tokio::test]
+    async fn create_messages_persists_a_batch() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "hi");
+        let m2 = Message::new(&sess.id, Some(m1.id.clone()), Role::Assistant, "yo");
+        s.create_messages(&[m1, m2]).await.unwrap();
+        assert_eq!(s.list_messages(&sess.id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_messages_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "a");
+        let mut m2 = Message::new(&sess.id, None, Role::Assistant, "b");
+        m2.id = m1.id.clone(); // duplicate primary key → mid-batch failure
+        assert!(s.create_messages(&[m1, m2]).await.is_err());
+        assert!(s.list_messages(&sess.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_message_and_advance_leaf_sets_leaf_atomically() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m = Message::new(&sess.id, None, Role::System, "");
+        s.create_message_and_advance_leaf(&m).await.unwrap();
+        assert!(s.get_message(&m.id).await.unwrap().is_some());
+        assert_eq!(
+            s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id.as_deref(),
+            Some(m.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn create_message_and_advance_leaf_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "x");
+        s.create_message(&m1).await.unwrap();
+        let mut m2 = Message::new(&sess.id, None, Role::Assistant, "y");
+        m2.id = m1.id.clone(); // dup id → insert fails → leaf must not advance
+        assert!(s.create_message_and_advance_leaf(&m2).await.is_err());
+        assert_eq!(s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id, None);
+    }
+
+    #[tokio::test]
+    async fn create_template_with_nodes_is_atomic() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        let hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        s.create_template_with_nodes(&t, &[content, hist]).await.unwrap();
+        assert!(s.get_template(&t.id).await.unwrap().is_some());
+        assert_eq!(s.list_nodes(&OwnerKind::Template, &t.id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_template_with_nodes_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let n1 = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        let mut n2 = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        n2.id = n1.id.clone(); // dup id → mid-transaction failure
+        assert!(s.create_template_with_nodes(&t, &[n1, n2]).await.is_err());
+        assert!(s.get_template(&t.id).await.unwrap().is_none());
+        assert!(s.list_nodes(&OwnerKind::Template, &t.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn promote_local_definition_updates_def_and_clears_patch() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let mut def = Definition::new("char", "Orig", "old");
+        s.create_definition(&def).await.unwrap();
+        s.set_local_definition(&sess.id, &def.id, &serde_json::json!({ "content": "new" })).await.unwrap();
+        def.content = "new".into();
+        s.promote_local_definition(&sess.id, &def.id, &def).await.unwrap();
+        assert_eq!(s.get_definition(&def.id).await.unwrap().unwrap().content, "new");
+        let sess2 = s.get_session(&sess.id).await.unwrap().unwrap();
+        assert!(
+            sess2.override_config.get("local_definitions").and_then(|l| l.get(&def.id)).is_none(),
+            "the promoted local patch must be cleared"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_settings_persists_a_batch() {
+        let s = temp_storage().await;
+        s.set_settings(&[
+            ("theme".into(), serde_json::json!("dark")),
+            ("lang".into(), serde_json::json!("en")),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(s.get_setting("theme").await.unwrap(), Some(serde_json::json!("dark")));
+        assert_eq!(s.get_setting("lang").await.unwrap(), Some(serde_json::json!("en")));
+    }
+
+    #[tokio::test]
+    async fn materialize_session_nodes_copies_exactly_once() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        s.create_template_with_nodes(&t, &[content]).await.unwrap();
+        let mut sess = Session::new("S");
+        sess.template_id = Some(t.id.clone());
+        s.create_session(&sess).await.unwrap();
+        // First call materializes; a second is a no-op — this idempotence is what
+        // closes the check-then-copy TOCTOU that could double-copy the tree.
+        assert!(s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
+        assert!(!s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
+        assert_eq!(s.list_nodes(&OwnerKind::Session, &sess.id).await.unwrap().len(), 1);
     }
 }

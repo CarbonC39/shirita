@@ -46,6 +46,12 @@ pub trait Storage: Send + Sync {
 
     // --- messages ---
     async fn create_message(&self, message: &Message) -> Result<()>;
+    /// Insert many messages in a single transaction (all-or-nothing). Callers
+    /// guarantee parent-before-child order for the self-referential FK.
+    async fn create_messages(&self, messages: &[Message]) -> Result<()>;
+    /// Insert `message` and advance the session's active leaf to it atomically,
+    /// so a panel/state-carrier append can't leave a node the leaf never reaches.
+    async fn create_message_and_advance_leaf(&self, message: &Message) -> Result<()>;
     /// Returns all messages for a given session in ascending order by `created_at` (using `id` as a tiebreaker).
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>>;
     async fn get_message(&self, id: &str) -> Result<Option<Message>>;
@@ -54,6 +60,9 @@ pub trait Storage: Send + Sync {
 
     // --- templates ---
     async fn create_template(&self, template: &Template) -> Result<()>;
+    /// Create a template together with its initial nodes in one transaction, so a
+    /// failure can't leave a template missing its required magic nodes.
+    async fn create_template_with_nodes(&self, template: &Template, nodes: &[PromptNode]) -> Result<()>;
     async fn get_template(&self, id: &str) -> Result<Option<Template>>;
     async fn list_templates(&self) -> Result<Vec<Template>>;
     async fn update_template(&self, template: &Template) -> Result<()>;
@@ -74,6 +83,10 @@ pub trait Storage: Send + Sync {
     async fn copy_nodes(
         &self, from_kind: &OwnerKind, from_id: &str, to_kind: &OwnerKind, to_id: &str,
     ) -> Result<HashMap<String, String>>;
+    /// If the session owns no nodes yet, deep-copy `template_id`'s tree into it,
+    /// all in one transaction. Returns whether it materialized. The check and the
+    /// copy share a transaction so two concurrent calls can't both copy.
+    async fn materialize_session_nodes(&self, session_id: &str, template_id: &str) -> Result<bool>;
 
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()>;
@@ -81,6 +94,10 @@ pub trait Storage: Send + Sync {
     async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()>;
     /// Atomically removes the local coverage of a given def (RFC7396: setting the value to null deletes the key).
     async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()>;
+    /// Fold a session's local override into the global `def` and clear that local
+    /// patch in one transaction (the merge is the caller's; this persists both
+    /// writes atomically so a promote can't half-apply).
+    async fn promote_local_definition(&self, session_id: &str, def_id: &str, def: &Definition) -> Result<()>;
     /// Replaces session-local variable declarations (`override_config.local_variables`) in a single operation.
     async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()>;
 
@@ -91,6 +108,8 @@ pub trait Storage: Send + Sync {
     // --- settings ---
     async fn get_setting(&self, key: &str) -> Result<Option<serde_json::Value>>;
     async fn set_setting(&self, key: &str, value: &serde_json::Value) -> Result<()>;
+    /// Upsert many settings in a single transaction (all-or-nothing).
+    async fn set_settings(&self, pairs: &[(String, serde_json::Value)]) -> Result<()>;
     async fn list_settings(&self) -> Result<Vec<(String, serde_json::Value)>>;
     async fn delete_setting(&self, key: &str) -> Result<()>;
 
