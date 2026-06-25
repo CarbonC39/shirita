@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
-import type { Definition, DefType, VarDecl } from '../api/types'
+import type { Definition, DefType, VarDecl, VariablesMeta } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import FullscreenEditor from './FullscreenEditor.vue'
@@ -91,7 +91,7 @@ const chipTint: Record<string, string> = {
 }
 
 // variables brick: declarations live in meta.decls (not the free-text content field)
-const decls = computed<VarDecl[]>(() => ((props.definition.meta as Record<string, unknown>).decls as VarDecl[]) ?? [])
+const decls = computed<VarDecl[]>(() => (props.definition.meta as unknown as VariablesMeta).decls ?? [])
 function saveDecls(next: VarDecl[]) {
   emit('update:meta', { ...props.definition.meta, decls: next })
 }
