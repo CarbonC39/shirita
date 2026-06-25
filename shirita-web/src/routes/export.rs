@@ -11,7 +11,7 @@ use shirita_core::{Definition, OwnerKind};
 
 use crate::AppState;
 
-/// 文件名安全化：仅保留字母数字/`-`/`_`，其余转 `_`。
+/// File name sanitization: Retain only alphanumeric characters, `/-`, and `/_`; convert all others to `/_`.
 fn safe_filename(name: &str) -> String {
     let s: String = name
         .chars()
@@ -20,7 +20,7 @@ fn safe_filename(name: &str) -> String {
     if s.is_empty() { "export".into() } else { s }
 }
 
-/// GET /api/definitions/{id}/export — 单定义原创 JSON（附下载头）。
+/// GET /api/definitions/{id}/export — Returns the original JSON for a single definition (with a download header).
 pub async fn export_definition(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -36,7 +36,7 @@ pub async fn export_definition(
     Ok(([(header::CONTENT_DISPOSITION, cd)], Json(v)))
 }
 
-/// GET /api/templates/{id}/export — 模板「启用部分」原创 JSON（附下载头）。
+/// GET /api/templates/{id}/export — Original JSON for the “Enabled” section of the template (includes download header).
 pub async fn export_template(
     State(state): State<AppState>,
     Path(id): Path<String>,

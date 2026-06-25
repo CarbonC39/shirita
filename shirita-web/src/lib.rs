@@ -1,4 +1,4 @@
-//! shirita-web: Axum 适配层（REST + SSE + 静态文件 + 鉴权）
+//! shirita-web: Axum adaptation layer (REST + SSE + static files + authentication)
 
 pub mod auth;
 pub mod embed;
@@ -13,9 +13,17 @@ pub use provider_select::{
 };
 pub use state::AppState;
 
-/// 构造全进程共享的 HTTP 客户端。两个入口（web/tauri）各调一次，存入 `AppState.http_client`。
+/// Create an HTTP client shared across all processes. Call each of the two entry points (web/tauri) once and store the results in `AppState.http_client`.
 pub fn new_http_client() -> reqwest::Client {
-    reqwest::Client::new()
+    // A connect timeout bounds time spent reaching a dead/slow provider without
+    // capping the *total* request: generation streams an SSE response that can
+    // legitimately run for minutes, so a whole-request `.timeout()` would
+    // truncate long replies. Per-request read timeouts are applied where the
+    // response is bounded (e.g. /provider/models).
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_default()
 }
 
 use axum::extract::DefaultBodyLimit;
@@ -25,7 +33,7 @@ use axum::{middleware, routing::get, Router};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
-/// 构建应用路由。`/`、`/health`、`GET /assets/*` 公开；`/api/*` 走 Bearer 中间件。
+/// Set up application routing. `/`, `/health`, and `GET /assets/*` are publicly accessible; `/api/*` goes through the Bearer middleware.
 pub fn app(state: AppState) -> Router {
     let assets_dir = state.config.assets_dir.clone();
 
@@ -117,7 +125,14 @@ pub fn app(state: AppState) -> Router {
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))
-        .route("/assets", get(routes::assets::list).post(routes::assets::upload))
+        // Image uploads routinely exceed axum's 2 MiB default; allow up to 16 MiB
+        // (matching the /import bundle limit).
+        .route(
+            "/assets",
+            get(routes::assets::list)
+                .post(routes::assets::upload)
+                .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
+        )
         .route("/assets/{id}", put(routes::assets::rename).delete(routes::assets::delete))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -141,11 +156,11 @@ pub fn app(state: AppState) -> Router {
     router.with_state(state)
 }
 
-/// 桌面 webview 的 origin：
-/// - 生产（`tauri build`，custom-protocol）：`tauri://localhost`（Linux/macOS）/
-///   `https://tauri.localhost`（Windows）；
-/// - 开发（`tauri dev`，加载 devUrl）：`http://localhost:<port>`。
-/// 内嵌 server 绑 127.0.0.1 且受 Bearer 守护，故放行 localhost/127.0.0.1 任意端口是安全的。
+/// Origin of the desktop WebView:
+/// - Production (`tauri build`, custom-protocol): `tauri://localhost` (Linux/macOS)/
+///   `https://tauri.localhost` (Windows);
+/// - Development (`tauri dev`, loading devUrl): `http://localhost:<port>`.
+/// The embedded server is bound to 127.0.0.1 and protected by Bearer authentication, so allowing access to any port on localhost/127.0.0.1 is safe.
 fn is_desktop_origin(origin: &header::HeaderValue) -> bool {
     let o = origin.as_bytes();
     o == b"tauri://localhost"
@@ -155,9 +170,9 @@ fn is_desktop_origin(origin: &header::HeaderValue) -> bool {
         || o.starts_with(b"http://127.0.0.1:")
 }
 
-/// 桌面（内嵌 server）专用：在 `app()` 外层套 CORS，放行 Tauri webview origin。
-/// CorsLayer 作为最外层——preflight `OPTIONS` 由它短路应答，不进 Bearer 鉴权；
-/// 真实请求穿过 CORS → auth → handler，响应回程补上 `Access-Control-Allow-Origin`。
+/// For desktop (embedded server) only: Wrap `app()` with CORS to allow the Tauri WebView origin.
+/// CorsLayer acts as the outermost layer—it short-circuits the `OPTIONS` preflight response, preventing it from entering Bearer authentication;
+/// Actual requests pass through CORS → auth → handler, and the response is supplemented with `Access-Control-Allow-Origin` on the way back.
 pub fn app_with_cors(state: AppState) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(AllowOrigin::predicate(|origin, _req| is_desktop_origin(origin)))

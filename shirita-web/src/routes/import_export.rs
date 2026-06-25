@@ -15,7 +15,7 @@ use shirita_core::{
 
 use crate::AppState;
 
-/// 同名冲突的全局策略。
+/// Global strategy for name conflicts.
 #[derive(Debug, Clone, Copy)]
 pub enum OnConflict {
     Skip,
@@ -28,7 +28,7 @@ impl OnConflict {
         match s {
             Some("overwrite") => OnConflict::Overwrite,
             Some("duplicate") => OnConflict::Duplicate,
-            _ => OnConflict::Skip, // 默认 + 未知
+            _ => OnConflict::Skip, // default + unknown
         }
     }
 }
@@ -252,7 +252,7 @@ async fn persist_pack_bundle(
     Ok(())
 }
 
-/// 按 name+def_type 判重，依 `on_conflict` 落库定义；累加进 summary。
+/// Check for duplicates based on name+def_type; define storage based on `on_conflict`; add to the summary.
 async fn persist_defs(
     state: &AppState,
     defs: Vec<Definition>,
@@ -275,7 +275,7 @@ async fn persist_defs(
         match (dup, oc) {
             (Some(ex), OnConflict::Skip) => summary.skipped.push(item("definition", &ex.id, &ex.name)),
             (Some(ex), OnConflict::Overwrite) => {
-                // 原地更新：保留 ex.id，绝不删除（护 ON DELETE SET NULL 引用）。
+                // Update in place: Preserve ex.id; never delete it (to preserve the ON DELETE SET NULL reference).
                 d.id = ex.id.clone();
                 state.storage.update_definition(&d).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
                 summary.overwritten.push(item("definition", &d.id, &d.name));
@@ -289,8 +289,8 @@ async fn persist_defs(
     Ok(())
 }
 
-/// 把整张 PNG 存进 assets 目录并登记 Asset，返回存储文件名（写入定义 meta.avatar）。
-/// Hash-deduped like `persist_pack_bundle`'s asset restore: re-importing the
+/// Saves the entire PNG file to the `assets` directory and registers it as an Asset, returning the filename (with the `meta.avatar` definition written).
+/// hash-deduped like `persist_pack_bundle`'s asset restore: re-importing the
 /// same card (e.g. a retried or repeated upload) reuses the existing row
 /// instead of writing a fresh duplicate file + Asset each time.
 async fn save_png_asset(state: &AppState, bytes: &[u8], display: &str) -> Result<String, StatusCode> {
@@ -425,7 +425,7 @@ async fn persist_preset(
     Ok(())
 }
 
-/// POST /api/import — multipart 单 `file`。按内容 sniff 来源并落库。
+/// POST /api/import — multipart request containing a single `file`. Sniff the source based on the content and save it to the database.
 pub async fn import(
     State(state): State<AppState>,
     Query(q): Query<ImportQuery>,
@@ -435,7 +435,7 @@ pub async fn import(
     let (bytes, filename) = first_field(mp).await?;
     let mut summary = ImportSummary::default();
 
-    // 1) PNG → ST 角色卡 + 头像。
+    // 1) PNG → ST character cards + avatars.
     if bytes.len() >= 8 && bytes[..8] == PNG_SIG {
         let card = shirita_core::read_card_json(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
         let name = card.get("data").and_then(|d| d.get("name")).and_then(|v| v.as_str()).unwrap_or("character");
@@ -457,7 +457,7 @@ pub async fn import(
         return Ok(Json(summary));
     }
 
-    // 2) 否则按 JSON sniff。
+    // 2) Andernfalls als JSON erkennen.
     let v: Value = serde_json::from_slice(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
     match v.get("format").and_then(|f| f.as_str()) {
         Some("shirita.definition") => {
@@ -500,7 +500,7 @@ pub async fn import(
     Ok(Json(summary))
 }
 
-/// 兼容薄包装：固定 ST 角色卡 JSON 来源，转调统一落库逻辑（默认 skip）。
+/// Compatibility with thin packaging: Fix the JSON source for ST character cards and adjust the logic for unified storage (default: skip).
 pub async fn import_charcard(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -510,7 +510,7 @@ pub async fn import_charcard(
     Ok(Json(summary))
 }
 
-/// 兼容薄包装：固定 ST 世界书 JSON 来源。
+/// Compatibility with thin packaging: Fix the JSON source for ST World Book.
 pub async fn import_worldinfo(
     State(state): State<AppState>,
     Json(body): Json<Value>,
@@ -520,9 +520,8 @@ pub async fn import_worldinfo(
     Ok(Json(summary))
 }
 
-/// 还原 shirita.template bundle：bundle 为原子单位，按模板名决策。
-/// skip（存在且 Skip）→ 整 bundle 跳过；否则全新建（模板+定义+节点，local_id 重映射为新 UUID）。
-/// **绝不删除现有模板**（护 M4 惰性 Fork：未 materialize 会话直接引用模板节点）。
+/// Restore the shirita.template bundle: The bundle is an atomic unit, and decisions are made based on the template name.
+/// skip (if present and set to Skip) → Skip the entire bundle; otherwise, create a new one (template + definitions + nodes, with local_id remapped to a new UUID).
 async fn import_template_bundle(
     state: &AppState,
     v: &Value,
@@ -535,7 +534,7 @@ async fn import_template_bundle(
         _ => return Err(StatusCode::BAD_REQUEST),
     };
 
-    // 模板冲突：仅 Skip 时跳过同名；overwrite 对模板等同 duplicate（绝不删旧模板）。
+    // Template conflict: When using “Skip,” templates with the same name are skipped; ‘overwrite’ is equivalent to “duplicate” for templates (the old template is never deleted).
     if matches!(oc, OnConflict::Skip) {
         let templates = state.storage.list_templates().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         if let Some(ex) = templates.iter().find(|t| t.name == name) {
@@ -544,11 +543,11 @@ async fn import_template_bundle(
         }
     }
 
-    // 1) 新模板（与下面的定义、节点一起，在 import_template 单事务内原子落库）。
+    // 1) New template (stored atomically in the database within a single `import_template` transaction, along with the definitions and nodes below).
     let mut tmpl = Template::new(&name);
     tmpl.meta = meta;
 
-    // 2) 新建定义，建 local_id -> 新定义 id 映射（bundle 内定义随模板原子新建，不按 name+type 去重）。
+    // 2) Create a new definition: create a mapping from `local_id` to the newly defined `id` (definitions within the bundle are created atomically based on the template; duplicate entries are not filtered based on `name` and `type`).
     let mut def_map: HashMap<String, String> = HashMap::new();
     let mut out_defs: Vec<Definition> = Vec::new();
     for pd in &defs {
@@ -558,12 +557,12 @@ async fn import_template_bundle(
         out_defs.push(d);
     }
 
-    // 3) 预分配节点新 UUID（供 parent 重指）。
+    // 3) Pre-allocate a new UUID for the node (for the parent to refer to).
     let node_map: HashMap<String, String> =
         nodes.iter().map(|n| (n.local_id.clone(), uuid::Uuid::new_v4().to_string())).collect();
 
-    // 拓扑插入：父必须先于子（parent_id REFERENCES prompt_nodes(id)）。bundle 节点顺序不保证父在前
-    // （导出侧 list_nodes 在 sort_order 相等时排序不定），故按"父已插入"分层插入。
+    // Topological insertion: Parents must be inserted before children (parent_id REFERENCES prompt_nodes(id)). The order of bundle nodes is not guaranteed to place parents first
+    // (on the export side, list_nodes are not sorted in a specific order when sort_order is equal), so insertion is performed in layers based on “parents already inserted.”
     let mut inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut out_nodes: Vec<PromptNode> = Vec::new();
     let mut remaining: Vec<&shirita_core::PortableNode> = nodes.iter().collect();
@@ -571,7 +570,7 @@ async fn import_template_bundle(
         let mut progressed = false;
         let mut still: Vec<&shirita_core::PortableNode> = Vec::new();
         for pn in remaining {
-            // 父在 bundle 内但尚未插入 → 留待下一轮；父不在 bundle 内则视为根。
+            // If the parent is in the bundle but has not yet been inserted → defer to the next round; if the parent is not in the bundle, treat it as the root.
             let parent_pending = match &pn.parent_local_id {
                 Some(p) => node_map.contains_key(p) && !inserted.contains(p),
                 None => false,
@@ -580,7 +579,7 @@ async fn import_template_bundle(
                 still.push(pn);
                 continue;
             }
-            // ref 的 definition_id 经 def_map 重指；缺失则跳过该节点 + warn。
+            // The `definition_id` of `ref` is re-mapped by `def_map`; if it is missing, skip the node and issue a warning.
             let definition_id = match (&pn.kind, &pn.def_local_id) {
                 (NodeKind::Ref, Some(dl)) => match def_map.get(dl) {
                     Some(real) => Some(real.clone()),
@@ -611,12 +610,12 @@ async fn import_template_bundle(
         }
         remaining = still;
         if remaining.is_empty() || !progressed {
-            break; // 全部插入完，或剩余为循环引用（兜底防死循环）。
+            break; // All items have been inserted, or the remaining items are circular references (fallback to prevent an infinite loop).
         }
     }
 
-    // 模板 + 定义 + 节点（已按父在前排好）一并原子落库：任一步失败整单回滚，
-    // 不再留下孤儿模板/定义行。
+    // Templates + definitions + nodes (sorted with parent nodes first) are committed to the database as a single atomic operation: if any step fails, the entire transaction is rolled back,
+    // leaving no orphaned template or definition lines behind.
     state
         .storage
         .import_template(&tmpl, &out_defs, &out_nodes)

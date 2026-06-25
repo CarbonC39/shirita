@@ -151,6 +151,43 @@ async fn ref_at_root_is_allowed() {
 }
 
 #[tokio::test]
+async fn create_node_order_does_not_collide_after_delete() {
+    let state = test_state().await;
+    let tid = new_template(&state).await;
+    let nodes = format!("/api/templates/{tid}/nodes?owner_kind=template");
+
+    // Three root folders on top of the template's magic content/history nodes.
+    let mut ids = Vec::new();
+    for tag in ["a", "b", "c"] {
+        let (st, body) =
+            send(&state, "POST", &nodes, Some(&format!(r#"{{"kind":"folder","tag":"{tag}"}}"#))).await;
+        assert_eq!(st, StatusCode::OK);
+        ids.push(json(&body)["id"].as_str().unwrap().to_string());
+    }
+    // Delete the middle folder, punching a hole in the sort_order sequence.
+    let (st, _) = send(&state, "DELETE", &format!("/api/nodes/{}", ids[1]), None).await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+
+    // A freshly created sibling must take a fresh order, not reuse a surviving one.
+    let (st, _) = send(&state, "POST", &nodes, Some(r#"{"kind":"folder","tag":"d"}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+
+    // No two root-level siblings may share a sort_order.
+    let (_, list) = send(&state, "GET", &nodes, None).await;
+    let mut orders: Vec<i64> = json(&list)
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["parent_id"].is_null())
+        .map(|n| n["sort_order"].as_i64().unwrap())
+        .collect();
+    let total = orders.len();
+    orders.sort_unstable();
+    orders.dedup();
+    assert_eq!(orders.len(), total, "sibling sort_orders must be unique, got duplicates");
+}
+
+#[tokio::test]
 async fn update_cannot_move_folder_under_a_parent() {
     let state = test_state().await;
     let tid = new_template(&state).await;

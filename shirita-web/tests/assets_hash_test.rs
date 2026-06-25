@@ -50,3 +50,31 @@ async fn upload_records_content_hash() {
     assert_eq!(assets.len(), 1);
     assert_eq!(assets[0].hash.as_deref(), Some(sha256_hex(bytes).as_str()));
 }
+
+#[tokio::test]
+async fn upload_accepts_files_larger_than_the_default_body_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+    let state = test_state(dir.path()).await;
+
+    // 3 MiB payload — above axum's 2 MiB DefaultBodyLimit, well within a real image's size.
+    let payload = vec![b'a'; 3 * 1024 * 1024];
+    let boundary = "BIG";
+    let mut body: Vec<u8> = format!(
+        "--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"big.png\"\r\n\
+         Content-Type: image/png\r\n\r\n"
+    )
+    .into_bytes();
+    body.extend_from_slice(&payload);
+    body.extend_from_slice(format!("\r\n--{boundary}--\r\n").as_bytes());
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/assets?kind=background")
+        .header(header::AUTHORIZATION, "Bearer secret-token")
+        .header(header::CONTENT_TYPE, format!("multipart/form-data; boundary={boundary}"))
+        .body(Body::from(body))
+        .unwrap();
+    let res = app(state.clone()).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK, "a multi-MiB image upload must not be rejected as too large");
+}

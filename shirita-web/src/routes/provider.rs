@@ -12,7 +12,7 @@ use crate::AppState;
 pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     let (source, base_url, api_key, model) = resolve_provider_config(state.storage.as_ref()).await;
     let model = if model.is_empty() { "gpt-4o".to_string() } else { model };
-    // 与真实生成同源的 builder（anthropic/ollama/openai 兼容皆对），复用共享 client。
+    // A builder that shares the same origin as the actual generation (compatible with anthropic, ollama, and OpenAI), reusing a shared client.
     let provider = build_provider(state.http_client.clone(), &source, &base_url, &api_key);
     let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into(), ..Default::default() }], summary: None, max_tokens: Some(16) };
     match provider.stream_chat(req).await {
@@ -34,7 +34,9 @@ pub async fn list_models(State(state): State<AppState>) -> Result<Json<Value>, S
     // models; build the right request and normalize the result so the
     // frontend always sees an OpenAI-style { data: [{ id }] } list.
     let req = models_request(&source, &base_url, &api_key);
-    let mut rb = client.get(&req.url);
+    // Bounded, non-streaming request: cap the whole round-trip so a hung or
+    // slow provider can't block the handler indefinitely.
+    let mut rb = client.get(&req.url).timeout(std::time::Duration::from_secs(30));
     for (k, v) in &req.headers {
         rb = rb.header(*k, v);
     }

@@ -25,6 +25,7 @@ pub fn inject_runtime(html: &str, token: &str) -> String {
 
 /// Paths owned by the API / media / static-chunk / health routes — the SPA
 /// fallback returns 404 for these instead of serving `index.html`.
+#[cfg(any(feature = "embed-ui", test))]
 pub(crate) fn is_reserved_prefix(path: &str) -> bool {
     path == "/health"
         || path == "/api" || path.starts_with("/api/")
@@ -61,36 +62,21 @@ mod serving {
         index_response(&state)
     }
 
-    /// Map a file extension to a MIME type for static chunk serving.
-    fn mime_for_ext(path: &str) -> &'static str {
-        let ext = path.rsplit('.').next().unwrap_or("");
-        match ext {
-            "js" => "application/javascript",
-            "css" => "text/css",
-            "html" => "text/html",
-            "png" => "image/png",
-            "jpg" | "jpeg" => "image/jpeg",
-            "svg" => "image/svg+xml",
-            "woff2" => "font/woff2",
-            "woff" => "font/woff",
-            "json" => "application/json",
-            "map" => "application/json",
-            _ => "application/octet-stream",
-        }
-    }
-
     /// `GET /static/{*path}` — an embedded frontend chunk, content-typed by
     /// extension, immutably cached (filenames are content-hashed).
     pub async fn serve_static(Path(path): Path<String>) -> Response {
         match Ui::get(&format!("static/{path}")) {
             Some(f) => {
-                let mime = mime_for_ext(&path);
+                let mime = mime_guess::from_path(&path)
+                    .first_or_octet_stream();
+                let body = axum::body::Bytes::from(f.data);
+
                 (
                     [
-                        (header::CONTENT_TYPE, mime),
+                        (header::CONTENT_TYPE, mime.as_ref()),
                         (header::CACHE_CONTROL, "public, max-age=31536000, immutable"),
                     ],
-                    f.data.into_owned(),
+                    body,
                 )
                     .into_response()
             }

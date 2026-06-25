@@ -20,7 +20,7 @@ pub struct SendBody {
     pub attachments: Vec<String>,
 }
 
-/// 进程级"正在总结的 session"集合，防 fire-and-forget 并发重复（语义等价 spec §2 的 per-session 互斥）。
+/// A process-level collection of “sessions currently being summarized” (to prevent “fire-and-forget” concurrency and duplication).
 fn summarizing() -> &'static Mutex<HashSet<String>> {
     static S: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
     S.get_or_init(|| Mutex::new(HashSet::new()))
@@ -38,14 +38,14 @@ fn release(session_id: &str) {
     summarizing().lock().unwrap().remove(session_id);
 }
 
-/// 若该 session 未在总结，spawn 一个后台总结任务（不阻塞 SSE）。
+/// If this session has not been summarized, spawn a background summary task (without blocking SSE).
 fn spawn_summary(state: &AppState, session_id: String) {
     if !try_claim(&session_id) {
         return;
     }
     let state = state.clone();
     tokio::spawn(async move {
-        // 与生成同源：从 settings 解析实际 provider/model（未配置则 env 兜底）。
+        // Same as generation: Parse the actual provider/model from settings (if not configured, fall back to env).
         let (provider, model) = resolve_provider(&state).await;
         summarize::run(state.storage.clone(), provider, state.token_counter.clone(), model, session_id.clone()).await;
         release(&session_id);
@@ -58,7 +58,7 @@ pub async fn send(
     Json(body): Json<SendBody>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let reg_id = session_id.clone();
-    // 运行期解析 provider/model：settings 配置胜出，未配置回退 env。
+    // Runtime resolution: provider/model—the settings configuration takes precedence; if not configured, fall back to env.
     let (provider, model) = resolve_provider(&state).await;
     let events = send_message(
         state.storage.clone(),
@@ -74,7 +74,7 @@ pub async fn send(
     let (events, handle) = futures::stream::abortable(events);
     state.generations.replace(&reg_id, handle);
 
-    // 回复流结束（Done）后后台触发滚动总结，绝不阻塞 SSE 主流。
+    // After the reply stream ends (Done), the background process triggers a scroll summary, without ever blocking the SSE main thread.
     let state_for_summary = state.clone();
     let sid_for_summary = reg_id.clone();
     let sse = events.map(move |ev| {
@@ -133,9 +133,9 @@ mod tests {
     fn try_claim_is_exclusive_until_release() {
         let key = "claim-test-unique-key";
         assert!(try_claim(key));
-        assert!(!try_claim(key)); // 已占用
+        assert!(!try_claim(key)); // in use
         release(key);
-        assert!(try_claim(key)); // 释放后可再占
+        assert!(try_claim(key)); // can be reused after release
         release(key);
     }
 }

@@ -15,8 +15,8 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// 校验 `Authorization: Bearer <token>` 是否等于配置中的静态 token（常量时间比较，
-/// 防止通过响应耗时差异逐字节猜出 token）。
+/// Verifies whether `Authorization: Bearer <token>` matches the static token in the configuration (a constant-time comparison,
+/// to prevent the token from being guessed byte by byte based on differences in response times).
 pub async fn require_bearer(
     State(state): State<AppState>,
     req: Request,

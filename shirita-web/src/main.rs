@@ -31,11 +31,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Backfill: legacy templates gain the undeletable <<content>> mount node.
     shirita_core::ensure_templates_have_content_node(&storage).await?;
     shirita_core::ensure_asset_hashes(&storage, &config.assets_dir).await?;
-    tokio::fs::create_dir_all(&config.assets_dir).await.ok();
+    tokio::fs::create_dir_all(&config.assets_dir).await?;
 
-    // 共享 HTTP 客户端：env 兜底 provider 与运行期 settings provider 复用同一连接池。
+    // Shared HTTP client: The fallback provider (based on environment variables) and the runtime settings provider share the same connection pool.
     let http_client = new_http_client();
-    // 按 PROVIDER env 选择兜底适配器（默认 OpenAI 兼容；无 key 则离线 Echo）。
+    // Select the fallback adapter based on the PROVIDER environment variable (defaults to OpenAI-compatible; falls back to offline Echo if no key is provided).
     let provider = provider_from_env(&config, http_client.clone());
 
     let model = config.openai_model.clone();

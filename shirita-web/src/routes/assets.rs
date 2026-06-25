@@ -24,8 +24,8 @@ fn norm_kind(kind: Option<&str>) -> String {
     }
 }
 
-/// Web 下的资源 URL 解析：相对路径 → `/assets/<rel>`。
-/// （Tauri 入口在 M8 返回 `asset://localhost/<rel>`。）
+/// Parsing resource URLs on the web: relative paths → `/assets/<rel>`.
+/// (The Tauri entry point returns `asset://localhost/<rel>` in M8.)
 pub fn resolve_asset_url(relative: &str) -> String {
     format!("/assets/{}", relative.trim_start_matches('/'))
 }
@@ -116,7 +116,12 @@ pub async fn upload(
         let mut asset = Asset::new(display, stored);
         asset.kind = norm_kind(q.kind.as_deref());
         asset.hash = Some(shirita_core::sha256_hex(data.as_ref()));
-        state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if state.storage.create_asset(&asset).await.is_err() {
+            // The DB row is what makes the file discoverable; if it didn't land,
+            // drop the file we just wrote rather than leaking an orphan upload.
+            let _ = tokio::fs::remove_file(&path).await;
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
         return Ok(Json(asset_json(&asset)));
     }
     Err(StatusCode::BAD_REQUEST)

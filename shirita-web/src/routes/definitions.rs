@@ -32,7 +32,7 @@ fn build(id: String, body: DefinitionBody) -> Definition {
     }
 }
 
-/// regex_rule 创作期校验：非空 `meta.pattern` 必须能编译，否则 400（运行期则宽容跳过）。
+/// regex_rule creation-time validation: The non-empty `meta.pattern` must be compilable; otherwise, a 400 error is returned (at runtime, this is ignored).
 fn validate_regex_rule(body: &DefinitionBody) -> Result<(), StatusCode> {
     if body.r#type == "regex_rule" {
         if let Some(p) = body.meta.get("pattern").and_then(|v| v.as_str()) {
@@ -44,7 +44,7 @@ fn validate_regex_rule(body: &DefinitionBody) -> Result<(), StatusCode> {
     Ok(())
 }
 
-/// type 必须是保留类型，或已注册的容器类型。
+/// `type` must be a reserved type or a registered container type.
 async fn validate_type(state: &AppState, t: &str) -> Result<(), StatusCode> {
     if shirita_core::is_reserved(t) {
         return Ok(());
