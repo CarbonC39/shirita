@@ -188,6 +188,15 @@ impl Storage for SqliteStorage {
         rows.iter().map(row_to_definition).collect()
     }
 
+    async fn list_definitions_by_type(&self, def_type: &str) -> Result<Vec<Definition>> {
+        let rows =
+            sqlx::query("SELECT id, type, name, content, meta FROM definitions WHERE type = ? ORDER BY name")
+                .bind(def_type)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(row_to_definition).collect()
+    }
+
     async fn referenced_definition_ids(&self) -> Result<Vec<String>> {
         let rows = sqlx::query(
             "SELECT DISTINCT definition_id FROM prompt_nodes WHERE definition_id IS NOT NULL",
@@ -195,6 +204,18 @@ impl Storage for SqliteStorage {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows.iter().map(|r| r.get::<String, _>("definition_id")).collect())
+    }
+
+    async fn template_definition_refs(&self) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query(
+            "SELECT t.name AS name, n.definition_id AS def_id \
+             FROM prompt_nodes n JOIN templates t ON t.id = n.owner_id \
+             WHERE n.owner_kind = 'template' AND n.definition_id IS NOT NULL \
+             ORDER BY t.name, n.sort_order",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| (r.get::<String, _>("name"), r.get::<String, _>("def_id"))).collect())
     }
 
     async fn update_definition(&self, def: &Definition) -> Result<()> {
@@ -1782,5 +1803,30 @@ mod tests {
         assert!(s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
         assert!(!s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
         assert_eq!(s.list_nodes(&OwnerKind::Session, &sess.id).await.unwrap().len(), 1);
+    }
+
+    // --- Tier 2 efficiency: targeted queries that replace full-table scans ---
+
+    #[tokio::test]
+    async fn list_definitions_by_type_filters_in_sql() {
+        let s = temp_storage().await;
+        s.create_definition(&Definition::new("char", "A", "x")).await.unwrap();
+        s.create_definition(&Definition::new("persona", "B", "y")).await.unwrap();
+        s.create_definition(&Definition::new("char", "C", "z")).await.unwrap();
+        let chars = s.list_definitions_by_type("char").await.unwrap();
+        assert_eq!(chars.len(), 2);
+        assert!(chars.iter().all(|d| d.def_type == "char"));
+    }
+
+    #[tokio::test]
+    async fn template_definition_refs_returns_name_and_def_pairs() {
+        let s = temp_storage().await;
+        let t = Template::new("MyTmpl");
+        let def = Definition::new("regex_rule", "R", "");
+        let node = PromptNode::new_ref(OwnerKind::Template, &t.id, None, 0, &def.id);
+        s.create_definition(&def).await.unwrap();
+        s.create_template_with_nodes(&t, std::slice::from_ref(&node)).await.unwrap();
+        let refs = s.template_definition_refs().await.unwrap();
+        assert!(refs.iter().any(|(name, did)| name == "MyTmpl" && did == &def.id));
     }
 }
