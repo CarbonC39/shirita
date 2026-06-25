@@ -3,8 +3,6 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde_json::{json, Value};
 
-use shirita_core::OwnerKind;
-
 use crate::AppState;
 
 /// Existence check: If the session does not exist, return a 404 (maintain existing behavior).
@@ -50,24 +48,19 @@ pub async fn materialize_nodes(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let existing = state
-        .storage
-        .list_nodes(&OwnerKind::Session, &session_id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if !existing.is_empty() {
-        return Ok(StatusCode::OK); // already materialized
-    }
     let session = state
         .storage
         .get_session(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
+    // Copy the template tree into the session on first call only. The storage
+    // method makes the "is it empty?" check and the copy share one transaction,
+    // so two concurrent calls can't both materialize (the old TOCTOU).
     if let Some(tid) = session.template_id.as_deref() {
-        let _ = state
+        state
             .storage
-            .copy_nodes(&OwnerKind::Template, tid, &OwnerKind::Session, &session_id)
+            .materialize_session_nodes(&session_id, tid)
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     }
@@ -116,14 +109,11 @@ pub async fn promote_local_definition(
         meta.insert("scan".into(), s.clone());
     }
 
+    // Fold the merged def into the global row and clear the local patch in one
+    // transaction, so a promote can't half-apply (def updated but patch left).
     state
         .storage
-        .update_definition(&def)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state
-        .storage
-        .clear_local_definition(&session_id, &def_id)
+        .promote_local_definition(&session_id, &def_id, &def)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)

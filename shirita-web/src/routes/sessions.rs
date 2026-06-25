@@ -26,13 +26,19 @@ async fn clone_messages(
         .iter()
         .map(|m| (m.id.clone(), uuid::Uuid::new_v4().to_string()))
         .collect();
-    for m in messages {
-        let mut nm = m.clone();
-        nm.id = idmap.get(&m.id).cloned().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-        nm.session_id = new_session_id.to_string();
-        nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
-        state.storage.create_message(&nm).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+    // list_messages yields parent-before-child (created_at order), which the
+    // batched insert needs for the self-referential parent link.
+    let cloned: Vec<Message> = messages
+        .iter()
+        .map(|m| {
+            let mut nm = m.clone();
+            nm.id = idmap.get(&m.id).cloned().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+            nm.session_id = new_session_id.to_string();
+            nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
+            nm
+        })
+        .collect();
+    state.storage.create_messages(&cloned).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(idmap)
 }
 

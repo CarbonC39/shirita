@@ -83,9 +83,9 @@ pub async fn apply_state_updates(
     let mut node = Message::new(&id, session.active_leaf_id.clone(), Role::System, "");
     node.is_hidden = true;
     node.snapshot_state = new_snapshot.clone();
-    state.storage.create_message(&node).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state.storage.set_session_active_leaf(&id, Some(&node.id)).await
+    // Insert the carrier node and advance the leaf onto it atomically, so a
+    // failure can't leave a node the active branch never reaches.
+    state.storage.create_message_and_advance_leaf(&node).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let values = effective_state(&schema, &session.current_state, &new_snapshot);

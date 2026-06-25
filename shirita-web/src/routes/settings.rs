@@ -13,8 +13,9 @@ pub async fn get_all(State(state): State<AppState>) -> Result<Json<Value>, Statu
 
 pub async fn update_all(State(state): State<AppState>, Json(body): Json<Value>) -> Result<StatusCode, StatusCode> {
     let o = body.as_object().ok_or(StatusCode::BAD_REQUEST)?;
-    for (key, value) in o {
-        state.storage.set_setting(key, value).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    }
+    // Persist every key in one transaction so a mid-batch failure can't leave
+    // settings half-applied.
+    let pairs: Vec<(String, Value)> = o.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    state.storage.set_settings(&pairs).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }

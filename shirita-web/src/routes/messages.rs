@@ -129,22 +129,25 @@ pub async fn fork_session(
         .copy_nodes(&OwnerKind::Session, &session_id, &OwnerKind::Session, &dup.id)
         .await;
 
-    // copy the path messages with fresh ids + remapped parents
+    // copy the path messages with fresh ids + remapped parents, in one transaction
     let idmap: HashMap<String, String> =
         slice.iter().map(|m| (m.id.clone(), uuid::Uuid::new_v4().to_string())).collect();
-    let mut new_leaf: Option<String> = None;
-    for m in &slice {
-        let mut nm = (*m).clone();
-        nm.id = idmap[&m.id].clone();
-        nm.session_id = dup.id.clone();
-        nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
-        state
-            .storage
-            .create_message(&nm)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        new_leaf = Some(nm.id.clone());
-    }
+    let cloned: Vec<Message> = slice
+        .iter()
+        .map(|m| {
+            let mut nm = (*m).clone();
+            nm.id = idmap[&m.id].clone();
+            nm.session_id = dup.id.clone();
+            nm.parent_id = m.parent_id.as_ref().and_then(|p| idmap.get(p).cloned());
+            nm
+        })
+        .collect();
+    let new_leaf = cloned.last().map(|m| m.id.clone());
+    state
+        .storage
+        .create_messages(&cloned)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let _ = state.storage.set_session_active_leaf(&dup.id, new_leaf.as_deref()).await;
 
     // Copy the rolling digest from the source session and remap the cutoff to the message IDs in the new session (matching the idmap from the deep copy of the messages).
