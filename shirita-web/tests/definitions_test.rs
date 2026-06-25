@@ -190,6 +190,20 @@ async fn regex_rule_with_bad_pattern_is_rejected() {
 }
 
 #[tokio::test]
+async fn updating_a_missing_definition_is_404() {
+    let state = test_state().await;
+    let res = app(state.clone())
+        .oneshot(req(
+            "PUT",
+            "/api/definitions/does-not-exist",
+            Some(r#"{"type":"char","name":"X","content":"y"}"#),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn custom_container_type_is_accepted_after_registration() {
     let state = test_state().await;
     // register a custom container type

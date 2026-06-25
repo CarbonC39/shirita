@@ -117,20 +117,15 @@ pub async fn update(
     validate_type(&state, &body.r#type).await?;
     validate_regex_rule(&body)?;
     let def = build(id.clone(), body);
-    if state
-        .storage
-        .get_definition(&id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_none()
-    {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    state
+    // UPDATE ... WHERE id = ? reports whether the row existed — no separate read.
+    if !state
         .storage
         .update_definition(&def)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
     Ok(Json(def))
 }
 

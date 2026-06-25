@@ -72,14 +72,21 @@ pub async fn send(
     );
     // A newer generation for the same session aborts this one (no racing writes).
     let (events, handle) = futures::stream::abortable(events);
-    state.generations.replace(&reg_id, handle);
+    let gen_id = state.generations.replace(&reg_id, handle);
 
     // After the reply stream ends (Done), the background process triggers a scroll summary, without ever blocking the SSE main thread.
     let state_for_summary = state.clone();
     let sid_for_summary = reg_id.clone();
     let sse = events.map(move |ev| {
-        if matches!(ev, SendEvent::Done { .. }) {
-            spawn_summary(&state_for_summary, sid_for_summary.clone());
+        // Terminal events end this generation — de-register our slot so the
+        // registry doesn't accumulate one entry per session forever.
+        match &ev {
+            SendEvent::Done { .. } => {
+                spawn_summary(&state_for_summary, sid_for_summary.clone());
+                state_for_summary.generations.finish(&sid_for_summary, gen_id);
+            }
+            SendEvent::Error(_) => state_for_summary.generations.finish(&sid_for_summary, gen_id),
+            _ => {}
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
@@ -108,12 +115,17 @@ pub async fn regenerate_message(
         state.config.assets_dir.clone(),
     );
     let (events, handle) = futures::stream::abortable(events);
-    state.generations.replace(&reg_id, handle);
+    let gen_id = state.generations.replace(&reg_id, handle);
     let state_for_summary = state.clone();
     let sid_for_summary = reg_id.clone();
     let sse = events.map(move |ev| {
-        if matches!(ev, SendEvent::Done { .. }) {
-            spawn_summary(&state_for_summary, sid_for_summary.clone());
+        match &ev {
+            SendEvent::Done { .. } => {
+                spawn_summary(&state_for_summary, sid_for_summary.clone());
+                state_for_summary.generations.finish(&sid_for_summary, gen_id);
+            }
+            SendEvent::Error(_) => state_for_summary.generations.finish(&sid_for_summary, gen_id),
+            _ => {}
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),

@@ -29,7 +29,9 @@ pub trait Storage: Send + Sync {
     /// `(template name, definition id)` for every template-owned ref node, via a
     /// single JOIN — replaces a per-template `list_nodes` N+1.
     async fn template_definition_refs(&self) -> Result<Vec<(String, String)>>;
-    async fn update_definition(&self, def: &Definition) -> Result<()>;
+    /// Update a definition's fields; returns whether a row existed, so callers
+    /// can report 404 without a separate existence read.
+    async fn update_definition(&self, def: &Definition) -> Result<bool>;
     async fn delete_definition(&self, id: &str) -> Result<()>;
 
     // --- sessions ---

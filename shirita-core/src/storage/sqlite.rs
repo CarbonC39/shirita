@@ -218,9 +218,9 @@ impl Storage for SqliteStorage {
         Ok(rows.iter().map(|r| (r.get::<String, _>("name"), r.get::<String, _>("def_id"))).collect())
     }
 
-    async fn update_definition(&self, def: &Definition) -> Result<()> {
+    async fn update_definition(&self, def: &Definition) -> Result<bool> {
         let meta = serde_json::to_string(&def.meta)?;
-        sqlx::query(
+        let res = sqlx::query(
             "UPDATE definitions SET type = ?, name = ?, content = ?, meta = ? WHERE id = ?",
         )
         .bind(def.def_type.as_str())
@@ -230,7 +230,7 @@ impl Storage for SqliteStorage {
         .bind(&def.id)
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(res.rows_affected() > 0)
     }
 
     async fn delete_definition(&self, id: &str) -> Result<()> {
