@@ -1,4 +1,4 @@
-//! 基于 tiktoken（cl100k_base）的轻量计数器，作为所有模型的近似计数。
+//! Lightweight counter based on tiktoken (cl100k_base), used as an approximate count for all models.
 
 use tiktoken_rs::CoreBPE;
 
@@ -10,7 +10,6 @@ pub struct TiktokenCounter {
 
 impl TiktokenCounter {
     pub fn new() -> Self {
-        // cl100k_base 内置词表，无需联网。
         let bpe = tiktoken_rs::cl100k_base().expect("cl100k_base must load");
         Self { bpe }
     }
@@ -27,7 +26,7 @@ impl TokenCounter for TiktokenCounter {
         if text.is_empty() {
             return 0;
         }
-        self.bpe.encode_with_special_tokens(text).len()
+        self.bpe.encode_ordinary(text).len()
     }
 }
 

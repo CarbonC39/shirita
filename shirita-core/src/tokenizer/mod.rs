@@ -1,4 +1,4 @@
-//! Token 计数抽象。M1 仅用于日志/预算展示，不做裁剪。
+//! Token count abstraction. Used only for logging and budget display; it is not subject to capping.
 
 pub mod tiktoken;
 

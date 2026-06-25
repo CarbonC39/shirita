@@ -15,7 +15,7 @@ use crate::Result;
 
 pub mod sqlite;
 
-/// 存储抽象层。M0 覆盖 definitions；M1 起扩展 sessions/messages。
+/// Storage abstraction layer.
 #[async_trait]
 pub trait Storage: Send + Sync {
     async fn create_definition(&self, def: &Definition) -> Result<()>;
@@ -31,22 +31,22 @@ pub trait Storage: Send + Sync {
     async fn create_session(&self, session: &Session) -> Result<()>;
     async fn get_session(&self, id: &str) -> Result<Option<Session>>;
     async fn list_sessions(&self) -> Result<Vec<Session>>;
-    /// 删除会话及其消息与自有节点树。
+    /// Deletes a session, its messages, and its associated node tree.
     async fn delete_session(&self, id: &str) -> Result<()>;
-    /// 整体替换会话的挂载定义 ID 列表。
+    /// Replaces the entire list of session mount IDs.
     async fn set_mounted_definitions(&self, session_id: &str, ids: &[String]) -> Result<()>;
     /// Replace the session's ordered mounted-pack id list wholesale.
     async fn set_mounted_packs(&self, session_id: &str, ids: &[String]) -> Result<()>;
     /// Update a session's editable profile (title + avatar).
     async fn update_session_profile(&self, session_id: &str, name: &str, avatar: Option<&str>) -> Result<()>;
-    /// 按给定顺序（首项置顶）持久化会话的手动排序。
+    /// Persists the manual sorting of the session in the given order (with the first item at the top).
     async fn reorder_sessions(&self, ordered_ids: &[String]) -> Result<()>;
     /// Set (or clear with `None`) the session's active branch leaf.
     async fn set_session_active_leaf(&self, session_id: &str, leaf_id: Option<&str>) -> Result<()>;
 
     // --- messages ---
     async fn create_message(&self, message: &Message) -> Result<()>;
-    /// 按 created_at（再以 id 为 tiebreak）升序返回某会话的全部消息。
+    /// Returns all messages for a given session in ascending order by `created_at` (using `id` as a tiebreaker).
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>>;
     async fn get_message(&self, id: &str) -> Result<Option<Message>>;
     /// Update an existing message's editable fields (raw/display content, hidden).
@@ -77,11 +77,11 @@ pub trait Storage: Send + Sync {
 
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()>;
-    /// 原子合并会话局部定义覆盖 `{local_definitions: {def_id: patch}}`（消除读改写丢更新）。
+    /// Atomic merge sessions override local definitions `{local_definitions: {def_id: patch}}` (to prevent loss of updates caused by read-rewrite).
     async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()>;
-    /// 原子清除某 def 的局部覆盖（RFC7396：值置 null 即删键）。
+    /// Atomically removes the local coverage of a given def (RFC7396: setting the value to null deletes the key).
     async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()>;
-    /// 原子整列替换会话局部变量声明（`override_config.local_variables`）。
+    /// Replaces session-local variable declarations (`override_config.local_variables`) in a single operation.
     async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()>;
 
     // --- summaries (M6 rolling context summaries) ---
@@ -131,17 +131,17 @@ pub trait Storage: Send + Sync {
     ) -> Result<()>;
 
     // --- def types (container type registry) ---
-    /// 列出容器类型（按 sort 升序）。
+    /// Lists the container types (sorted in ascending order by sort).
     async fn list_container_types(&self) -> Result<Vec<DefType>>;
     async fn create_def_type(&self, ty: &DefType) -> Result<()>;
     async fn delete_def_type(&self, id: &str) -> Result<()>;
 
     // --- assets (named media library) ---
-    /// 列出资源（按 created_at 降序，最新在前）；`kind` 过滤库（avatar/background），None 为全部。
+    /// Lists resources (sorted in descending order by `created_at`, with the most recent at the top); `kind` filters the library (avatar/background); `None` returns all.
     async fn list_assets(&self, kind: Option<&str>) -> Result<Vec<Asset>>;
     async fn get_asset(&self, id: &str) -> Result<Option<Asset>>;
     async fn create_asset(&self, asset: &Asset) -> Result<()>;
-    /// 重命名资源（仅 name）。
+    /// Rename a resource (name only).
     async fn rename_asset(&self, id: &str, name: &str) -> Result<()>;
     async fn delete_asset(&self, id: &str) -> Result<()>;
     /// First asset whose content hash matches, if any (dedup lookup).

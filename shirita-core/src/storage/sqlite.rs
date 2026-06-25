@@ -1,4 +1,4 @@
-//! SqliteStorage：连接、迁移与 definitions CRUD。
+//! SqliteStorage: Connection, migration, and definition CRUD.
 
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
@@ -709,7 +709,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()> {
-        // 合并 {"local_definitions": {"<def_id>": <patch>}}；键经 json_object 绑参构造，不拼 path。
+        // Merge {"local_definitions": {"<def_id>": <patch>}}; the key is constructed via `json_object` parameter binding, without concatenating the path.
         let patch_str = serde_json::to_string(patch)?;
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
@@ -726,7 +726,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()> {
-        // RFC7396：把该键置 JSON null → json_patch 删除之，不动同对象其它 def。
+        // RFC7396: Setting the key to JSON `null` causes JSON Merge Patch to remove it, leaving other definitions in the object untouched.
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
                 COALESCE(override_config, '{}'), \
@@ -741,7 +741,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()> {
-        // RFC7396 对数组是整体替换，正合「整列替换变量声明」语义。
+        // RFC7396 treats arrays as atomic replacements, perfectly aligning with the semantics of "replacing the entire variable declaration."
         let vars_str = serde_json::to_string(variables)?;
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
@@ -981,7 +981,7 @@ mod tests {
     async fn temp_storage() -> SqliteStorage {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.db");
-        // 让临时目录在整个测试进程存活，避免连接期间被删除。
+        // Keep the temporary directory alive for the duration of the test process to prevent it from being deleted during the connection.
         std::mem::forget(dir);
         let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         storage.run_migrations().await.unwrap();
@@ -1024,7 +1024,6 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].cutoff_message_id, "msg-7");
         assert_eq!(got[0].content, "earlier summary");
-        // 其他会话不串
         assert!(s.list_summaries("other").await.unwrap().is_empty());
     }
 
@@ -1424,7 +1423,7 @@ mod tests {
         let s = Sess::new("ov");
         storage.create_session(&s).await.unwrap();
 
-        // set 在无 local_definitions 时由合并创建并写键
+        // set is created via merging and the key is written when there are no local_definitions.
         storage
             .set_local_definition(&s.id, "def-a", &serde_json::json!({ "content": "A" }))
             .await
@@ -1432,12 +1431,12 @@ mod tests {
         let got = storage.get_session(&s.id).await.unwrap().unwrap();
         assert_eq!(got.override_config["local_definitions"]["def-a"]["content"], "A");
 
-        // 第二个 def 不互相覆盖
+        // The second def does not overwrite the first.
         storage
             .set_local_definition(&s.id, "def-b", &serde_json::json!({ "content": "B" }))
             .await
             .unwrap();
-        // 局部变量整列替换，且与 local_definitions 共存
+        // Replace local variables column-wise, while coexisting with local_definitions
         storage
             .set_local_variables(&s.id, &serde_json::json!([{ "name": "hp", "type": "number", "initial": 100 }]))
             .await
@@ -1447,7 +1446,7 @@ mod tests {
         assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
         assert_eq!(got.override_config["local_variables"][0]["name"], "hp");
 
-        // clear 仅删该键，不动其它
+        // clear deletes only this key; others remain untouched.
         storage.clear_local_definition(&s.id, "def-a").await.unwrap();
         let got = storage.get_session(&s.id).await.unwrap().unwrap();
         assert!(got.override_config["local_definitions"].get("def-a").is_none());
