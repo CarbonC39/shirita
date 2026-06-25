@@ -10,7 +10,7 @@ use shirita_core::models::message::{Message, Role};
 use shirita_core::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use shirita_core::models::session::Session;
 use shirita_core::render_vars;
-use shirita_core::state::{resolve_schema_with_packs, schema_initials};
+use shirita_core::state::schema_initials;
 
 use crate::AppState;
 
@@ -50,15 +50,9 @@ pub async fn create_session(
     session.template_id = body.template_id.clone();
     session.avatar = body.avatar.clone();
     session.mounted_packs = body.pack_ids.clone();
-    let template_meta = match &session.template_id {
-        Some(tid) => state.storage.get_template(tid).await.ok().flatten().map(|t| t.meta),
-        None => None,
-    };
-    let mut pack_metas = Vec::new();
     let mut pack_identities = Vec::new();
     for pid in &session.mounted_packs {
         if let Ok(Some(p)) = state.storage.get_pack(pid).await {
-            pack_metas.push(p.meta);
             pack_identities.push(p.identity);
         }
     }
@@ -74,7 +68,7 @@ pub async fn create_session(
             .iter()
             .find_map(|id| id.avatar.clone().filter(|a| !a.is_empty()));
     }
-    let schema = resolve_schema_with_packs(template_meta.as_ref(), &pack_metas, &session.override_config);
+    let schema = shirita_core::conversation::resolve_session_schema(state.storage.as_ref(), &session).await;
     session.current_state = Value::Object(schema_initials(&schema));
     state.storage.create_session(&session).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 

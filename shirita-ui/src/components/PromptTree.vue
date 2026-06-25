@@ -11,7 +11,7 @@ const emit = defineEmits<{
   addPrompt: [definitionId: string]
   addRefToContainer: [parentId: string, definitionId: string]
   addContainer: [typeId: string]
-  createNewInContainer: [parentId: string, typeId: string]
+  createNewInContainer: [parentId: string | null, typeId: string]
   createNewPrompt: [name: string]
   createType: [name: string]
   updateContent: [definitionId: string, content: string]
@@ -49,7 +49,7 @@ const promptDefs = computed(() => props.definitions.filter((d) => d.type === 'pr
 // A panel folder's children are html/css bricks (two types, not one container
 // type), so it needs its own definitions/creatable-type list instead of the
 // single-tag filter every other container tag uses.
-const panelBrickTypes = ['html', 'css']
+const panelBrickTypes = ['html', 'css', 'variables']
 function containerDefs(tag: string | null) {
   if (tag === 'panel') return props.definitions.filter((d) => panelBrickTypes.includes(d.type))
   return props.definitions.filter((d) => d.type === tag)
@@ -60,12 +60,13 @@ const panelPickerTypes = computed<DefType[]>(() =>
   panelBrickTypes.map((id) => ({ id, label: id.toUpperCase(), sort: 0, builtin: true, created_at: '' })),
 )
 
-// Combined, ranked omnibox list: container types first, then prompt definitions.
-type OmniItem = { kind: 'container' | 'prompt'; id: string; name: string }
+// Combined, ranked omnibox list: container types first, then bricks, then prompt definitions.
+type OmniItem = { kind: 'container' | 'prompt' | 'brick'; id: string; name: string }
 const omniItems = computed<OmniItem[]>(() => {
   const containers: OmniItem[] = availableTypes.value.map((t) => ({ kind: 'container', id: t.id, name: t.label }))
+  const bricks: OmniItem[] = [{ kind: 'brick', id: 'variables', name: 'Variables' }]
   const prompts: OmniItem[] = promptDefs.value.map((d) => ({ kind: 'prompt', id: d.id, name: d.name }))
-  let items = [...containers, ...prompts]
+  let items = [...containers, ...bricks, ...prompts]
   const q = omniQuery.value.trim().toLowerCase()
   if (q) {
     items = items
@@ -83,6 +84,7 @@ function openRoot() {
 function closeRoot() { rootOpen.value = false; omniQuery.value = '' }
 function pickOmni(item: OmniItem) {
   if (item.kind === 'prompt') emit('addPrompt', item.id)
+  else if (item.kind === 'brick') emit('createNewInContainer', null, item.id)
   else emit('addContainer', item.id)
   closeRoot()
 }
@@ -233,7 +235,7 @@ function onDrop(targetId: string) {
           <button
             v-for="item in omniItems"
             :key="item.kind + ':' + item.id"
-            data-test="omni-item"
+            :data-test="item.kind === 'brick' ? 'create-' + item.id : 'omni-item'"
             class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-card transition-colors"
             @click="pickOmni(item)"
           >

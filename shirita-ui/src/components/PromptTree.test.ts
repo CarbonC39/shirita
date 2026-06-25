@@ -57,6 +57,15 @@ describe('PromptTree omnibox add flow', () => {
     await w2.find('[data-test="omni-new-type"]').trigger('click')
     expect(w2.emitted('createType')![0]).toEqual(['Lore'])
   })
+
+  it('offers a Variables brick at the root and emits createNewInContainer(null, "variables")', async () => {
+    const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
+    await w.find('[data-test="root-add"]').trigger('click')
+    const btn = w.find('[data-test="create-variables"]')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(w.emitted('createNewInContainer')![0]).toEqual([null, 'variables'])
+  })
 })
 
 describe('PromptTree drag reorder', () => {

@@ -62,14 +62,13 @@ async fn imports_real_preset_with_variables_and_inactive_folder() {
     let tmpl_id = summary["created"].as_array().unwrap().iter()
         .find(|c| c["kind"] == "template").expect("template created")["id"].as_str().unwrap().to_string();
 
-    // Variables from the jailbreak setvar block landed on the template.
-    let tmpl = state.storage.get_template(&tmpl_id).await.unwrap().unwrap();
-    let vars = tmpl.meta["variables"].as_array().expect("variables registered");
+    // Variables from the jailbreak setvar block landed in a `variables` brick
+    // (Definition meta.decls), not template.meta — variables-as-bricks.
+    let defs = state.storage.list_definitions().await.unwrap();
+    let vbrick = defs.iter().find(|d| d.def_type == "variables").expect("a variables brick");
+    let vars = vbrick.meta["decls"].as_array().expect("variables registered");
     let has = |n: &str| vars.iter().any(|v| v["name"] == n);
     assert!(has("wordsCloud") && has("JailbreakPrompt"), "setvar variables registered");
-
-    // The all-setvar jailbreak prompt had its variables registered (asserted above);
-    // any remaining non-macro content may or may not produce a def, but variables are set.
 
     // An inactive folder exists for the out-of-order library prompts.
     let nodes = state.storage.list_nodes(&shirita_core::OwnerKind::Template, &tmpl_id).await.unwrap();
