@@ -129,7 +129,6 @@ const en = {
     followsTemplate: 'This conversation follows its template.',
     customizeLocally: 'Customize locally',
     variablesThisChat: 'Variables (this chat)',
-    variables: 'Variables',
     selectTemplate: 'Select a template…',
     newTemplate: '+ New template',
     importConflictFound: '{skipped} item(s) already exist with the same name — kept the existing ones. Replace them instead?',

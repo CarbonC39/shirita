@@ -122,7 +122,6 @@ const zhHans: MessageSchema = {
     followsTemplate: '本对话沿用其模板。',
     customizeLocally: '本地自定义',
     variablesThisChat: '变量（本对话）',
-    variables: '变量',
     selectTemplate: '选择一个模板…',
     newTemplate: '+ 新建模板',
     importConflictFound: '{skipped} 个条目因名称冲突已跳过，是否改为覆盖？',

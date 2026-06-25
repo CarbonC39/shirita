@@ -122,7 +122,6 @@ const ja: MessageSchema = {
     followsTemplate: 'このチャットはテンプレートに従います。',
     customizeLocally: 'ローカルでカスタマイズ',
     variablesThisChat: '変数（このチャット）',
-    variables: '変数',
     selectTemplate: 'テンプレートを選択…',
     newTemplate: '+ 新規テンプレート',
     importConflictFound: '{skipped} 件は既存の項目と名前が同じためスキップされました。上書きしますか？',
