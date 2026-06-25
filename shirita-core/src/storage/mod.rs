@@ -71,6 +71,9 @@ pub trait Storage: Send + Sync {
     /// failure can't leave a template missing its required magic nodes.
     async fn create_template_with_nodes(&self, template: &Template, nodes: &[PromptNode]) -> Result<()>;
     async fn get_template(&self, id: &str) -> Result<Option<Template>>;
+    /// The template with this exact name, if any — for import conflict checks
+    /// (one lookup instead of loading every template).
+    async fn get_template_by_name(&self, name: &str) -> Result<Option<Template>>;
     async fn list_templates(&self) -> Result<Vec<Template>>;
     async fn update_template(&self, template: &Template) -> Result<()>;
     /// Definitions referenced by this template's nodes that no other template or
@@ -123,6 +126,9 @@ pub trait Storage: Send + Sync {
     // --- packs ---
     async fn create_pack(&self, pack: &Pack) -> Result<()>;
     async fn get_pack(&self, id: &str) -> Result<Option<Pack>>;
+    /// The pack with this exact name, if any — for import conflict checks (one
+    /// lookup instead of loading every pack).
+    async fn get_pack_by_name(&self, name: &str) -> Result<Option<Pack>>;
     async fn list_packs(&self) -> Result<Vec<Pack>>;
     async fn update_pack(&self, pack: &Pack) -> Result<()>;
     /// Definitions referenced by this pack's nodes that no other pack/template/

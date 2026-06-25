@@ -128,8 +128,7 @@ async fn persist_pack_bundle(
     // Skip an existing same-name pack (peek before the full parse/restore).
     let name = manifest.get("pack").and_then(|p| p.get("name")).and_then(|v| v.as_str()).unwrap_or("Pack").to_string();
     if matches!(oc, OnConflict::Skip) {
-        let packs = state.storage.list_packs().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(ex) = packs.iter().find(|p| p.name == name) {
+        if let Some(ex) = state.storage.get_pack_by_name(&name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
             summary.skipped.push(item("pack", &ex.id, &ex.name));
             return Ok(());
         }
@@ -365,8 +364,7 @@ async fn persist_loreset_as_pack(
     // Skip an existing same-name pack (peek before any def/node work), mirroring
     // persist_pack_bundle's early-skip.
     if matches!(oc, OnConflict::Skip) {
-        let packs = state.storage.list_packs().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(ex) = packs.iter().find(|p| p.name == ls.template.name) {
+        if let Some(ex) = state.storage.get_pack_by_name(&ls.template.name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
             summary.skipped.push(item("pack", &ex.id, &ex.name));
             return Ok(());
         }
@@ -405,8 +403,7 @@ async fn persist_preset(
     summary: &mut ImportSummary,
 ) -> Result<(), StatusCode> {
     if matches!(oc, OnConflict::Skip) {
-        let templates = state.storage.list_templates().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(ex) = templates.iter().find(|t| t.name == ls.template.name) {
+        if let Some(ex) = state.storage.get_template_by_name(&ls.template.name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
             summary.skipped.push(item("template", &ex.id, &ex.name));
             return Ok(());
         }
@@ -536,8 +533,7 @@ async fn import_template_bundle(
 
     // Template conflict: When using “Skip,” templates with the same name are skipped; ‘overwrite’ is equivalent to “duplicate” for templates (the old template is never deleted).
     if matches!(oc, OnConflict::Skip) {
-        let templates = state.storage.list_templates().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        if let Some(ex) = templates.iter().find(|t| t.name == name) {
+        if let Some(ex) = state.storage.get_template_by_name(&name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
             summary.skipped.push(item("template", &ex.id, &ex.name));
             return Ok(());
         }
