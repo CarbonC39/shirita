@@ -350,7 +350,7 @@ async function localCreateNewPrompt(name: string) {
         error.value = (e as Error).message;
     }
 }
-async function localCreateNewInContainer(parentId: string, typeId: string) {
+async function localCreateNewInContainer(parentId: string | null, typeId: string) {
     const sid = ui.activeChatId;
     if (!sid) return;
     try {
@@ -624,7 +624,7 @@ async function deleteTypeFromEditor(id: string) {
         error.value = (e as Error).message;
     }
 }
-async function createNewInContainer(parentId: string, typeId: string) {
+async function createNewInContainer(parentId: string | null, typeId: string) {
     if (!selectedTemplateId.value) return;
     try {
         const def = await createDefinition({

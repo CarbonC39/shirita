@@ -69,7 +69,7 @@ async function createNewPrompt(name: string) {
     await reload()
   } catch (e) { error.value = (e as Error).message }
 }
-async function createNewInContainer(parentId: string, typeId: string) {
+async function createNewInContainer(parentId: string | null, typeId: string) {
   try {
     const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: '', meta: {} })
     await library.loadDefinitions()
