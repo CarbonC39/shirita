@@ -70,14 +70,12 @@ pub async fn list(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<Definition>>, StatusCode> {
-    let mut defs = state
-        .storage
-        .list_definitions()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(t) = q.r#type {
-        defs.retain(|d| d.def_type.as_str() == t);
+    // Filter by type in SQL when requested, instead of loading the whole table.
+    let defs = match q.r#type {
+        Some(t) => state.storage.list_definitions_by_type(&t).await,
+        None => state.storage.list_definitions().await,
     }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(defs))
 }
 

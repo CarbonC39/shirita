@@ -54,6 +54,17 @@ pub async fn delete(
     match containers.iter().find(|c| c.id == id) {
         Some(c) if c.builtin => Err(StatusCode::BAD_REQUEST),
         Some(_) => {
+            // Refuse while definitions still use this type — deleting it would
+            // orphan them onto a type that no longer exists.
+            if !state
+                .storage
+                .list_definitions_by_type(&id)
+                .await
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+                .is_empty()
+            {
+                return Err(StatusCode::CONFLICT);
+            }
             state
                 .storage
                 .delete_def_type(&id)

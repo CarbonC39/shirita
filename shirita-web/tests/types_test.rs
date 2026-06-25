@@ -69,3 +69,19 @@ async fn types_crud_and_builtin_protected() {
     let (st, _) = send(&state, "DELETE", "/api/types/char", None).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn deleting_a_type_still_in_use_is_rejected() {
+    let state = test_state().await;
+    let (st, _) = send(&state, "POST", "/api/types", Some(r#"{"id":"faction","label":"Faction"}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    // A definition of that container type.
+    let (st, _) =
+        send(&state, "POST", "/api/definitions", Some(r#"{"type":"faction","name":"Reds","content":"x"}"#)).await;
+    assert_eq!(st, StatusCode::OK);
+    // Deleting the type while a definition still references it would orphan that
+    // definition onto a non-existent type — refuse it.
+    let (st, _) = send(&state, "DELETE", "/api/types/faction", None).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    assert_eq!(json(&send(&state, "GET", "/api/types", None).await.1).as_array().unwrap().len(), 4);
+}
