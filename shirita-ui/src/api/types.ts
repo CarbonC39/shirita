@@ -59,6 +59,11 @@ export interface VarDecl {
   scope?: string
 }
 
+/** A `variables` brick's meta payload: its declared variables. */
+export interface VariablesMeta {
+  decls: VarDecl[]
+}
+
 export interface SessionState {
   schema: VarDecl[]
   values: Record<string, unknown>
