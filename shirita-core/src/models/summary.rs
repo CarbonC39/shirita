@@ -1,4 +1,4 @@
-//! 滚动摘要：覆盖"对话开头 → cutoff_message_id（含）"的历史压缩文本。
+//! Scrolling summary: Overwrites the historical compressed text from atart of conversation → cutoff_message_id (inclusive).
 
 use serde::{Deserialize, Serialize};
 

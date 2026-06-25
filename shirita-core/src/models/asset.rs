@@ -1,8 +1,8 @@
-//! 资源库（媒体）一行：上传后的图片等，带可改的友好名字，供头像/背景共用。
+//! Asset (media) row: Uploaded images, etc., with editable, user-friendly names, for use as both avatars and backgrounds.
 
 use serde::{Deserialize, Serialize};
 
-/// 资源库中的一条记录。`path` 为 assets 目录下的相对文件名。
+/// A record in the asset database. `path` is the relative filename within the `assets` directory.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Asset {
     pub id: String,

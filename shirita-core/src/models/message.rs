@@ -1,4 +1,4 @@
-//! 消息模型与角色标签。
+//! Message models and role tags.
 
 use serde::{Deserialize, Serialize};
 

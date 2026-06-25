@@ -1,4 +1,4 @@
-//! 对话服务：发送消息并流式返回助手回复，结束时落库。
+//! Conversation Service: Sends messages and streams the assistant's replies; stores them in the database upon completion.
 
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ pub async fn resolve_session_schema(storage: &dyn Storage, session: &Session) ->
     crate::state::resolve_schema_from_bricks(template_decls, pack_decls, &session.override_config)
 }
 
-/// 读上下文窗口（settings `context.window`，默认 200000）。
+/// Read the context window (settings `context.window`, default 200000).
 async fn context_window(storage: &dyn Storage) -> usize {
     storage
         .get_setting("context.window")
@@ -65,8 +65,8 @@ async fn context_window(storage: &dyn Storage) -> usize {
         .unwrap_or(200_000)
 }
 
-/// 读回复（输出）最大 token 数（settings `provider_max_tokens`）。`None` 时由各 provider 兜底
-/// （Anthropic 8192 / OpenAI 省略）。注意：这是输出上限，与上下文窗口（`context.window`）无关。
+/// The maximum number of tokens for reading replies (output) (settings `provider_max_tokens`). If `None`, the default value is determined by each provider.
+/// (Anthropic 8192 / OpenAI omitted). Note: This is the output limit and is independent of the context window (`context.window`).
 async fn provider_max_tokens(storage: &dyn Storage) -> Option<u32> {
     storage
         .get_setting("provider_max_tokens")
@@ -77,8 +77,8 @@ async fn provider_max_tokens(storage: &dyn Storage) -> Option<u32> {
         .map(|n| n as u32)
 }
 
-/// 选当前分支适用摘要：cutoff 必须落在 active path 上，多条取 path 中最靠后的那条。
-/// 返回（摘要内容, path 中 cutoff 的下标）。
+/// Selects the summary applicable to the current branch: The `cutoff` must fall on the `active` path; if there are multiple paths, the one with the latest `cutoff` is chosen.
+/// Returns (the summary content, the index of the `cutoff` in the path).
 async fn applicable_summary(
     storage: &dyn Storage,
     session_id: &str,
@@ -92,7 +92,7 @@ async fn applicable_summary(
         .max_by_key(|(_, i)| *i)
 }
 
-/// 会话有效节点树：自有节点优先（fork 后），否则引用模板。
+/// Session valid node tree: Give priority to own nodes (after a fork); otherwise, use the template.
 pub async fn effective_nodes(
     storage: &dyn Storage,
     session: &Session,
@@ -122,8 +122,8 @@ pub async fn mounted_pack_trees(
     Ok(trees)
 }
 
-/// 本会话生效的 regex 规则：全局 orphan 规则（不被任何节点引用，处处生效）+ 本会话
-/// effective 树里被启用 ref 引用的 scoped 规则。两集合互斥；global 在前。
+/// Regex rules in effect for this session: global orphan rules (not referenced by any node; apply everywhere) + scoped rules
+/// referenced by `ref` in the `effective` tree for this session. These two sets are mutually exclusive; global rules take precedence.
 pub async fn effective_regex_rules(
     storage: &dyn Storage,
     session: &Session,
@@ -204,14 +204,14 @@ async fn assemble_request(
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
 
-    // 扫描窗口：取最近若干条（已含最新 user）；每个世界书条目再按自己的
-    // meta.scan.depth 在窗口内取末尾 N 条扫描（设置已下放到定义本身）。
+    // Scan window: Retrieve the most recent entries (including the latest user); for each World Book entry, scan the last N entries within the window based on its own
+    // meta.scan.depth (the setting has been delegated to the definition itself).
     const MAX_SCAN_WINDOW: usize = 20;
     let mut recent: Vec<String> =
         context.iter().rev().take(MAX_SCAN_WINDOW).map(|m| m.content.clone()).collect();
     recent.reverse();
 
-    // StdRng（非 ThreadRng）：Send，可安全跨越后续 await（SSE 流要求 Send）。
+    // StdRng (not ThreadRng): Send; can safely span subsequent `await` statements (SSE streams require `Send`).
     let mut rng = <rand::rngs::StdRng as rand::SeedableRng>::from_entropy();
     let mut plan = crate::assembly::assemble_from_nodes_with_packs(
         &nodes,
@@ -283,7 +283,7 @@ async fn assemble_request(
         })
         .collect();
 
-    // 有显式 history 节点时按其启用状态；没有节点（如无模板的自由会话）默认编入历史。
+    // If an explicit history node exists, use its enabled status; if no node exists (such as in a free session without a template), it is included in the history by default.
     let has_history_node = nodes.iter().any(|n| n.kind == NodeKind::History);
     let include_history = plan.history_enabled || !has_history_node;
     let chat_messages = crate::assembly::build_chat_messages(&plan, &prompt_context, include_history);
@@ -292,8 +292,8 @@ async fn assemble_request(
     Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
 }
 
-/// 把一条已落库的 `Message` 转成发给 provider 的 `ChatMessage`，把它自己的
-/// `attachments`（asset id）解析成 data URL 图片。
+/// Convert a `Message` that has already been stored in the database into a `ChatMessage` to be sent to the provider, and parse its
+/// `attachments` (asset IDs) into image data URLs.
 async fn chat_message_from(storage: &dyn Storage, assets_dir: &str, m: &Message) -> ChatMessage {
     let images = resolve_images(storage, assets_dir, &m.attachments).await;
     ChatMessage { role: m.role, content: m.raw_content.clone(), images }
@@ -314,9 +314,8 @@ fn latest_html_card(path: &[&Message]) -> Option<String> {
     })
 }
 
-/// 写侧 display_content：仅与 regex 规则无关的变换——HTML-card 重建优先，否则
-/// state 标签剥离后的文本（与原文不同才存）。Display-side regex 改在读侧即时计算
-/// （见 web `list_messages`），故此处不再套规则。
+/// Write-side display_content: Only transformations unrelated to regex rules—prioritize HTML-card reconstruction, otherwise
+/// Text after state tags have been stripped (stored only if different from the original). Display-side regex calculations are now performed on the read side in real time
 fn resolve_display(path: &[&Message], full: &str, cleaned: &str) -> Option<String> {
     if let Some(html) = crate::html_patch::reconstruct(latest_html_card(path).as_deref(), cleaned) {
         return Some(html);
@@ -324,19 +323,19 @@ fn resolve_display(path: &[&Message], full: &str, cleaned: &str) -> Option<Strin
     (cleaned != full).then(|| cleaned.to_string())
 }
 
-/// 流式发送过程对外暴露的事件。
+/// Events exposed by the streaming send process.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SendEvent {
-    /// 一段文本增量。
+    /// A text increment.
     Delta(String),
-    /// 完成，附助手消息 id。
+    /// Completion, with an assistant message ID.
     Done { message_id: String },
-    /// 出错（流随后结束）。
+    /// Error (the stream terminates afterward).
     Error(String),
 }
 
-/// 发送一条 user 消息：落库 user → 组装历史 → 调用 provider 流式 → 累积 → 落库 assistant。
-/// 返回一个事件流；assistant 消息在收到完整回复后写入存储，然后才 yield `Done`。
+/// Send a user message: store user → assemble history → call provider for streaming → accumulate → store assistant.
+/// Returns an event stream; assistant messages are written to storage after a complete response is received, and only then does it yield `Done`.
 pub fn send_message(
     storage: Arc<dyn Storage>,
     provider: Arc<dyn ModelProvider>,
@@ -348,14 +347,14 @@ pub fn send_message(
     attachment_ids: Vec<String>,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
-        // 0) 校验会话存在（在任何写入之前，避免依赖 FK 约束兜底）。
+        // 0) Verify that the session exists (before any writes, to avoid relying on foreign key constraints as a fallback).
         let session = match storage.get_session(&session_id).await {
             Ok(Some(s)) => s,
             Ok(None) => { yield SendEvent::Error("session not found".into()); return; }
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
-        // 1) parent = 当前激活叶子（沿 active_leaf 的分支末端），落库 user 消息。
+        // 1) parent = the currently active leaf (at the end of the branch of `active_leaf`); store the `user` message in the database.
         let all = match storage.list_messages(&session_id).await {
             Ok(h) => h,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
@@ -363,7 +362,7 @@ pub fn send_message(
         let path = crate::tree::active_path(&all, session.active_leaf_id.as_deref());
         let parent_id = path.last().map(|m| m.id.clone());
 
-        // 分支有效状态：schema 初值 < seed < 当前叶子快照（读侧/写侧共用同一兜底）。
+        // Valid branch state: schema initial value < seed < current leaf snapshot (read and write sides share the same fallback).
         let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
@@ -376,12 +375,12 @@ pub fn send_message(
             return;
         }
 
-        // 当前分支适用摘要：替换 cutoff 之前的历史，cutoff 之后照常带入。
+        // Summary for the current branch: Replaces the history prior to the cutoff; history after the cutoff is included as usual.
         let summary = applicable_summary(storage.as_ref(), &session_id, &path).await;
         let visible_start = summary.as_ref().map(|(_, i)| i + 1).unwrap_or(0);
         let summary_text = summary.map(|(c, _)| c);
 
-        // 2) 组装：context = cutoff 之后的分支可见消息（过滤隐藏）+ 本次 user。
+        // 2) Assembly: context = the messages visible in the branch after the cutoff (filtered to hide certain messages) + the current user.
         let mut context: Vec<ChatMessage> = Vec::new();
         for m in path[visible_start..].iter().filter(|m| !m.is_hidden) {
             context.push(chat_message_from(storage.as_ref(), &assets_dir, m).await);
@@ -393,7 +392,7 @@ pub fn send_message(
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
-        // best-effort 裁剪：超窗口则丢最旧的中段历史（溢出由 provider 报错沿 Error 路径暴露）。
+        // Best-effort pruning: If the data exceeds the window size, the oldest mid-range history is discarded (overflow is reported as an error by the provider and exposed via the Error path).
         let window = context_window(storage.as_ref()).await;
         let (trimmed, dropped) = trim_history(&req.messages, window, counter.as_ref());
         if dropped > 0 {
@@ -405,7 +404,7 @@ pub fn send_message(
             req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
         tracing::debug!(prompt_tokens = counter.count(&prompt_text), "assembled prompt");
 
-        // 3) 调 provider 流，逐 delta 累积 + yield。
+        // 3) Process the provider stream, accumulating and yielding one delta at a time.
         let mut full = String::new();
         let mut stream = match provider.stream_chat(req).await {
             Ok(s) => s,
@@ -418,10 +417,10 @@ pub fn send_message(
             }
         }
 
-        // 4) 折叠 <state_update> 进快照、剥离展示文本，落库 assistant 消息，再 yield Done。
-        // 转换面板的捕获变量（regex_rule.meta.capture_vars）与 state_update 标签
-        // 同步折叠：前者只读提取，不影响展示文本剥离。捕获在前、state_update 在后——
-        // 同名 key 冲突时模型的显式指令优先于附带提取到的值（apply_updates 按序，后者覆盖前者）。
+        // 4) Fold <state_update> into the snapshot, strip the display text, store the assistant message in the database, and then yield Done.
+        // map the capture variables from the panel (regex_rule.meta.capture_vars) to the <state_update> tag
+        // synchronous folding: The former is read-only extraction and does not affect the stripping of display text. Captures come first, followed by `state_update`—
+        // when keys with the same name conflict, explicit model instructions take precedence over the extracted values (since `apply_updates` is executed in order, the latter overrides the former).
         let mut updates = capture_panel_updates(&full, &regex_rules);
         updates.extend(parse_state_updates(&full));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
@@ -433,7 +432,7 @@ pub fn send_message(
             yield SendEvent::Error(e.to_string());
             return;
         }
-        // 激活叶子推进到新助手消息：下一轮发送将挂在它之下。
+        // Activate the leaf node to advance to the new assistant message: The next round of messages will be attached to it.
         let _ = storage.set_session_active_leaf(&session_id, Some(&assistant.id)).await;
         yield SendEvent::Done { message_id: assistant.id };
     }
@@ -468,7 +467,7 @@ pub fn regenerate(
         // context = path root→(target's parent = the user turn that prompted it)
         let path = crate::tree::active_path(&all, target.parent_id.as_deref());
 
-        // 父分支适用摘要：替换 cutoff 之前的历史。
+        // Summary for the parent branch: Replaces the history prior to the cutoff.
         let summary = applicable_summary(storage.as_ref(), &session_id, &path).await;
         let visible_start = summary.as_ref().map(|(_, i)| i + 1).unwrap_or(0);
         let summary_text = summary.map(|(c, _)| c);
@@ -478,7 +477,7 @@ pub fn regenerate(
             context.push(chat_message_from(storage.as_ref(), &assets_dir, m).await);
         }
 
-        // 父分支有效状态：折叠基准与 send_message 相同（schema 兜底 + seed + 父叶子快照）。
+        // Valid state of the parent branch: The folding reference point is the same as `send_message` (schema fallback + seed + parent leaf snapshot).
         let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
@@ -488,7 +487,7 @@ pub fn regenerate(
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
 
-        // best-effort 裁剪：超窗口则丢最旧的中段历史（溢出由 provider 报错沿 Error 路径暴露）。
+        // Best-effort pruning: If the data exceeds the window size, the oldest mid-range history is discarded (overflow is reported as an error by the provider and exposed via the Error path).
         let window = context_window(storage.as_ref()).await;
         let (trimmed, dropped) = trim_history(&req.messages, window, counter.as_ref());
         if dropped > 0 {
@@ -507,7 +506,7 @@ pub fn regenerate(
                 Err(e) => { yield SendEvent::Error(e.to_string()); return; }
             }
         }
-        // 同上：捕获在前、state_update 在后，冲突时显式指令优先。
+        // Same as above: `capture` comes first, followed by `state_update`; in case of a conflict, the explicit instruction takes precedence.
         let mut updates = capture_panel_updates(&full, &regex_rules);
         updates.extend(parse_state_updates(&full));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
@@ -593,7 +592,7 @@ mod tests {
         assert_eq!(deltas, "echo: hello");
         assert!(done_id.is_some());
 
-        // 持久化校验：user + assistant 各一条，内容正确。
+        // Persistence check: one entry each for "user" and "assistant"; the content is correct.
         let msgs = storage.list_messages(&session.id).await.unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, Role::User);
@@ -691,7 +690,7 @@ mod tests {
         let ch = crate::models::definition::Definition::new("char", "C", "I am {{who}}");
         storage.create_definition(&ch).await.unwrap();
 
-        // 模板树：char 容器 → ref(char)，再加 history 魔法节点。
+        // Template tree: char container → ref(char), plus the history magic node.
         let t = Template::new("T");
         storage.create_template(&t).await.unwrap();
         let f = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "char");
@@ -733,7 +732,7 @@ mod tests {
         assert_eq!(req.messages[0].role, Role::System);
         assert!(req.messages[0].content.contains("<char>"));
         assert!(req.messages[0].content.contains("I am Neo"));
-        // history 节点之后，本次 user 转发给 provider。
+        // After the history node, the user forwards this to the provider.
         assert!(req.messages.iter().any(|m| m.role == Role::User && m.content == "hi"));
     }
 
@@ -995,7 +994,7 @@ mod tests {
             other => panic!("expected clean Error, got {other:?}"),
         }
         assert!(stream.next().await.is_none(), "no events after error");
-        // 关键：未创建任何消息。
+        // Key point: No messages were created.
         assert!(storage
             .list_messages("ghost-session")
             .await
@@ -1276,7 +1275,7 @@ mod tests {
         let storage = Arc::new(temp_storage().await);
         let session = Session::new("s");
         storage.create_session(&session).await.unwrap();
-        // 造一串长 user/assistant 历史（无摘要）
+        // Generate a long string of user/assistant history (without summaries)
         let mut parent: Option<String> = None;
         let mut leaf = String::new();
         for i in 0..6 {
@@ -1293,7 +1292,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        // window 设得很小 → 触发裁剪
+        // The window is set to a very small size → triggers cropping
         storage.set_setting("context.window", &serde_json::json!(20)).await.unwrap();
 
         let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new());
@@ -1302,8 +1301,8 @@ mod tests {
 
         let req = seen.lock().unwrap().clone().unwrap();
         let joined: String = req.messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("|");
-        assert!(joined.contains("newest"), "末条本次 user 必须保留");
-        assert!(!joined.contains("turn-0"), "最旧历史应被裁掉");
+        assert!(joined.contains("newest"), "The last entry for this user must be retained");
+        assert!(!joined.contains("turn-0"), "The oldest entry should be removed");
     }
 
     #[tokio::test]
@@ -1312,7 +1311,7 @@ mod tests {
         let session = Session::new("s");
         storage.create_session(&session).await.unwrap();
 
-        // 线性历史：u1 -> a1 -> u2 -> a2（a2 为活动叶子）
+        // Linear history: u1 -> a1 -> u2 -> a2 (where a2 is the active leaf)
         let u1 = Message::new(&session.id, None, Role::User, "u1");
         storage.create_message(&u1).await.unwrap();
         let a1 = Message::new(&session.id, Some(u1.id.clone()), Role::Assistant, "a1");
@@ -1323,7 +1322,7 @@ mod tests {
         storage.create_message(&a2).await.unwrap();
         storage.set_session_active_leaf(&session.id, Some(&a2.id)).await.unwrap();
 
-        // 摘要覆盖到 a1（cutoff = a1）：u1/a1 不应进 context，summary 应被携带。
+        // Summary extends to a1 (cutoff = a1): u1/a1 should not enter the context, and the summary should be carried over.
         let sum = crate::models::summary::Summary::new(&session.id, &a1.id, "[sum] u1 a1 happened");
         storage.create_summary(&sum).await.unwrap();
 
@@ -1338,10 +1337,10 @@ mod tests {
         let req = seen.lock().unwrap().clone().unwrap();
         assert_eq!(req.summary.as_deref(), Some("[sum] u1 a1 happened"));
         let joined: String = req.messages.iter().map(|m| m.content.clone()).collect::<Vec<_>>().join("|");
-        assert!(!joined.contains("u1"), "cutoff 之前的历史不应进 context: {joined}");
-        assert!(!joined.contains("a1"), "cutoff 之前的历史不应进 context: {joined}");
-        assert!(joined.contains("u2"), "cutoff 之后的历史应保留");
-        assert!(joined.contains("u3"), "本次 user 应保留");
+        assert!(!joined.contains("u1"), "History prior to the cutoff should not be included in context: {joined}");
+        assert!(!joined.contains("a1"), "History prior to the cutoff should not be included in context: {joined}");
+        assert!(joined.contains("u2"), "History after the cutoff should be retained");
+        assert!(joined.contains("u3"), "This user should be retained");
     }
 
     #[tokio::test]

@@ -3818,6 +3818,7 @@ dependencies = [
  "chrono",
  "futures",
  "http-body-util",
+ "mime_guess",
  "reqwest 0.12.28",
  "rust-embed",
  "serde",

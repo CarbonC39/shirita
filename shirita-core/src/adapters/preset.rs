@@ -1,4 +1,4 @@
-//! 模板树 ↔ 类 ST preset JSON（prompt 顺序 + 容器/历史标记）。
+//! Template tree ↔ ST preset JSON (prompt order + container/history tags).
 
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, PromptNode};
@@ -13,7 +13,7 @@ pub struct PresetItem {
     pub def_type: Option<String>,
 }
 
-/// 把模板根级树序列化为有序 preset 项（容器内子项跟随其后，深度由 parent 决定）。
+/// Serializes the template root-level tree into an ordered sequence of preset items (subitems within a container follow immediately after it, with depth determined by the parent).
 pub fn tree_to_preset(nodes: &[PromptNode], defs: &HashMap<String, Definition>) -> serde_json::Value {
     let mut roots: Vec<&PromptNode> = nodes.iter().filter(|n| n.parent_id.is_none()).collect();
     roots.sort_by_key(|n| n.sort_order);

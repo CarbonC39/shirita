@@ -1,4 +1,4 @@
-//! Definition 模型：type 为可扩展字符串（见 models::def_type）。
+//! Definition Model: `type` is an extensible string (see models::def_type).
 
 use serde::{Deserialize, Serialize};
 

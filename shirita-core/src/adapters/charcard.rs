@@ -910,11 +910,6 @@ mod tests {
 
     #[test]
     fn charcard_to_loreset_omits_panel_for_full_document_status_bar() {
-        // Reproduces the 密教模拟器.json shape: a single $N-template candidate
-        // whose replaceString is a complete HTML document with onclick
-        // handlers and id-based CSS — must stay on the compatibility layer
-        // (regex_rule untouched, no panel written) rather than become a
-        // broken Panel.
         let card = serde_json::json!({
             "data": {
                 "name": "Cultist", "description": "desc",
