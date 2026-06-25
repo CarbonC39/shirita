@@ -22,7 +22,7 @@ import PromptTree from './PromptTree.vue'
 import * as api from '../api/client'
 
 const pack = { id: 'p1', name: 'Alice', identity: { display_name: 'Alice', avatar: null }, meta: {}, created_at: '', updated_at: '' }
-const stubs = { AssetPicker: true, PromptTree: true, VariablesEditor: true }
+const stubs = { AssetPicker: true, PromptTree: true }
 
 describe('PackEditor', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks() })
@@ -45,6 +45,11 @@ describe('PackEditor', () => {
     await flushPromises()
     expect(w.find('[data-test="pack-panel"]').exists()).toBe(false)
     expect(w.find('[data-test="panel-html"]').exists()).toBe(false)
+  })
+
+  it('no longer renders the pack variables section', () => {
+    const w = mount(PackEditor, { props: { pack }, global: { stubs } })
+    expect(w.find('[data-test="pack-variables"]').exists()).toBe(false)
   })
 
   it('Add panel scaffolds a panel folder with html and css bricks', async () => {

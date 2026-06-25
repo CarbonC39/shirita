@@ -156,7 +156,6 @@ const ja: MessageSchema = {
     displayNamePlaceholder: 'チャットに表示される名前…',
     avatar: 'アバター',
     contentTree: '内容',
-    variables: '変数',
     addPanel: 'パネルを追加',
     panelName: 'パネル名',
     panelCaps: '許可：',
