@@ -272,6 +272,11 @@ fn coerce(value: &Option<String>, vt: VarType) -> Option<Value> {
 }
 
 /// Apply updates one by one according to the schema type; any undeclared keys or actions with mismatched types are ignored (the sandbox does not execute code).
+/// Upper bound on the length of a List variable. APPEND is model-driven, so
+/// without a cap a runaway or looping response could grow a list (and the state
+/// JSON persisted with every message) without bound.
+const MAX_LIST_LEN: usize = 1000;
+
 pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> Value {
     let mut obj = state.as_object().cloned().unwrap_or_default();
     for u in updates {
@@ -300,8 +305,10 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
             (Action::Append, VarType::List) => {
                 if let Some(val) = &u.value {
                     let mut arr = obj.get(&u.key).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-                    arr.push(Value::String(val.clone()));
-                    obj.insert(u.key.clone(), Value::Array(arr));
+                    if arr.len() < MAX_LIST_LEN {
+                        arr.push(Value::String(val.clone()));
+                        obj.insert(u.key.clone(), Value::Array(arr));
+                    }
                 }
             }
             (Action::Remove, VarType::List) => {
@@ -439,6 +446,19 @@ mod tests {
         let st = json!({ "bag": ["key", "map", "key"] });
         let out = apply_updates(&st, &s, &[Update { action: Action::Remove, key: "bag".into(), value: Some("key".into()) }]);
         assert_eq!(out["bag"], json!(["map", "key"]));
+    }
+
+    #[test]
+    fn append_is_capped_to_prevent_unbounded_growth() {
+        let s = full_schema();
+        let ups: Vec<Update> = (0..MAX_LIST_LEN + 100)
+            .map(|i| Update { action: Action::Append, key: "bag".into(), value: Some(format!("item-{i}")) })
+            .collect();
+        let out = apply_updates(&json!({}), &s, &ups);
+        let arr = out["bag"].as_array().unwrap();
+        assert_eq!(arr.len(), MAX_LIST_LEN); // capped; appends past the cap are dropped
+        assert_eq!(arr[0], "item-0"); // earliest entries kept
+        assert_eq!(arr[MAX_LIST_LEN - 1], format!("item-{}", MAX_LIST_LEN - 1));
     }
 
     #[test]
