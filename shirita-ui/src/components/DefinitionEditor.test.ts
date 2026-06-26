@@ -229,3 +229,18 @@ describe('DefinitionEditor message type', () => {
     expect(last.role).toBe('user')
   })
 })
+
+describe('DefinitionEditor scan settings gating', () => {
+  it('shows scan depth only for keyword triggers', () => {
+    const kw = { id: 'd', type: 'world', name: 'Z', content: '', meta: { trigger: { mode: 'keyword', keys: ['z'], probability: 100 } } }
+    const w = mount(DefinitionEditor, { props: { definition: kw, allDefinitions: [kw], active: true } })
+    expect(w.find('[data-test="scan-depth"]').exists()).toBe(true)
+  })
+
+  it('hides scan depth for constant (always-on) triggers but keeps the trigger editor', () => {
+    const constant = { id: 'd', type: 'world', name: 'Z', content: '', meta: { trigger: { mode: 'constant', keys: [], probability: 100 } } }
+    const w = mount(DefinitionEditor, { props: { definition: constant, allDefinitions: [constant], active: true } })
+    expect(w.find('[data-test="scan-depth"]').exists()).toBe(false)
+    expect(w.find('[data-test="trigger-editor"]').exists()).toBe(true)
+  })
+})
