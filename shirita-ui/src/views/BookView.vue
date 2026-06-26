@@ -429,10 +429,22 @@ onMounted(async () => {
             library.loadTypes(),
             library.loadPacks(),
         ]);
-        // Auto-select the first template as default when none is active
-        if (!selectedTemplateId.value && library.templates.length > 0) {
-            await selectTemplate(library.templates[0].id);
-        }
+        // Restore the last-edited template/pack/definition (Book remounts on
+        // navigation). Fall back to the default template, then the first.
+        const savedTemplate = localStorage.getItem("book.templateId");
+        const defaultTemplate = library.templates.find((t) => (t.meta as Record<string, unknown>)?.default)?.id;
+        const templateToSelect =
+            (savedTemplate && library.templates.some((t) => t.id === savedTemplate) ? savedTemplate : null) ??
+            defaultTemplate ??
+            library.templates[0]?.id ??
+            null;
+        if (templateToSelect) await selectTemplate(templateToSelect);
+
+        const savedPack = localStorage.getItem("book.packId");
+        if (savedPack && library.packs.some((p) => p.id === savedPack)) selectedPackId.value = savedPack;
+
+        const savedDef = localStorage.getItem("book.defId");
+        if (savedDef && library.definitions.some((d) => d.id === savedDef)) selectDefinition(savedDef);
     } catch (e) {
         error.value = (e as Error).message;
     } finally {
@@ -443,6 +455,7 @@ onMounted(async () => {
 // ── templates ──────────────────────────────────────────────
 async function selectTemplate(id: string) {
     selectedTemplateId.value = id || null;
+    try { localStorage.setItem("book.templateId", id || "") } catch { /* ignore */ }
     templateName.value = library.templates.find((t) => t.id === id)?.name ?? "";
     if (id) {
         try {
@@ -711,7 +724,10 @@ const selectedPack = computed(() => library.packs.find((p) => p.id === selectedP
 const renamingPack = ref(false);
 const packNameDraft = ref("");
 
-function selectPack(id: string) { selectedPackId.value = id || null; }
+function selectPack(id: string) {
+    selectedPackId.value = id || null;
+    try { localStorage.setItem("book.packId", id || "") } catch { /* ignore */ }
+}
 async function createPackNamed(name: string) {
     try {
         const p = await createPack({ name: name?.trim() || "New pack" });
@@ -760,6 +776,7 @@ async function exportSelectedPack() {
 
 // ── definition editor ──────────────────────────────────────
 function selectDefinition(id: string) {
+    try { localStorage.setItem("book.defId", id || "") } catch { /* ignore */ }
     if (!id) {
         loadDef(blankDef());
         defActive.value = true;
