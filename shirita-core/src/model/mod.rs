@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::models::message::Role;
-use crate::Result;
+use crate::{Error, Result};
 
 pub use anthropic::AnthropicProvider;
 pub use echo::EchoProvider;
@@ -70,6 +70,13 @@ pub enum Delta {
 /// otherwise use `content`; if neither is present (e.g., the first frame of a role-only response), return `Delta::None`.
 pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
     let v: serde_json::Value = serde_json::from_str(json_after_data)?;
+    // Some OpenAI-compatible providers report failures as an in-stream
+    // `{"error": {...}}` frame (HTTP 200). Surface it instead of swallowing it
+    // as Delta::None — but ignore a benign `"error": null` carried on a normal frame.
+    if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
+        let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("provider error");
+        return Err(Error::Config(format!("provider stream error: {msg}")));
+    }
     let delta = &v["choices"][0]["delta"];
     if let Some(r) = delta["reasoning_content"].as_str() {
         return Ok(Delta::Reasoning(r.to_string()));
@@ -136,6 +143,19 @@ pub fn render_delta(in_reasoning: &mut bool, delta: Delta) -> Option<String> {
     }
 }
 
+/// Close an open `<think>` run at end of stream. When a model streams
+/// `reasoning_content` and the stream ends (clean EOF or `[DONE]`) before any
+/// `content` delta arrives, `render_delta` never emits the closing tag — leaving
+/// a dangling `<think>`. Adapters call this on every clean exit. Idempotent.
+pub fn close_reasoning(in_reasoning: &mut bool) -> Option<String> {
+    if *in_reasoning {
+        *in_reasoning = false;
+        Some("</think>".to_string())
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -173,6 +193,36 @@ mod tests {
     fn parse_delta_kind_role_only_is_none() {
         let line = r#"{"choices":[{"delta":{"role":"assistant"}}]}"#;
         assert_eq!(parse_delta_kind(line).unwrap(), Delta::None);
+    }
+
+    #[test]
+    fn parse_delta_kind_surfaces_mid_stream_error_frame() {
+        // Some OpenAI-compatible providers send `data: {"error": {...}}` mid-stream;
+        // it must be surfaced, not silently swallowed as Delta::None.
+        let line = r#"{"error":{"message":"rate limit exceeded"}}"#;
+        let err = parse_delta_kind(line).unwrap_err().to_string();
+        assert!(err.contains("rate limit exceeded"), "got: {err}");
+    }
+
+    #[test]
+    fn parse_delta_kind_ignores_null_error_field() {
+        // A normal frame that carries `"error": null` is not an error.
+        let line = r#"{"choices":[{"delta":{"content":"hi"}}],"error":null}"#;
+        assert_eq!(parse_delta_kind(line).unwrap(), Delta::Content("hi".to_string()));
+    }
+
+    #[test]
+    fn close_reasoning_closes_open_run_once() {
+        let mut in_reasoning = true;
+        assert_eq!(close_reasoning(&mut in_reasoning), Some("</think>".to_string()));
+        assert!(!in_reasoning);
+        assert_eq!(close_reasoning(&mut in_reasoning), None); // idempotent
+    }
+
+    #[test]
+    fn close_reasoning_noop_when_not_reasoning() {
+        let mut in_reasoning = false;
+        assert_eq!(close_reasoning(&mut in_reasoning), None);
     }
 
     #[test]
