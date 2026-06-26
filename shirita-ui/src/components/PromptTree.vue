@@ -17,6 +17,8 @@ const emit = defineEmits<{
   updateContent: [definitionId: string, content: string]
   updateTrigger: [definitionId: string, trigger: Trigger]
   updateNodeMeta: [nodeId: string, meta: Record<string, unknown>]
+  updateDefMeta: [definitionId: string, meta: Record<string, unknown>]
+  updateDefName: [definitionId: string, name: string]
   deleteNode: [nodeId: string]
   reorder: [orderedIds: string[]]
   addPanel: []
@@ -64,7 +66,10 @@ const panelPickerTypes = computed<DefType[]>(() =>
 type OmniItem = { kind: 'container' | 'prompt' | 'brick'; id: string; name: string }
 const omniItems = computed<OmniItem[]>(() => {
   const containers: OmniItem[] = availableTypes.value.map((t) => ({ kind: 'container', id: t.id, name: t.label }))
-  const bricks: OmniItem[] = [{ kind: 'brick', id: 'variables', name: 'Variables' }]
+  const bricks: OmniItem[] = [
+    { kind: 'brick', id: 'variables', name: 'Variables' },
+    { kind: 'brick', id: 'regex_rule', name: 'Regex' },
+  ]
   const prompts: OmniItem[] = promptDefs.value.map((d) => ({ kind: 'prompt', id: d.id, name: d.name }))
   let items = [...containers, ...bricks, ...prompts]
   const q = omniQuery.value.trim().toLowerCase()
@@ -161,6 +166,8 @@ function onDrop(targetId: string) {
         @update-content="(c) => node.definition_id && emit('updateContent', node.definition_id, c)"
         @update-trigger="(t) => node.definition_id && emit('updateTrigger', node.definition_id, t)"
         @update-node-meta="(m) => emit('updateNodeMeta', node.id, m)"
+        @update-def-meta="(m) => node.definition_id && emit('updateDefMeta', node.definition_id, m)"
+        @update-def-name="(n) => node.definition_id && emit('updateDefName', node.definition_id, n)"
         @delete="emit('deleteNode', node.id)"
       />
 
@@ -187,6 +194,8 @@ function onDrop(targetId: string) {
             @update-content="(c) => child.definition_id && emit('updateContent', child.definition_id, c)"
             @update-trigger="(t) => child.definition_id && emit('updateTrigger', child.definition_id, t)"
             @update-node-meta="(m) => emit('updateNodeMeta', child.id, m)"
+            @update-def-meta="(m) => child.definition_id && emit('updateDefMeta', child.definition_id, m)"
+            @update-def-name="(n) => child.definition_id && emit('updateDefName', child.definition_id, n)"
             @delete="emit('deleteNode', child.id)"
           />
         </div>

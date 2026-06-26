@@ -123,3 +123,14 @@ describe('PromptTree drag reorder', () => {
     expect(setData).toHaveBeenCalledWith('text/plain', 'a')
   })
 })
+
+describe('PromptTree regex brick', () => {
+  it('offers a Regex brick that creates a regex_rule at root', async () => {
+    const w = mount(PromptTree, { props: { nodes: [], definitions: [], types: [] } })
+    await w.find('[data-test="root-add"]').trigger('click')
+    const btn = w.find('[data-test="create-regex_rule"]')
+    expect(btn.exists()).toBe(true)
+    await btn.trigger('click')
+    expect(w.emitted('createNewInContainer')![0]).toEqual([null, 'regex_rule'])
+  })
+})

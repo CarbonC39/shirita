@@ -339,7 +339,8 @@ async function localCreateNewInContainer(parentId: string | null, typeId: string
     if (!sid) return;
     try {
         await ensureMaterialized();
-        const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: "", meta: {} });
+        const isRx = typeId === "regex_rule";
+        const def = await createDefinition({ type: typeId, name: isRx ? "New rule" : `New ${typeId}`, content: "", meta: isRx ? { pattern: "", replacement: "", disabled: false, scope: "display", targets: ["ai_output"] } : {} });
         await library.loadDefinitions();
         await createNode("session", sid, { parent_id: parentId, kind: "ref", definition_id: def.id });
         await loadLocalNodes();
@@ -648,11 +649,12 @@ async function deleteTypeFromEditor(id: string) {
 async function createNewInContainer(parentId: string | null, typeId: string) {
     if (!selectedTemplateId.value) return;
     try {
+        const isRx = typeId === "regex_rule";
         const def = await createDefinition({
             type: typeId,
-            name: `New ${typeId}`,
+            name: isRx ? "New rule" : `New ${typeId}`,
             content: "",
-            meta: {},
+            meta: isRx ? { pattern: "", replacement: "", disabled: false, scope: "display", targets: ["ai_output"] } : {},
         });
         await library.loadDefinitions();
         await createNode("template", selectedTemplateId.value, {
@@ -740,6 +742,20 @@ async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
     } catch (e) {
         error.value = (e as Error).message;
     }
+}
+// Persist a regex (or other brick) definition's meta/name edited inline in the
+// tree — used by regex_rule refs carried by a template.
+async function handleUpdateDefMeta(definitionId: string, meta: Record<string, unknown>) {
+    try {
+        await updateDefinition(definitionId, { meta });
+        await library.loadDefinitions();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function handleUpdateDefName(definitionId: string, name: string) {
+    try {
+        await updateDefinition(definitionId, { name });
+        await library.loadDefinitions();
+    } catch (e) { error.value = (e as Error).message; }
 }
 
 // ── packs ───────────────────────────────────────────────────
@@ -924,6 +940,8 @@ async function duplicateDef() {
                         @update-content="localUpdateContent"
                         @update-trigger="localUpdateTrigger"
                         @update-node-meta="localUpdateNodeMeta"
+                        @update-def-meta="handleUpdateDefMeta"
+                        @update-def-name="handleUpdateDefName"
                         @delete-node="localDeleteNode"
                         @reorder="localReorder"
                     />
@@ -1094,6 +1112,8 @@ async function duplicateDef() {
                 @update-content="handleUpdateContent"
                 @update-trigger="handleUpdateTrigger"
                 @update-node-meta="handleUpdateNodeMeta"
+                @update-def-meta="handleUpdateDefMeta"
+                @update-def-name="handleUpdateDefName"
                 @delete-node="handleDeleteNode"
                 @reorder="handleReorder"
             />
