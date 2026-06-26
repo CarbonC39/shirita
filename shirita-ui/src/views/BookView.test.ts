@@ -176,3 +176,22 @@ describe('BookView remembers selection', () => {
     expect(api.listNodes).toHaveBeenCalledWith('template', 't1')
   })
 })
+
+describe('BookView default template', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    libraryMock.templates = [{ id: 't1', name: 'One', meta: {} }]
+    ;(api.getSession as any).mockResolvedValue({ id: 'c1', template_id: null, override_config: {} })
+    ;(api.updateTemplate as any).mockClear()
+  })
+
+  it('flags the selected template as default on star click', async () => {
+    const ui = useUiStore(); ui.setActiveChatId(null)
+    const w = mount(BookView)
+    await flushPromises()
+    await w.get('[data-test="template-default"]').trigger('click')
+    await flushPromises()
+    expect(api.updateTemplate).toHaveBeenCalledWith('t1', 'One', { default: true })
+  })
+})

@@ -144,6 +144,7 @@ const ja: MessageSchema = {
     definitionsHeading: '定義',
     editTemplate: 'テンプレートを編集…',
     createTemplate: 'テンプレートを新規作成',
+    defaultTemplate: 'デフォルトのテンプレート',
     packHeading: 'パック',
     editPack: 'パックを編集…',
     createPack: 'パックを新規作成',

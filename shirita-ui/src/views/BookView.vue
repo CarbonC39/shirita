@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Pencil, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
+import { Check, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { useMediaStore } from "../stores/media";
@@ -520,6 +520,30 @@ async function delTemplate() {
     }
 }
 
+// The default template is auto-selected for new chats. At most one is default;
+// setting a new one clears the previous. Stored on template.meta.default.
+const isDefaultTemplate = computed(() => {
+    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
+    return (t?.meta as Record<string, unknown> | undefined)?.default === true;
+});
+async function toggleDefaultTemplate() {
+    const id = selectedTemplateId.value;
+    if (!id) return;
+    const turningOn = !isDefaultTemplate.value;
+    try {
+        for (const t of library.templates) {
+            if ((t.meta as Record<string, unknown>)?.default && t.id !== id) {
+                await updateTemplate(t.id, t.name, { ...t.meta, default: false });
+            }
+        }
+        const cur = library.templates.find((t) => t.id === id);
+        await updateTemplate(id, cur?.name ?? templateName.value, { ...(cur?.meta ?? {}), default: turningOn });
+        await library.loadTemplates();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+
 // ── tree ───────────────────────────────────────────────────
 async function reload() {
     if (selectedTemplateId.value)
@@ -943,6 +967,16 @@ async function duplicateDef() {
                     @create="createTemplateNamed"
                 />
                 <div class="flex items-center">
+                    <button
+                        data-test="template-default"
+                        class="w-[33px] h-[33px] grid place-items-center rounded-lg disabled:opacity-40"
+                        :class="isDefaultTemplate ? 'text-amber-500' : 'text-muted hover:text-ink'"
+                        :title="$t('book.defaultTemplate')"
+                        :disabled="!selectedTemplateId"
+                        @click="toggleDefaultTemplate"
+                    >
+                        <Star :size="15" :fill="isDefaultTemplate ? 'currentColor' : 'none'" />
+                    </button>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('common.rename')"

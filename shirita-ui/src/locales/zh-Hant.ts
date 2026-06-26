@@ -144,6 +144,7 @@ const zhHant: MessageSchema = {
     definitionsHeading: '定義',
     editTemplate: '編輯範本…',
     createTemplate: '新增範本',
+    defaultTemplate: '預設範本',
     packHeading: '包',
     editPack: '編輯包…',
     createPack: '新增包',

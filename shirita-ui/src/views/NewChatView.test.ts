@@ -10,8 +10,8 @@ vi.mock('../api/client', () => ({
 }))
 
 const templates = [
-  { id: 't1', name: 'Default' },
-  { id: 't2', name: 'Other' },
+  { id: 't1', name: 'Default', meta: {} },
+  { id: 't2', name: 'Other', meta: { default: true } },
 ]
 const packs = [
   { id: 'p1', name: 'Alice', identity: { avatar: '', display_name: '' }, meta: {} },
@@ -76,16 +76,16 @@ describe('NewChatView (single screen)', () => {
     // create posts the surviving pack id with blank name → falls back to pack name
     await w.find('[data-test="create-chat"]').trigger('click')
     await flushPromises()
-    expect(api.createSession).toHaveBeenCalledWith('Alice', 't1', null, ['p1'])
+    expect(api.createSession).toHaveBeenCalledWith('Alice', 't2', null, ['p1'])
   })
 
-  it('defaults the template to the first one and creates a chat with no packs', async () => {
+  it('auto-selects the template flagged default and creates a chat with no packs', async () => {
     const w = mount(NewChatView)
     await flushPromises()
     await w.find('[data-test="chat-name"]').setValue('My chat')
     await w.find('[data-test="create-chat"]').trigger('click')
     await flushPromises()
-    expect(api.createSession).toHaveBeenCalledWith('My chat', 't1', null, [])
+    expect(api.createSession).toHaveBeenCalledWith('My chat', 't2', null, [])
     expect(push).toHaveBeenCalledWith('/chat/c9')
   })
 })

@@ -154,6 +154,7 @@ const en = {
     definitionsHeading: 'Definitions',
     editTemplate: 'Edit template…',
     createTemplate: 'New template',
+    defaultTemplate: 'Default template',
     packHeading: 'Pack',
     editPack: 'Edit pack…',
     createPack: 'New pack',

@@ -144,6 +144,7 @@ const zhHans: MessageSchema = {
     definitionsHeading: '定义',
     editTemplate: '编辑模板…',
     createTemplate: '新建模板',
+    defaultTemplate: '默认模板',
     packHeading: '包',
     editPack: '编辑包…',
     createPack: '新建包',

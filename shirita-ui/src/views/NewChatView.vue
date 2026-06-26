@@ -19,7 +19,10 @@ const error = ref<string | null>(null)
 
 onMounted(async () => {
   await library.loadAll()
-  if (!selectedTemplateId.value) selectedTemplateId.value = library.templates[0]?.id ?? null
+  if (!selectedTemplateId.value) {
+    const def = library.templates.find((t) => (t.meta as Record<string, unknown>)?.default)
+    selectedTemplateId.value = def?.id ?? library.templates[0]?.id ?? null
+  }
 })
 
 const selectedTemplateName = computed(
