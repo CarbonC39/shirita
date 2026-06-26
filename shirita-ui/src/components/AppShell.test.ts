@@ -95,6 +95,16 @@ describe('AppShell', () => {
     expect(chatLink().attributes('href')).toBe('/')
   })
 
+  it('renders the brand mark as an image, not a letter', async () => {
+    const router = makeRouter()
+    router.push('/')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    const img = wrapper.find('[data-test="brand"] img')
+    expect(img.exists()).toBe(true)
+    expect(img.attributes('alt')).toBe('Shirita')
+  })
+
   it('has no footer', async () => {
     const router = makeRouter()
     router.push('/')
