@@ -18,6 +18,13 @@ describe('NodeRow', () => {
     expect(w.emitted('delete')).toBeTruthy()
   })
 
+  it('keeps the delete button visible (not opacity-0) for touch devices', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 0, isExpanded: false } })
+    const del = w.get('[data-test="node-delete"]')
+    expect(del.classes()).not.toContain('text-muted/0')
+    expect(del.classes()).toContain('text-muted/40')
+  })
+
   it('folder rows show an add button beside delete and emit add', async () => {
     const folder = node({ kind: 'folder', tag: 'char', definition_id: null })
     const w = mount(NodeRow, { props: { node: folder, definitions: defs, depth: 0, isExpanded: false } })

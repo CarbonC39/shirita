@@ -171,7 +171,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       <button
         v-if="!isHistory && !isContent"
         data-test="node-delete"
-        class="text-muted/0 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
+        class="text-muted/40 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
         :title="$t('common.delete')"
         @click.stop="emit('delete')"
       ><Trash2 :size="15" /></button>
