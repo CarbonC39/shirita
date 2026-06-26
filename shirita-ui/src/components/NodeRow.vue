@@ -7,6 +7,7 @@ import { triggerFromMeta } from '../api/types'
 import FullscreenEditor from './FullscreenEditor.vue'
 import TriggerEditor from './TriggerEditor.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
+import { metaToRule, scopeFlagsToMeta } from '../utils/regexRule'
 
 const props = defineProps<{
   node: PromptNode
@@ -23,6 +24,8 @@ const emit = defineEmits<{
   delete: []
   updateTrigger: [trigger: Trigger]
   updateNodeMeta: [meta: Record<string, unknown>]
+  updateDefMeta: [meta: Record<string, unknown>]
+  updateDefName: [name: string]
   add: []
 }>()
 
@@ -35,6 +38,17 @@ const isPanel = computed(() => isFolder.value && props.node.tag === 'panel')
 const def = computed<Definition | null>(() =>
   props.node.definition_id ? props.definitions[props.node.definition_id] ?? null : null,
 )
+
+// A regex_rule ref edits the definition's meta (pattern/replacement/scope) inline
+// instead of the generic content textarea, so a template can carry regex rules.
+const isRegex = computed(() => def.value?.type === 'regex_rule')
+const regexRule = computed(() => (def.value ? metaToRule(def.value) : null))
+function updateRegexMeta(patch: Record<string, unknown>) {
+  if (def.value) emit('updateDefMeta', { ...def.value.meta, ...patch })
+}
+function updateRegexScope(scope: { ai_output: boolean; user_input: boolean; phase: 'display' | 'both' | 'prompt' }) {
+  updateRegexMeta(scopeFlagsToMeta(scope))
+}
 
 const label = computed(() => {
   if (isHistory.value) return t('prompt.chatHistory')
@@ -171,7 +185,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       <button
         v-if="!isHistory && !isContent"
         data-test="node-delete"
-        class="text-muted/0 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
+        class="text-muted/40 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
         :title="$t('common.delete')"
         @click.stop="emit('delete')"
       ><Trash2 :size="15" /></button>
@@ -207,43 +221,92 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
     <!-- inline content editor for ref nodes -->
     <transition name="expand">
     <div v-if="!isFolder && !isHistory && !isContent && isExpanded" :style="{ paddingLeft: `${8 + (depth + 1) * 26}px` }" class="pr-2 pb-2 pt-0.5">
-      <div class="relative">
-        <textarea
-          v-model="draft"
-          rows="3"
-          data-test="node-content"
-          class="w-full resize-y rounded-[9px] border border-line bg-card px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-ink/75 outline-none focus:border-primary/50"
-          :placeholder="$t('definition.contentPlaceholder')"
-          @blur="commit"
-        />
-        <button
-          data-test="node-fullscreen"
-          class="absolute right-2 top-2 text-muted/70 hover:text-ink"
-          :title="$t('settings.fullscreen')"
-          @click="fullscreenOpen = true"
+      <!-- regex ref: name / find / replace / apply-to (edits the definition meta) -->
+      <div v-if="isRegex && regexRule" data-test="regex-inline" class="space-y-2.5">
+        <label class="block">
+          <span class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('definition.heading') }}</span>
+          <input
+            data-test="regex-name"
+            :value="def!.name"
+            type="text"
+            class="field w-full !py-1.5 text-[13px]"
+            @input="emit('updateDefName', ($event.target as HTMLInputElement).value)"
+          />
+        </label>
+        <label class="block">
+          <span class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('settings.regexFind') }}</span>
+          <input
+            data-test="regex-find"
+            :value="regexRule.pattern"
+            type="text"
+            class="field w-full !py-1.5 text-[13px] font-mono"
+            @input="updateRegexMeta({ pattern: ($event.target as HTMLInputElement).value })"
+          />
+        </label>
+        <label class="block">
+          <span class="text-[11px] text-muted uppercase tracking-wide block mb-1">{{ $t('settings.regexReplace') }}</span>
+          <input
+            data-test="regex-replace"
+            :value="regexRule.replacement"
+            type="text"
+            class="field w-full !py-1.5 text-[13px] font-mono"
+            @input="updateRegexMeta({ replacement: ($event.target as HTMLInputElement).value })"
+          />
+        </label>
+        <div>
+          <span class="text-[11px] text-muted uppercase tracking-wide block mb-1.5">{{ $t('settings.regexApplyTo') }}</span>
+          <div class="flex flex-wrap gap-3 items-center">
+            <label class="flex items-center gap-1 text-[13px]"><input type="checkbox" :checked="regexRule.scope.ai_output" class="w-3 h-3 rounded accent-primary" @change="updateRegexScope({ ...regexRule.scope, ai_output: ($event.target as HTMLInputElement).checked })" /> {{ $t('settings.regexAiOutput') }}</label>
+            <label class="flex items-center gap-1 text-[13px]"><input type="checkbox" :checked="regexRule.scope.user_input" class="w-3 h-3 rounded accent-primary" @change="updateRegexScope({ ...regexRule.scope, user_input: ($event.target as HTMLInputElement).checked })" /> {{ $t('settings.regexUserInput') }}</label>
+            <select :value="regexRule.scope.phase" class="field !py-1 text-[13px]" @change="updateRegexScope({ ...regexRule.scope, phase: ($event.target as HTMLSelectElement).value as 'display'|'both'|'prompt' })">
+              <option value="display">{{ $t('settings.regexPhaseDisplay') }}</option>
+              <option value="both">{{ $t('settings.regexPhaseBoth') }}</option>
+              <option value="prompt">{{ $t('settings.regexPhasePrompt') }}</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- non-regex ref: content + trigger + wrap -->
+      <template v-else>
+        <div class="relative">
+          <textarea
+            v-model="draft"
+            rows="3"
+            data-test="node-content"
+            class="w-full resize-y rounded-[9px] border border-line bg-card px-3 py-2.5 pr-8 text-[13px] leading-relaxed text-ink/75 outline-none focus:border-primary/50"
+            :placeholder="$t('definition.contentPlaceholder')"
+            @blur="commit"
+          />
+          <button
+            data-test="node-fullscreen"
+            class="absolute right-2 top-2 text-muted/70 hover:text-ink"
+            :title="$t('settings.fullscreen')"
+            @click="fullscreenOpen = true"
+          >
+            <Maximize2 :size="15" />
+          </button>
+        </div>
+
+        <!-- inline world-book trigger (container refs only) -->
+        <div v-if="def && !['prompt','regex_rule','tool'].includes(def.type)" class="mt-2.5">
+          <TriggerEditor
+            :model-value="triggerFromMeta(def.meta)"
+            @update:model-value="emit('updateTrigger', $event)"
+          />
+        </div>
+
+        <!-- per-use wrap_in_tag override: this template placement only -->
+        <label
+          v-if="showWrapToggle"
+          data-test="node-wrap-in-tag"
+          class="flex items-center gap-2 mt-2.5 text-[13px] text-ink"
+          :title="$t('definition.wrapInTagHint')"
         >
-          <Maximize2 :size="15" />
-        </button>
-      </div>
-
-      <!-- inline world-book trigger (container refs only) -->
-      <div v-if="def && !['prompt','regex_rule','tool'].includes(def.type)" class="mt-2.5">
-        <TriggerEditor
-          :model-value="triggerFromMeta(def.meta)"
-          @update:model-value="emit('updateTrigger', $event)"
-        />
-      </div>
-
-      <!-- per-use wrap_in_tag override: this template placement only -->
-      <label
-        v-if="showWrapToggle"
-        data-test="node-wrap-in-tag"
-        class="flex items-center gap-2 mt-2.5 text-[13px] text-ink"
-        :title="$t('definition.wrapInTagHint')"
-      >
-        {{ $t('definition.wrapInTag') }}
-        <ToggleSwitch :model-value="wrapValue" @update:model-value="updateWrap" />
-      </label>
+          {{ $t('definition.wrapInTag') }}
+          <ToggleSwitch :model-value="wrapValue" @update:model-value="updateWrap" />
+        </label>
+      </template>
     </div>
     </transition>
 

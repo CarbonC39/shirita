@@ -139,7 +139,7 @@ const providerStream = computed({
     set: (v: boolean) => set("provider_stream", v),
 });
 const genTemp = computed({
-    get: () => (get("gen_temperature") as number) ?? 0.7,
+    get: () => (get("gen_temperature") as number) ?? 1,
     set: (v: number) => set("gen_temperature", v),
 });
 const genTopP = computed({
@@ -157,9 +157,15 @@ const genPresPenalty = computed({
 // NB: the backend reads the response-token limit from `provider_max_tokens`
 // (conversation.rs / summarize.rs), so write that key — not gen_max_response_tokens.
 const genMaxTokens = computed({
-    get: () => (get("provider_max_tokens") as number) ?? 4096,
+    get: () => (get("provider_max_tokens") as number) ?? 8192,
     set: (v: number) => set("provider_max_tokens", v),
 });
+// "Unlimited" output is the sentinel provider_max_tokens === 0 (backend maps it
+// to None / no max_tokens). The slider/number are hidden while it's on.
+const maxTokensUnlimited = computed(() => (get("provider_max_tokens") as number) === 0);
+function setMaxTokensUnlimited(on: boolean) {
+    set("provider_max_tokens", on ? 0 : 8192);
+}
 const customCss = computed({
     get: () => (get("custom_css") as string) || "",
     set: (v: string) => set("custom_css", v),
@@ -482,8 +488,10 @@ async function handleTestConnection() {
                             <input
                                 :value="providerApiKey"
                                 :type="showApiKey ? 'text' : 'password'"
+                                data-test="api-key"
                                 :placeholder="apiKeyOptional ? $t('settings.apiKeyOptional') : ''"
                                 class="field w-full pr-9 font-mono"
+                                :class="{ 'tracking-[0.25em]': !showApiKey }"
                                 @input="
                                     providerApiKey = (
                                         $event.target as HTMLInputElement
@@ -491,6 +499,7 @@ async function handleTestConnection() {
                                 "
                             />
                             <button
+                                data-test="api-key-reveal"
                                 class="absolute right-2.5 top-2.5 text-muted hover:text-ink"
                                 @click="showApiKey = !showApiKey"
                             >
@@ -645,23 +654,23 @@ async function handleTestConnection() {
                     :max="2"
                     :step="0.01"
                 />
-                <div class="flex items-center justify-between">
+                <div data-test="max-unlimited" class="flex items-center justify-between">
                     <span class="text-[14px] text-ink"
-                        >{{ $t("settings.maxResponseTokens") }}</span
+                        >{{ $t("settings.maxTokensUnlimited") }}</span
                     >
-                    <input
-                        :value="genMaxTokens"
-                        type="number"
-                        min="1"
-                        class="field w-[88px] text-right tabular-nums"
-                        @input="
-                            genMaxTokens =
-                                parseInt(
-                                    ($event.target as HTMLInputElement).value,
-                                ) || 0
-                        "
+                    <ToggleSwitch
+                        :model-value="maxTokensUnlimited"
+                        @update:model-value="setMaxTokensUnlimited($event)"
                     />
                 </div>
+                <SliderControl
+                    v-if="!maxTokensUnlimited"
+                    v-model="genMaxTokens"
+                    :label="$t('settings.maxResponseTokens')"
+                    :min="256"
+                    :max="32768"
+                    :step="256"
+                />
             </section>
 
             <div class="border-t border-line my-6" />
@@ -806,7 +815,7 @@ async function handleTestConnection() {
                             :value="customCss"
                             rows="6"
                             class="field w-full text-[13px] leading-relaxed font-mono resize-y"
-                            placeholder="/* hooks: .app-chat-column .app-message[data-role] .app-composer [data-app=shell] */"
+                            placeholder="/* Custom CSS */"
                             @input="
                                 customCss = (
                                     $event.target as HTMLTextAreaElement

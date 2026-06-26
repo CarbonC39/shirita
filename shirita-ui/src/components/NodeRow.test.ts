@@ -18,6 +18,13 @@ describe('NodeRow', () => {
     expect(w.emitted('delete')).toBeTruthy()
   })
 
+  it('keeps the delete button visible (not opacity-0) for touch devices', () => {
+    const w = mount(NodeRow, { props: { node: node({}), definitions: defs, depth: 0, isExpanded: false } })
+    const del = w.get('[data-test="node-delete"]')
+    expect(del.classes()).not.toContain('text-muted/0')
+    expect(del.classes()).toContain('text-muted/40')
+  })
+
   it('folder rows show an add button beside delete and emit add', async () => {
     const folder = node({ kind: 'folder', tag: 'char', definition_id: null })
     const w = mount(NodeRow, { props: { node: folder, definitions: defs, depth: 0, isExpanded: false } })
@@ -92,5 +99,37 @@ describe('NodeRow', () => {
     const ref = node({ kind: 'ref', definition_id: 'd1' })
     const w = mount(NodeRow, { props: { node: ref, definitions: worldDefs, depth: 1, isExpanded: true } })
     expect(w.find('[data-test="trigger-editor"]').exists()).toBe(true)
+  })
+})
+
+describe('NodeRow regex editing', () => {
+  const rxDefs: Record<string, Definition> = {
+    r1: { id: 'r1', type: 'regex_rule', name: 'Clean', content: '', meta: { pattern: 'a', replacement: 'b' } },
+  }
+  function rxNode(): PromptNode {
+    return { id: 'n1', owner_kind: 'template', owner_id: 't', parent_id: null, sort_order: 0,
+      kind: 'ref', tag: null, definition_id: 'r1', enabled: true, created_at: '', meta: {} }
+  }
+
+  it('shows find/replace inputs and no content textarea for a regex ref', () => {
+    const w = mount(NodeRow, { props: { node: rxNode(), definitions: rxDefs, depth: 0, isExpanded: true } })
+    expect(w.find('[data-test="regex-find"]').exists()).toBe(true)
+    expect(w.find('[data-test="node-content"]').exists()).toBe(false)
+  })
+
+  it('emits updateDefMeta when the pattern changes', async () => {
+    const w = mount(NodeRow, { props: { node: rxNode(), definitions: rxDefs, depth: 0, isExpanded: true } })
+    await w.find('[data-test="regex-find"]').setValue('xyz')
+    const ev = w.emitted('updateDefMeta')
+    expect(ev).toBeTruthy()
+    expect((ev![ev!.length - 1][0] as Record<string, unknown>).pattern).toBe('xyz')
+  })
+
+  it('emits updateDefName when the name changes', async () => {
+    const w = mount(NodeRow, { props: { node: rxNode(), definitions: rxDefs, depth: 0, isExpanded: true } })
+    await w.find('[data-test="regex-name"]').setValue('Renamed')
+    const ev = w.emitted('updateDefName')
+    expect(ev).toBeTruthy()
+    expect(ev![ev!.length - 1][0]).toBe('Renamed')
   })
 })

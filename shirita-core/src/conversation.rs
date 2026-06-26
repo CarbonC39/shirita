@@ -75,6 +75,8 @@ async fn provider_max_tokens(storage: &dyn Storage) -> Option<u32> {
         .flatten()
         .and_then(|v| v.as_u64())
         .map(|n| n as u32)
+        // 0 is the UI's "Unlimited" sentinel → no output cap (provider default).
+        .filter(|&n| n > 0)
 }
 
 /// Selects the summary applicable to the current branch: The `cutoff` must fall on the `active` path; if there are multiple paths, the one with the latest `cutoff` is chosen.
@@ -605,6 +607,15 @@ mod tests {
     async fn drain(stream: impl futures::Stream<Item = SendEvent>) {
         futures::pin_mut!(stream);
         while futures::StreamExt::next(&mut stream).await.is_some() {}
+    }
+
+    #[tokio::test]
+    async fn provider_max_tokens_zero_means_unlimited() {
+        let storage: Arc<dyn Storage> = Arc::new(temp_storage().await);
+        storage.set_setting("provider_max_tokens", &serde_json::json!(0)).await.unwrap();
+        assert_eq!(super::provider_max_tokens(storage.as_ref()).await, None);
+        storage.set_setting("provider_max_tokens", &serde_json::json!(4096)).await.unwrap();
+        assert_eq!(super::provider_max_tokens(storage.as_ref()).await, Some(4096));
     }
 
     #[tokio::test]

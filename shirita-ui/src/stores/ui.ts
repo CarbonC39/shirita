@@ -8,7 +8,7 @@ export type Theme = 'light' | 'dark' | 'system'
 export const useUiStore = defineStore('ui', {
   state: () => ({
     messageStyle:
-      (localStorage.getItem('ui.messageStyle') as MessageStyle) || 'bubble',
+      (localStorage.getItem('ui.messageStyle') as MessageStyle) || 'flat',
     theme: (localStorage.getItem('ui.theme') as Theme) || 'system',
     // App-wide background image (relative asset path). Cached locally so it
     // paints immediately on load; also mirrored to server settings.

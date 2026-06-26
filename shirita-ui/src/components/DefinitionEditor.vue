@@ -44,6 +44,10 @@ function updateScan(patch: { depth?: number; recursive?: boolean }) {
   emit('update:meta', { ...props.definition.meta, scan: { ...scan.value, ...patch } })
 }
 
+// Scan depth/recursion only matter for keyword (world-info scan) triggers; a
+// constant ("always on") or random insert never scans, so hide those controls.
+const triggerMode = computed(() => triggerFromMeta(props.definition.meta).mode)
+
 // World-info trigger + scan settings only make sense for container (lore) types,
 // not for prompt/regex_rule/tool/first_message refs, nor for the reserved
 // non-rendering leaf bricks html/css (kept in sync with the backend RESERVED set).
@@ -266,20 +270,22 @@ function startNew() {
         @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
       />
       <div class="flex items-center gap-4 flex-wrap">
-        <label class="flex items-center gap-2 text-[13px] text-ink">
-          {{ $t('definition.scanDepth') }}
-          <input
-            data-test="scan-depth"
-            :value="scan.depth"
-            type="number" min="1" max="20"
-            class="field !py-1 w-[64px] text-right tabular-nums"
-            @input="updateScan({ depth: parseInt(($event.target as HTMLInputElement).value) || 1 })"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-[13px] text-ink">
-          {{ $t('definition.recursive') }}
-          <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
-        </label>
+        <template v-if="triggerMode === 'keyword'">
+          <label class="flex items-center gap-2 text-[13px] text-ink">
+            {{ $t('definition.scanDepth') }}
+            <input
+              data-test="scan-depth"
+              :value="scan.depth"
+              type="number" min="1" max="20"
+              class="field !py-1 w-[64px] text-right tabular-nums"
+              @input="updateScan({ depth: parseInt(($event.target as HTMLInputElement).value) || 1 })"
+            />
+          </label>
+          <label class="flex items-center gap-2 text-[13px] text-ink">
+            {{ $t('definition.recursive') }}
+            <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
+          </label>
+        </template>
         <label v-if="showWrapInTag" class="flex items-center gap-2 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
           {{ $t('definition.wrapInTag') }}
           <ToggleSwitch

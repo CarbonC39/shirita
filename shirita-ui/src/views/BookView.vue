@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Pencil, Upload, Download, Copy, Trash2 } from "lucide-vue-next";
+import { Check, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { useMediaStore } from "../stores/media";
@@ -339,7 +339,8 @@ async function localCreateNewInContainer(parentId: string | null, typeId: string
     if (!sid) return;
     try {
         await ensureMaterialized();
-        const def = await createDefinition({ type: typeId, name: `New ${typeId}`, content: "", meta: {} });
+        const isRx = typeId === "regex_rule";
+        const def = await createDefinition({ type: typeId, name: isRx ? "New rule" : `New ${typeId}`, content: "", meta: isRx ? { pattern: "", replacement: "", disabled: false, scope: "display", targets: ["ai_output"] } : {} });
         await library.loadDefinitions();
         await createNode("session", sid, { parent_id: parentId, kind: "ref", definition_id: def.id });
         await loadLocalNodes();
@@ -429,10 +430,22 @@ onMounted(async () => {
             library.loadTypes(),
             library.loadPacks(),
         ]);
-        // Auto-select the first template as default when none is active
-        if (!selectedTemplateId.value && library.templates.length > 0) {
-            await selectTemplate(library.templates[0].id);
-        }
+        // Restore the last-edited template/pack/definition (Book remounts on
+        // navigation). Fall back to the default template, then the first.
+        const savedTemplate = localStorage.getItem("book.templateId");
+        const defaultTemplate = library.templates.find((t) => (t.meta as Record<string, unknown>)?.default)?.id;
+        const templateToSelect =
+            (savedTemplate && library.templates.some((t) => t.id === savedTemplate) ? savedTemplate : null) ??
+            defaultTemplate ??
+            library.templates[0]?.id ??
+            null;
+        if (templateToSelect) await selectTemplate(templateToSelect);
+
+        const savedPack = localStorage.getItem("book.packId");
+        if (savedPack && library.packs.some((p) => p.id === savedPack)) selectedPackId.value = savedPack;
+
+        const savedDef = localStorage.getItem("book.defId");
+        if (savedDef && library.definitions.some((d) => d.id === savedDef)) selectDefinition(savedDef);
     } catch (e) {
         error.value = (e as Error).message;
     } finally {
@@ -443,6 +456,7 @@ onMounted(async () => {
 // ── templates ──────────────────────────────────────────────
 async function selectTemplate(id: string) {
     selectedTemplateId.value = id || null;
+    try { localStorage.setItem("book.templateId", id || "") } catch { /* ignore */ }
     templateName.value = library.templates.find((t) => t.id === id)?.name ?? "";
     if (id) {
         try {
@@ -501,6 +515,30 @@ async function delTemplate() {
         selectedTemplateId.value = null;
         templateName.value = "";
         nodes.value = [];
+        await library.loadTemplates();
+    } catch (e) {
+        error.value = (e as Error).message;
+    }
+}
+
+// The default template is auto-selected for new chats. At most one is default;
+// setting a new one clears the previous. Stored on template.meta.default.
+const isDefaultTemplate = computed(() => {
+    const t = library.templates.find((x) => x.id === selectedTemplateId.value);
+    return (t?.meta as Record<string, unknown> | undefined)?.default === true;
+});
+async function toggleDefaultTemplate() {
+    const id = selectedTemplateId.value;
+    if (!id) return;
+    const turningOn = !isDefaultTemplate.value;
+    try {
+        for (const t of library.templates) {
+            if ((t.meta as Record<string, unknown>)?.default && t.id !== id) {
+                await updateTemplate(t.id, t.name, { ...t.meta, default: false });
+            }
+        }
+        const cur = library.templates.find((t) => t.id === id);
+        await updateTemplate(id, cur?.name ?? templateName.value, { ...(cur?.meta ?? {}), default: turningOn });
         await library.loadTemplates();
     } catch (e) {
         error.value = (e as Error).message;
@@ -611,11 +649,12 @@ async function deleteTypeFromEditor(id: string) {
 async function createNewInContainer(parentId: string | null, typeId: string) {
     if (!selectedTemplateId.value) return;
     try {
+        const isRx = typeId === "regex_rule";
         const def = await createDefinition({
             type: typeId,
-            name: `New ${typeId}`,
+            name: isRx ? "New rule" : `New ${typeId}`,
             content: "",
-            meta: {},
+            meta: isRx ? { pattern: "", replacement: "", disabled: false, scope: "display", targets: ["ai_output"] } : {},
         });
         await library.loadDefinitions();
         await createNode("template", selectedTemplateId.value, {
@@ -704,6 +743,20 @@ async function handleUpdateTrigger(definitionId: string, trigger: Trigger) {
         error.value = (e as Error).message;
     }
 }
+// Persist a regex (or other brick) definition's meta/name edited inline in the
+// tree — used by regex_rule refs carried by a template.
+async function handleUpdateDefMeta(definitionId: string, meta: Record<string, unknown>) {
+    try {
+        await updateDefinition(definitionId, { meta });
+        await library.loadDefinitions();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function handleUpdateDefName(definitionId: string, name: string) {
+    try {
+        await updateDefinition(definitionId, { name });
+        await library.loadDefinitions();
+    } catch (e) { error.value = (e as Error).message; }
+}
 
 // ── packs ───────────────────────────────────────────────────
 const selectedPackId = ref<string | null>(null);
@@ -711,7 +764,10 @@ const selectedPack = computed(() => library.packs.find((p) => p.id === selectedP
 const renamingPack = ref(false);
 const packNameDraft = ref("");
 
-function selectPack(id: string) { selectedPackId.value = id || null; }
+function selectPack(id: string) {
+    selectedPackId.value = id || null;
+    try { localStorage.setItem("book.packId", id || "") } catch { /* ignore */ }
+}
 async function createPackNamed(name: string) {
     try {
         const p = await createPack({ name: name?.trim() || "New pack" });
@@ -760,6 +816,7 @@ async function exportSelectedPack() {
 
 // ── definition editor ──────────────────────────────────────
 function selectDefinition(id: string) {
+    try { localStorage.setItem("book.defId", id || "") } catch { /* ignore */ }
     if (!id) {
         loadDef(blankDef());
         defActive.value = true;
@@ -883,6 +940,8 @@ async function duplicateDef() {
                         @update-content="localUpdateContent"
                         @update-trigger="localUpdateTrigger"
                         @update-node-meta="localUpdateNodeMeta"
+                        @update-def-meta="handleUpdateDefMeta"
+                        @update-def-name="handleUpdateDefName"
                         @delete-node="localDeleteNode"
                         @reorder="localReorder"
                     />
@@ -915,9 +974,9 @@ async function duplicateDef() {
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
             <!-- template picker / ops -->
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <EntityPicker
-                    class="flex-1"
+                    class="flex-1 min-w-[180px]"
                     data-test="template-picker"
                     :items="library.templates.map((t) => ({ id: t.id, name: t.name }))"
                     :placeholder="$t('book.editTemplate')"
@@ -926,6 +985,16 @@ async function duplicateDef() {
                     @create="createTemplateNamed"
                 />
                 <div class="flex items-center">
+                    <button
+                        data-test="template-default"
+                        class="w-[33px] h-[33px] grid place-items-center rounded-lg disabled:opacity-40"
+                        :class="isDefaultTemplate ? 'text-amber-500' : 'text-muted hover:text-ink'"
+                        :title="$t('book.defaultTemplate')"
+                        :disabled="!selectedTemplateId"
+                        @click="toggleDefaultTemplate"
+                    >
+                        <Star :size="15" :fill="isDefaultTemplate ? 'currentColor' : 'none'" />
+                    </button>
                     <button
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('common.rename')"
@@ -1043,6 +1112,8 @@ async function duplicateDef() {
                 @update-content="handleUpdateContent"
                 @update-trigger="handleUpdateTrigger"
                 @update-node-meta="handleUpdateNodeMeta"
+                @update-def-meta="handleUpdateDefMeta"
+                @update-def-name="handleUpdateDefName"
                 @delete-node="handleDeleteNode"
                 @reorder="handleReorder"
             />
@@ -1052,19 +1123,19 @@ async function duplicateDef() {
             <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
-                <div class="flex items-center gap-2 mb-3">
+                <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <input
                         v-if="renamingPack"
                         v-model="packNameDraft"
                         type="text"
-                        class="field flex-1"
+                        class="field flex-1 min-w-[180px]"
                         :placeholder="$t('book.packNamePlaceholder')"
                         @keydown.enter="renamePack"
                         @blur="renamePack"
                     />
                     <EntityPicker
                         v-else
-                        class="flex-1"
+                        class="flex-1 min-w-[180px]"
                         data-test="pack-picker"
                         :items="library.packs.map((p) => ({ id: p.id, name: p.name }))"
                         :placeholder="$t('book.editPack')"

@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { MessageCircle, BookOpen, Settings, ChevronRight } from 'lucide-vue-next'
 import { useUiStore } from '../stores/ui'
 import { assetUrl } from '../api/client'
+import logoUrl from '../assets/favicon.svg'
 
 const ui = useUiStore()
 const route = useRoute()
@@ -45,8 +46,12 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
       <header>
         <div class="flex items-center justify-between px-6 pt-4 pb-1.5">
           <div class="flex items-center gap-2 min-w-[120px]">
-            <router-link to="/" class="w-7 h-7 rounded-lg bg-primary text-white grid place-items-center font-bold text-sm shrink-0">
-              S
+            <router-link
+              to="/"
+              data-test="brand"
+              class="w-7 h-7 rounded-lg overflow-hidden grid place-items-center shrink-0"
+            >
+              <img :src="logoUrl" alt="Shirita" class="w-7 h-7 object-cover" />
             </router-link>
             <template v-for="(c, i) in crumbs" :key="i">
               <ChevronRight :size="13" class="text-muted/50 shrink-0" />

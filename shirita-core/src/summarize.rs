@@ -116,7 +116,9 @@ pub async fn run(
         .ok()
         .flatten()
         .and_then(|v| v.as_u64())
-        .map(|n| n as u32);
+        .map(|n| n as u32)
+        // 0 is the UI's "Unlimited" sentinel → no output cap (provider default).
+        .filter(|&n| n > 0);
     let req = ChatRequest {
         model,
         messages: vec![
