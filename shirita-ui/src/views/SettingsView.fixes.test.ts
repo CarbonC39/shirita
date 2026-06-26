@@ -67,3 +67,39 @@ describe('SettingsView max output', () => {
     expect(w.findAllComponents(SliderControl).some((s) => s.props('label') === 'Max response tokens')).toBe(false)
   })
 })
+
+describe('SettingsView custom css', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.restoreAllMocks()
+    i18n.global.locale.value = 'en'
+  })
+
+  it('no textarea exposes the internal hook selectors as a placeholder', async () => {
+    mockEmptySettings()
+    const w = mount(SettingsView)
+    await flushPromises()
+    const leaky = w.findAll('textarea').some((t) => (t.attributes('placeholder') ?? '').includes('hooks:'))
+    expect(leaky).toBe(false)
+  })
+})
+
+describe('SettingsView api key field', () => {
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    localStorage.clear()
+    vi.restoreAllMocks()
+    i18n.global.locale.value = 'en'
+  })
+
+  it('widens letter-spacing while the key is masked, not when revealed', async () => {
+    mockEmptySettings()
+    const w = mount(SettingsView)
+    await flushPromises()
+    const key = w.get('[data-test="api-key"]')
+    expect(key.classes()).toContain('tracking-[0.25em]')
+    await w.get('[data-test="api-key-reveal"]').trigger('click')
+    expect(w.get('[data-test="api-key"]').classes()).not.toContain('tracking-[0.25em]')
+  })
+})

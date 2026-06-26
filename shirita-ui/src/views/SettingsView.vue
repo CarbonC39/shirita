@@ -488,8 +488,10 @@ async function handleTestConnection() {
                             <input
                                 :value="providerApiKey"
                                 :type="showApiKey ? 'text' : 'password'"
+                                data-test="api-key"
                                 :placeholder="apiKeyOptional ? $t('settings.apiKeyOptional') : ''"
                                 class="field w-full pr-9 font-mono"
+                                :class="{ 'tracking-[0.25em]': !showApiKey }"
                                 @input="
                                     providerApiKey = (
                                         $event.target as HTMLInputElement
@@ -497,6 +499,7 @@ async function handleTestConnection() {
                                 "
                             />
                             <button
+                                data-test="api-key-reveal"
                                 class="absolute right-2.5 top-2.5 text-muted hover:text-ink"
                                 @click="showApiKey = !showApiKey"
                             >
@@ -812,7 +815,7 @@ async function handleTestConnection() {
                             :value="customCss"
                             rows="6"
                             class="field w-full text-[13px] leading-relaxed font-mono resize-y"
-                            placeholder="/* hooks: .app-chat-column .app-message[data-role] .app-composer [data-app=shell] */"
+                            placeholder="/* Custom CSS */"
                             @input="
                                 customCss = (
                                     $event.target as HTMLTextAreaElement
