@@ -209,8 +209,12 @@ fn try_convert_status_panel(scripts: &[serde_json::Value]) -> Option<PanelConver
         let Some(replace_string) = s.get("replaceString").and_then(|v| v.as_str()) else { continue };
         let normalized = crate::assembly::normalize_js_regex_literal(find_regex);
         let Ok(re) = fancy_regex::Regex::new(&normalized) else { continue };
+        // A status bar has a handful of fields; an absurd group count means a
+        // pathological pattern, not a status bar. Capping it also bounds the
+        // `vec![None; max_n]` allocation below (max_n <= group_count).
+        const MAX_PANEL_GROUPS: usize = 256;
         let group_count = re.captures_len().saturating_sub(1);
-        if group_count == 0 {
+        if group_count == 0 || group_count > MAX_PANEL_GROUPS {
             continue;
         }
         let valid_ns = dollar_refs_in(replace_string, group_count);
@@ -595,6 +599,15 @@ mod tests {
     fn try_convert_status_panel_skips_when_ambiguous() {
         // two scripts both qualify -> skip rather than guess.
         let scripts = vec![script(r"<a>(.*)</a>", "$1"), script(r"<b>(.*)</b>", "$1")];
+        assert!(try_convert_status_panel(&scripts).is_none());
+    }
+
+    #[test]
+    fn try_convert_status_panel_rejects_excessive_capture_groups() {
+        // A pathological pattern with a huge group count paired with a large $N
+        // would size `vec![None; max_n]` to that count — guard against it.
+        let find = "(.)".repeat(300); // 300 capture groups
+        let scripts = vec![script(&find, "$300")];
         assert!(try_convert_status_panel(&scripts).is_none());
     }
 
