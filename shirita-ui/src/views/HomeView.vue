@@ -162,13 +162,11 @@ async function onImportFile(e: Event) {
                 class="block ml-1 transition-transform duration-200 ease-out hover:-translate-y-1 hover:scale-105 active:scale-95"
             >
                 <svg
+                    class="new-glow"
                     width="54"
                     height="54"
                     viewBox="0 0 24 24"
-                    style="
-                        transform: scaleX(-1);
-                        filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.18));
-                    "
+                    style="transform: scaleX(-1)"
                 >
                     <path
                         fill="var(--color-primary)"
@@ -197,3 +195,27 @@ async function onImportFile(e: Event) {
         </div>
     </div>
 </template>
+
+<style scoped>
+.new-glow {
+    filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.18))
+        drop-shadow(0 0 6px color-mix(in srgb, var(--color-primary) 70%, transparent));
+    animation: new-pulse 2.4s ease-in-out infinite;
+}
+@keyframes new-pulse {
+    0%,
+    100% {
+        filter: drop-shadow(0 7px 16px rgba(0, 0, 0, 0.18))
+            drop-shadow(0 0 5px color-mix(in srgb, var(--color-primary) 55%, transparent));
+    }
+    50% {
+        filter: drop-shadow(0 7px 18px rgba(0, 0, 0, 0.2))
+            drop-shadow(0 0 12px color-mix(in srgb, var(--color-primary) 85%, transparent));
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .new-glow {
+        animation: none;
+    }
+}
+</style>
