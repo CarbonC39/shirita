@@ -69,7 +69,7 @@ mod serving {
             Some(f) => {
                 let mime = mime_guess::from_path(&path)
                     .first_or_octet_stream();
-                let body = axum::body::Bytes::from(f.data);
+                let body = axum::body::Bytes::from(f.data.into());
 
                 (
                     [
