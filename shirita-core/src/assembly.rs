@@ -461,7 +461,9 @@ fn maybe_wrap(def: &Definition, node: &PromptNode, content: String) -> String {
         .get("wrap_in_tag")
         .and_then(|v| v.as_bool())
         .unwrap_or_else(|| def.meta.get("wrap_in_tag").and_then(|v| v.as_bool()).unwrap_or(false));
-    if !on {
+    // Don't wrap empty/whitespace content — a bare `<tag></tag>` is noise the
+    // model has to read past (and may misread as a real, empty section).
+    if !on || content.trim().is_empty() {
         return content;
     }
     let mut tag = sanitize_tag(&def.name);
@@ -886,6 +888,17 @@ mod tests {
         assert_eq!(maybe_wrap(&d, &n, "body".into()), "body");
         d.meta = serde_json::json!({ "wrap_in_tag": true });
         assert_eq!(maybe_wrap(&d, &n, "body".into()), "<Alice_Smith>\nbody\n</Alice_Smith>");
+    }
+
+    #[test]
+    fn maybe_wrap_skips_empty_content_to_avoid_empty_tag() {
+        // A wrap_in_tag def whose rendered content is empty/whitespace must not
+        // emit a bare `<tag></tag>` placeholder.
+        let mut d = Definition::new("char", "Alice", "");
+        d.meta = serde_json::json!({ "wrap_in_tag": true });
+        let n = plain_ref_node();
+        assert_eq!(maybe_wrap(&d, &n, "".into()), "");
+        assert_eq!(maybe_wrap(&d, &n, "   \n".into()), "   \n"); // whitespace passes through unwrapped
     }
 
     #[test]
