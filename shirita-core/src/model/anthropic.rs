@@ -63,8 +63,11 @@ fn prepend_text(content: &mut serde_json::Value, prefix: &str) {
     }
 }
 
-/// Construct the Anthropic request body: Merge the System segment into the top-level `system`; wrap `summary` in `<history_summary>`
-/// **Prepend to the beginning of the first user message** (maintain an alternating pattern of user/assistant to avoid consecutive messages from the same role); if there is no user message, treat this as the first user message.
+/// Construct the Anthropic request body: merge the System segments into the top-level `system`; wrap `summary`
+/// in `<history_summary>` and prepend it to the first user message (or insert one if there is none).
+/// Anthropic rejects a request whose first message is not `user`, so any leading `assistant` turns left behind by
+/// history trimming/folding are dropped first. Consecutive same-role turns are intentionally left intact — the API
+/// merges them server-side, so no further normalization is needed.
 pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     let mut system = String::new();
     let mut messages: Vec<serde_json::Value> = Vec::new();
@@ -80,6 +83,10 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
             Role::Assistant => messages.push(json!({ "role": "assistant", "content": anthropic_content(m) })),
         }
     }
+    // Anthropic requires the first message to be `user`; drop any orphaned leading
+    // assistant turns (e.g. when trimming dropped the user turn they replied to).
+    let lead_assistant = messages.iter().take_while(|m| m["role"] == "assistant").count();
+    messages.drain(..lead_assistant);
     if let Some(sum) = &req.summary {
         let wrapped = format!("<history_summary>\n{sum}\n</history_summary>");
         if let Some(first_user) = messages.iter_mut().find(|m| m["role"] == "user") {
@@ -242,6 +249,55 @@ mod tests {
         assert!(first.contains("earlier"));
         assert!(first.trim_end().ends_with("hi"));
         assert_eq!(msgs[1]["role"], "assistant");
+    }
+
+    #[test]
+    fn drops_leading_assistant_so_first_message_is_user() {
+        // Trimming/folding can drop the original leading user turn, leaving an
+        // orphaned assistant reply first — Anthropic rejects a non-user first
+        // message with a 400.
+        let r = req(vec![
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "a1".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "u1".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "a2".into(), ..Default::default() },
+        ], None);
+        let b = anthropic_body(&r);
+        let msgs = b["messages"].as_array().unwrap();
+        assert_eq!(msgs[0]["role"], "user");
+        assert_eq!(msgs[0]["content"], "u1");
+        assert_eq!(msgs.len(), 2); // leading "a1" dropped, "u1" + "a2" kept
+    }
+
+    #[test]
+    fn summary_inserts_user_after_dropping_leading_assistant() {
+        let r = req(vec![
+            ChatMessage { role: Role::Assistant, content: "a1".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "u1".into(), ..Default::default() },
+        ], Some("earlier"));
+        let b = anthropic_body(&r);
+        let msgs = b["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 1); // leading "a1" dropped, summary folds into "u1"
+        assert_eq!(msgs[0]["role"], "user");
+        let first = msgs[0]["content"].as_str().unwrap();
+        assert!(first.contains("<history_summary>"));
+        assert!(first.trim_end().ends_with("u1"));
+    }
+
+    #[test]
+    fn consecutive_same_role_messages_are_preserved() {
+        // The Anthropic API merges consecutive same-role turns server-side, so we
+        // deliberately do NOT merge them here — this guards against a regression
+        // that "fixes" alternation we don't need.
+        let r = req(vec![
+            ChatMessage { role: Role::User, content: "u1".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "u2".into(), ..Default::default() },
+        ], None);
+        let b = anthropic_body(&r);
+        let msgs = b["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["content"], "u1");
+        assert_eq!(msgs[1]["content"], "u2");
     }
 
     #[test]
