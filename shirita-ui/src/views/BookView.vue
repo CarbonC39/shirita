@@ -915,9 +915,9 @@ async function duplicateDef() {
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
             <!-- template picker / ops -->
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
                 <EntityPicker
-                    class="flex-1"
+                    class="flex-1 min-w-[180px]"
                     data-test="template-picker"
                     :items="library.templates.map((t) => ({ id: t.id, name: t.name }))"
                     :placeholder="$t('book.editTemplate')"
@@ -1052,19 +1052,19 @@ async function duplicateDef() {
             <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
-                <div class="flex items-center gap-2 mb-3">
+                <div class="flex items-center gap-2 mb-3 flex-wrap">
                     <input
                         v-if="renamingPack"
                         v-model="packNameDraft"
                         type="text"
-                        class="field flex-1"
+                        class="field flex-1 min-w-[180px]"
                         :placeholder="$t('book.packNamePlaceholder')"
                         @keydown.enter="renamePack"
                         @blur="renamePack"
                     />
                     <EntityPicker
                         v-else
-                        class="flex-1"
+                        class="flex-1 min-w-[180px]"
                         data-test="pack-picker"
                         :items="library.packs.map((p) => ({ id: p.id, name: p.name }))"
                         :placeholder="$t('book.editPack')"
