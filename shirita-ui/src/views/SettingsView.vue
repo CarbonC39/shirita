@@ -139,7 +139,7 @@ const providerStream = computed({
     set: (v: boolean) => set("provider_stream", v),
 });
 const genTemp = computed({
-    get: () => (get("gen_temperature") as number) ?? 0.7,
+    get: () => (get("gen_temperature") as number) ?? 1,
     set: (v: number) => set("gen_temperature", v),
 });
 const genTopP = computed({
@@ -157,7 +157,7 @@ const genPresPenalty = computed({
 // NB: the backend reads the response-token limit from `provider_max_tokens`
 // (conversation.rs / summarize.rs), so write that key — not gen_max_response_tokens.
 const genMaxTokens = computed({
-    get: () => (get("provider_max_tokens") as number) ?? 4096,
+    get: () => (get("provider_max_tokens") as number) ?? 8192,
     set: (v: number) => set("provider_max_tokens", v),
 });
 const customCss = computed({
