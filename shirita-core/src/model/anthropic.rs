@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::models::message::Role;
 use crate::{Error, Result};
 
-use super::{decode_utf8_chunk, ChatMessage, ChatRequest, ModelProvider};
+use super::{close_reasoning, decode_utf8_chunk, ChatMessage, ChatRequest, ModelProvider};
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -198,6 +198,9 @@ impl ModelProvider for AnthropicProvider {
                     }
                 }
             }
+            // Stream ended while still inside a thinking block (no text block
+            // followed to close it): emit the dangling </think>.
+            if let Some(close) = close_reasoning(&mut in_thinking) { yield Ok(close); }
         };
         Ok(Box::pin(stream))
     }

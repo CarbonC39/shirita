@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::{Error, Result};
 
-use super::{decode_utf8_chunk, parse_delta_kind, render_delta, ChatRequest, ModelProvider};
+use super::{close_reasoning, decode_utf8_chunk, parse_delta_kind, render_delta, ChatRequest, ModelProvider};
 
 pub struct OpenAiProvider {
     client: reqwest::Client,
@@ -127,6 +127,7 @@ impl ModelProvider for OpenAiProvider {
                         None => continue,
                     };
                     if data == "[DONE]" {
+                        if let Some(close) = close_reasoning(&mut in_reasoning) { yield Ok(close); }
                         return;
                     }
                     match parse_delta_kind(data) {
@@ -135,6 +136,8 @@ impl ModelProvider for OpenAiProvider {
                     }
                 }
             }
+            // Clean EOF without a trailing [DONE]: still close a dangling <think>.
+            if let Some(close) = close_reasoning(&mut in_reasoning) { yield Ok(close); }
         };
         Ok(Box::pin(stream))
     }
