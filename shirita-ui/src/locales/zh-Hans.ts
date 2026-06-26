@@ -221,6 +221,7 @@ const zhHans: MessageSchema = {
     frequencyPenalty: '频率惩罚',
     presencePenalty: '存在惩罚',
     maxResponseTokens: '最大回复 token 数',
+    maxTokensUnlimited: '不限制输出',
     context: '上下文',
     autoSummarize: '自动总结长对话',
     contextWindow: '上下文窗口（token）',

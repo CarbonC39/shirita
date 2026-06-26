@@ -232,6 +232,7 @@ const en = {
     frequencyPenalty: 'Frequency penalty',
     presencePenalty: 'Presence penalty',
     maxResponseTokens: 'Max response tokens',
+    maxTokensUnlimited: 'Unlimited output',
     context: 'Context',
     autoSummarize: 'Auto-summarize long chats',
     contextWindow: 'Context window (tokens)',

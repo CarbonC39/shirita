@@ -222,6 +222,7 @@ const ja: MessageSchema = {
     frequencyPenalty: '頻度ペナルティ',
     presencePenalty: '存在ペナルティ',
     maxResponseTokens: '最大応答トークン数',
+    maxTokensUnlimited: '出力を無制限',
     context: 'コンテキスト',
     autoSummarize: '長い会話を自動要約',
     contextWindow: 'コンテキストウィンドウ（トークン）',
