@@ -1,4 +1,4 @@
-//! 核心错误类型。
+//! Core error types.
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

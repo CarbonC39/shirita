@@ -1,4 +1,4 @@
-//! SqliteStorage：连接、迁移与 definitions CRUD。
+//! SqliteStorage: Connection, migration, and definition CRUD.
 
 use async_trait::async_trait;
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteRow};
@@ -123,7 +123,15 @@ fn to_plain_text(text: &str) -> String {
 /// One-line snippet of a message for the home list: newlines collapsed, trimmed,
 /// capped so the payload stays small.
 fn message_preview(text: &str) -> String {
-    let flat = to_plain_text(text).split_whitespace().collect::<Vec<_>>().join(" ");
+    // Bound the markup-stripping work: the preview shows at most 140 visible
+    // chars and realistic markup can't shrink 2000 chars below that, so we never
+    // run the cleanup passes over more than that much of a huge latest message.
+    const SCAN_LIMIT: usize = 2000;
+    let scan: &str = match text.char_indices().nth(SCAN_LIMIT) {
+        Some((i, _)) => &text[..i],
+        None => text,
+    };
+    let flat = to_plain_text(scan).split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.chars().count() > 140 {
         format!("{}…", flat.chars().take(140).collect::<String>())
     } else {
@@ -188,6 +196,15 @@ impl Storage for SqliteStorage {
         rows.iter().map(row_to_definition).collect()
     }
 
+    async fn list_definitions_by_type(&self, def_type: &str) -> Result<Vec<Definition>> {
+        let rows =
+            sqlx::query("SELECT id, type, name, content, meta FROM definitions WHERE type = ? ORDER BY name")
+                .bind(def_type)
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(row_to_definition).collect()
+    }
+
     async fn referenced_definition_ids(&self) -> Result<Vec<String>> {
         let rows = sqlx::query(
             "SELECT DISTINCT definition_id FROM prompt_nodes WHERE definition_id IS NOT NULL",
@@ -197,9 +214,21 @@ impl Storage for SqliteStorage {
         Ok(rows.iter().map(|r| r.get::<String, _>("definition_id")).collect())
     }
 
-    async fn update_definition(&self, def: &Definition) -> Result<()> {
+    async fn template_definition_refs(&self) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query(
+            "SELECT t.name AS name, n.definition_id AS def_id \
+             FROM prompt_nodes n JOIN templates t ON t.id = n.owner_id \
+             WHERE n.owner_kind = 'template' AND n.definition_id IS NOT NULL \
+             ORDER BY t.name, n.sort_order",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| (r.get::<String, _>("name"), r.get::<String, _>("def_id"))).collect())
+    }
+
+    async fn update_definition(&self, def: &Definition) -> Result<bool> {
         let meta = serde_json::to_string(&def.meta)?;
-        sqlx::query(
+        let res = sqlx::query(
             "UPDATE definitions SET type = ?, name = ?, content = ?, meta = ? WHERE id = ?",
         )
         .bind(def.def_type.as_str())
@@ -209,7 +238,7 @@ impl Storage for SqliteStorage {
         .bind(&def.id)
         .execute(&self.pool)
         .await?;
-        Ok(())
+        Ok(res.rows_affected() > 0)
     }
 
     async fn delete_definition(&self, id: &str) -> Result<()> {
@@ -371,6 +400,47 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn create_messages(&self, messages: &[Message]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for m in messages {
+            let snapshot = serde_json::to_string(&m.snapshot_state)?;
+            let attachments = serde_json::to_string(&m.attachments)?;
+            sqlx::query(
+                "INSERT INTO messages \
+                 (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            )
+            .bind(&m.id).bind(&m.session_id).bind(&m.parent_id).bind(m.role.as_str())
+            .bind(&m.raw_content).bind(&m.display_content).bind(m.is_hidden as i64)
+            .bind(m.is_anchor as i64).bind(attachments).bind(snapshot).bind(&m.created_at)
+            .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn create_message_and_advance_leaf(&self, message: &Message) -> Result<()> {
+        let snapshot = serde_json::to_string(&message.snapshot_state)?;
+        let attachments = serde_json::to_string(&message.attachments)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
+            "INSERT INTO messages \
+             (id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&message.id).bind(&message.session_id).bind(&message.parent_id).bind(message.role.as_str())
+        .bind(&message.raw_content).bind(&message.display_content).bind(message.is_hidden as i64)
+        .bind(message.is_anchor as i64).bind(attachments).bind(snapshot).bind(&message.created_at)
+        .execute(&mut *tx).await?;
+        // Advance the leaf and bump activity in the same row update / transaction.
+        let now = chrono::Utc::now();
+        sqlx::query("UPDATE chat_sessions SET active_leaf_id = ?, updated_at = ?, sort_order = ? WHERE id = ?")
+            .bind(&message.id).bind(now.to_rfc3339()).bind(now.timestamp_millis()).bind(&message.session_id)
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn list_messages(&self, session_id: &str) -> Result<Vec<Message>> {
         let rows = sqlx::query(
             "SELECT id, session_id, parent_id, role, raw_content, display_content, is_hidden, is_anchor, attachments, snapshot_state, created_at \
@@ -431,9 +501,33 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn create_template_with_nodes(&self, template: &Template, nodes: &[PromptNode]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        let tmeta = serde_json::to_string(&template.meta)?;
+        sqlx::query("INSERT INTO templates (id, name, meta, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+            .bind(&template.id).bind(&template.name).bind(tmeta)
+            .bind(&template.created_at).bind(&template.updated_at)
+            .execute(&mut *tx).await?;
+        // Caller guarantees parent-before-child order for the self-referential FK.
+        for n in nodes {
+            let nmeta = serde_json::to_string(&n.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&n.id).bind(n.owner_kind.as_str()).bind(&n.owner_id).bind(&n.parent_id).bind(n.sort_order)
+                .bind(n.kind.as_str()).bind(&n.tag).bind(&n.definition_id).bind(n.enabled as i64).bind(&n.created_at).bind(nmeta)
+                .execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn get_template(&self, id: &str) -> Result<Option<Template>> {
         let row = sqlx::query("SELECT id, name, meta, created_at, updated_at FROM templates WHERE id = ?")
             .bind(id).fetch_optional(&self.pool).await?;
+        match row { Some(r) => Ok(Some(row_to_template(&r)?)), None => Ok(None) }
+    }
+    async fn get_template_by_name(&self, name: &str) -> Result<Option<Template>> {
+        let row = sqlx::query("SELECT id, name, meta, created_at, updated_at FROM templates WHERE name = ? LIMIT 1")
+            .bind(name).fetch_optional(&self.pool).await?;
         match row { Some(r) => Ok(Some(row_to_template(&r)?)), None => Ok(None) }
     }
 
@@ -502,6 +596,11 @@ impl Storage for SqliteStorage {
     async fn get_pack(&self, id: &str) -> Result<Option<Pack>> {
         let row = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs WHERE id = ?")
             .bind(id).fetch_optional(&self.pool).await?;
+        match row { Some(r) => Ok(Some(row_to_pack(&r)?)), None => Ok(None) }
+    }
+    async fn get_pack_by_name(&self, name: &str) -> Result<Option<Pack>> {
+        let row = sqlx::query("SELECT id, name, identity_json, meta, created_at, updated_at FROM packs WHERE name = ? LIMIT 1")
+            .bind(name).fetch_optional(&self.pool).await?;
         match row { Some(r) => Ok(Some(row_to_pack(&r)?)), None => Ok(None) }
     }
 
@@ -700,6 +799,40 @@ impl Storage for SqliteStorage {
         Ok(id_map)
     }
 
+    async fn materialize_session_nodes(&self, session_id: &str, template_id: &str) -> Result<bool> {
+        // Source nodes are read before the write transaction; the emptiness check
+        // and the inserts share that transaction, so a second concurrent call —
+        // which serialises behind this write — won't also copy the tree.
+        let source = self.list_nodes(&OwnerKind::Template, template_id).await?;
+        let mut tx = self.pool.begin().await?;
+        let existing: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?")
+                .bind(session_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        if existing > 0 {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        let mut sorted = source.clone();
+        sorted.sort_by_key(|n| (n.parent_id.is_some(), n.sort_order));
+        for node in &sorted {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            let new_parent_id = node.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned());
+            let nmeta = serde_json::to_string(&node.meta)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&new_id).bind(OwnerKind::Session.as_str()).bind(session_id)
+                .bind(&new_parent_id).bind(node.sort_order).bind(node.kind.as_str())
+                .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64)
+                .bind(chrono::Utc::now().to_rfc3339()).bind(nmeta)
+                .execute(&mut *tx).await?;
+            id_map.insert(node.id.clone(), new_id);
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
+
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()> {
         let json = serde_json::to_string(config)?;
@@ -709,7 +842,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn set_local_definition(&self, session_id: &str, def_id: &str, patch: &serde_json::Value) -> Result<()> {
-        // 合并 {"local_definitions": {"<def_id>": <patch>}}；键经 json_object 绑参构造，不拼 path。
+        // Merge {"local_definitions": {"<def_id>": <patch>}}; the key is constructed via `json_object` parameter binding, without concatenating the path.
         let patch_str = serde_json::to_string(patch)?;
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
@@ -726,7 +859,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn clear_local_definition(&self, session_id: &str, def_id: &str) -> Result<()> {
-        // RFC7396：把该键置 JSON null → json_patch 删除之，不动同对象其它 def。
+        // RFC7396: Setting the key to JSON `null` causes JSON Merge Patch to remove it, leaving other definitions in the object untouched.
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
                 COALESCE(override_config, '{}'), \
@@ -740,8 +873,29 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn promote_local_definition(&self, session_id: &str, def_id: &str, def: &Definition) -> Result<()> {
+        let meta = serde_json::to_string(&def.meta)?;
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("UPDATE definitions SET type = ?, name = ?, content = ?, meta = ? WHERE id = ?")
+            .bind(def.def_type.as_str()).bind(&def.name).bind(&def.content).bind(meta).bind(&def.id)
+            .execute(&mut *tx).await?;
+        // RFC7396: null removes the promoted def's local patch, leaving siblings intact.
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_patch(\
+                COALESCE(override_config, '{}'), \
+                json_object('local_definitions', json_object(?, json('null')))) \
+             WHERE id = ?",
+        )
+        .bind(def_id)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
     async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()> {
-        // RFC7396 对数组是整体替换，正合「整列替换变量声明」语义。
+        // RFC7396 treats arrays as atomic replacements, perfectly aligning with the semantics of "replacing the entire variable declaration."
         let vars_str = serde_json::to_string(variables)?;
         sqlx::query(
             "UPDATE chat_sessions SET override_config = json_patch(\
@@ -804,6 +958,17 @@ impl Storage for SqliteStorage {
         let raw = serde_json::to_string(value)?;
         sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
             .bind(key).bind(raw).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn set_settings(&self, pairs: &[(String, serde_json::Value)]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for (key, value) in pairs {
+            let raw = serde_json::to_string(value)?;
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+                .bind(key).bind(raw).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -910,6 +1075,33 @@ impl Storage for SqliteStorage {
         Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
     }
 
+    async fn get_asset_by_path(&self, path: &str) -> Result<Option<Asset>> {
+        let row = sqlx::query_as::<_, (String, String, String, String, String, Option<String>)>(
+            "SELECT id, name, path, kind, created_at, hash FROM assets WHERE path = ? LIMIT 1",
+        )
+        .bind(path)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, name, path, kind, created_at, hash)| Asset { id, name, path, kind, hash, created_at }))
+    }
+
+    async fn is_avatar_referenced(&self, path: &str) -> Result<bool> {
+        // Avatar paths live in JSON (pack identity, definition meta) and a plain
+        // session column; one EXISTS beats loading three whole tables.
+        let referenced: i64 = sqlx::query_scalar(
+            "SELECT EXISTS( \
+                SELECT 1 FROM packs WHERE json_extract(identity_json, '$.avatar') = ? \
+                UNION ALL SELECT 1 FROM definitions WHERE json_extract(meta, '$.avatar') = ? \
+                UNION ALL SELECT 1 FROM chat_sessions WHERE avatar = ?)",
+        )
+        .bind(path)
+        .bind(path)
+        .bind(path)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(referenced != 0)
+    }
+
     async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()> {
         sqlx::query("UPDATE assets SET hash = ? WHERE id = ?")
             .bind(hash)
@@ -981,7 +1173,7 @@ mod tests {
     async fn temp_storage() -> SqliteStorage {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.db");
-        // 让临时目录在整个测试进程存活，避免连接期间被删除。
+        // Keep the temporary directory alive for the duration of the test process to prevent it from being deleted during the connection.
         std::mem::forget(dir);
         let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
         storage.run_migrations().await.unwrap();
@@ -1024,7 +1216,6 @@ mod tests {
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].cutoff_message_id, "msg-7");
         assert_eq!(got[0].content, "earlier summary");
-        // 其他会话不串
         assert!(s.list_summaries("other").await.unwrap().is_empty());
     }
 
@@ -1062,6 +1253,16 @@ mod tests {
         assert!(got.contains("Heading"));
         assert!(got.contains("quoted"));
         assert!(got.contains("item one"));
+    }
+
+    #[test]
+    fn message_preview_is_length_bounded() {
+        // A latest message far larger than the scan limit still yields a small
+        // preview (140 visible chars + ellipsis), without scanning all of it.
+        let raw = "word ".repeat(5000); // 25k chars
+        let got = message_preview(&raw);
+        assert_eq!(got.chars().count(), 141);
+        assert!(got.ends_with('…'));
     }
 
     #[tokio::test]
@@ -1424,7 +1625,7 @@ mod tests {
         let s = Sess::new("ov");
         storage.create_session(&s).await.unwrap();
 
-        // set 在无 local_definitions 时由合并创建并写键
+        // set is created via merging and the key is written when there are no local_definitions.
         storage
             .set_local_definition(&s.id, "def-a", &serde_json::json!({ "content": "A" }))
             .await
@@ -1432,12 +1633,12 @@ mod tests {
         let got = storage.get_session(&s.id).await.unwrap().unwrap();
         assert_eq!(got.override_config["local_definitions"]["def-a"]["content"], "A");
 
-        // 第二个 def 不互相覆盖
+        // The second def does not overwrite the first.
         storage
             .set_local_definition(&s.id, "def-b", &serde_json::json!({ "content": "B" }))
             .await
             .unwrap();
-        // 局部变量整列替换，且与 local_definitions 共存
+        // Replace local variables column-wise, while coexisting with local_definitions
         storage
             .set_local_variables(&s.id, &serde_json::json!([{ "name": "hp", "type": "number", "initial": 100 }]))
             .await
@@ -1447,7 +1648,7 @@ mod tests {
         assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
         assert_eq!(got.override_config["local_variables"][0]["name"], "hp");
 
-        // clear 仅删该键，不动其它
+        // clear deletes only this key; others remain untouched.
         storage.clear_local_definition(&s.id, "def-a").await.unwrap();
         let got = storage.get_session(&s.id).await.unwrap().unwrap();
         assert!(got.override_config["local_definitions"].get("def-a").is_none());
@@ -1535,5 +1736,193 @@ mod tests {
         assert!(s.get_template(&tmpl.id).await.unwrap().is_none());
         assert!(s.get_definition(&def.id).await.unwrap().is_none());
         assert!(s.list_nodes(&OwnerKind::Template, &tmpl.id).await.unwrap().is_empty());
+    }
+
+    // --- Tier 2 atomicity: batched / transactional storage methods ---
+
+    #[tokio::test]
+    async fn create_messages_persists_a_batch() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "hi");
+        let m2 = Message::new(&sess.id, Some(m1.id.clone()), Role::Assistant, "yo");
+        s.create_messages(&[m1, m2]).await.unwrap();
+        assert_eq!(s.list_messages(&sess.id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_messages_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "a");
+        let mut m2 = Message::new(&sess.id, None, Role::Assistant, "b");
+        m2.id = m1.id.clone(); // duplicate primary key → mid-batch failure
+        assert!(s.create_messages(&[m1, m2]).await.is_err());
+        assert!(s.list_messages(&sess.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_message_and_advance_leaf_sets_leaf_atomically() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m = Message::new(&sess.id, None, Role::System, "");
+        s.create_message_and_advance_leaf(&m).await.unwrap();
+        assert!(s.get_message(&m.id).await.unwrap().is_some());
+        assert_eq!(
+            s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id.as_deref(),
+            Some(m.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn create_message_and_advance_leaf_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let m1 = Message::new(&sess.id, None, Role::User, "x");
+        s.create_message(&m1).await.unwrap();
+        let mut m2 = Message::new(&sess.id, None, Role::Assistant, "y");
+        m2.id = m1.id.clone(); // dup id → insert fails → leaf must not advance
+        assert!(s.create_message_and_advance_leaf(&m2).await.is_err());
+        assert_eq!(s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id, None);
+    }
+
+    #[tokio::test]
+    async fn create_template_with_nodes_is_atomic() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        let hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        s.create_template_with_nodes(&t, &[content, hist]).await.unwrap();
+        assert!(s.get_template(&t.id).await.unwrap().is_some());
+        assert_eq!(s.list_nodes(&OwnerKind::Template, &t.id).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn create_template_with_nodes_rolls_back_on_failure() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let n1 = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        let mut n2 = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
+        n2.id = n1.id.clone(); // dup id → mid-transaction failure
+        assert!(s.create_template_with_nodes(&t, &[n1, n2]).await.is_err());
+        assert!(s.get_template(&t.id).await.unwrap().is_none());
+        assert!(s.list_nodes(&OwnerKind::Template, &t.id).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn promote_local_definition_updates_def_and_clears_patch() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let mut def = Definition::new("char", "Orig", "old");
+        s.create_definition(&def).await.unwrap();
+        s.set_local_definition(&sess.id, &def.id, &serde_json::json!({ "content": "new" })).await.unwrap();
+        def.content = "new".into();
+        s.promote_local_definition(&sess.id, &def.id, &def).await.unwrap();
+        assert_eq!(s.get_definition(&def.id).await.unwrap().unwrap().content, "new");
+        let sess2 = s.get_session(&sess.id).await.unwrap().unwrap();
+        assert!(
+            sess2.override_config.get("local_definitions").and_then(|l| l.get(&def.id)).is_none(),
+            "the promoted local patch must be cleared"
+        );
+    }
+
+    #[tokio::test]
+    async fn set_settings_persists_a_batch() {
+        let s = temp_storage().await;
+        s.set_settings(&[
+            ("theme".into(), serde_json::json!("dark")),
+            ("lang".into(), serde_json::json!("en")),
+        ])
+        .await
+        .unwrap();
+        assert_eq!(s.get_setting("theme").await.unwrap(), Some(serde_json::json!("dark")));
+        assert_eq!(s.get_setting("lang").await.unwrap(), Some(serde_json::json!("en")));
+    }
+
+    #[tokio::test]
+    async fn materialize_session_nodes_copies_exactly_once() {
+        let s = temp_storage().await;
+        let t = Template::new("T");
+        let content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
+        s.create_template_with_nodes(&t, &[content]).await.unwrap();
+        let mut sess = Session::new("S");
+        sess.template_id = Some(t.id.clone());
+        s.create_session(&sess).await.unwrap();
+        // First call materializes; a second is a no-op — this idempotence is what
+        // closes the check-then-copy TOCTOU that could double-copy the tree.
+        assert!(s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
+        assert!(!s.materialize_session_nodes(&sess.id, &t.id).await.unwrap());
+        assert_eq!(s.list_nodes(&OwnerKind::Session, &sess.id).await.unwrap().len(), 1);
+    }
+
+    // --- Tier 2 efficiency: targeted queries that replace full-table scans ---
+
+    #[tokio::test]
+    async fn list_definitions_by_type_filters_in_sql() {
+        let s = temp_storage().await;
+        s.create_definition(&Definition::new("char", "A", "x")).await.unwrap();
+        s.create_definition(&Definition::new("persona", "B", "y")).await.unwrap();
+        s.create_definition(&Definition::new("char", "C", "z")).await.unwrap();
+        let chars = s.list_definitions_by_type("char").await.unwrap();
+        assert_eq!(chars.len(), 2);
+        assert!(chars.iter().all(|d| d.def_type == "char"));
+    }
+
+    #[tokio::test]
+    async fn template_definition_refs_returns_name_and_def_pairs() {
+        let s = temp_storage().await;
+        let t = Template::new("MyTmpl");
+        let def = Definition::new("regex_rule", "R", "");
+        let node = PromptNode::new_ref(OwnerKind::Template, &t.id, None, 0, &def.id);
+        s.create_definition(&def).await.unwrap();
+        s.create_template_with_nodes(&t, std::slice::from_ref(&node)).await.unwrap();
+        let refs = s.template_definition_refs().await.unwrap();
+        assert!(refs.iter().any(|(name, did)| name == "MyTmpl" && did == &def.id));
+    }
+
+    #[tokio::test]
+    async fn is_avatar_referenced_spots_each_source() {
+        let s = temp_storage().await;
+        assert!(!s.is_avatar_referenced("/x.png").await.unwrap());
+        let mut sess = Session::new("S");
+        sess.avatar = Some("/s.png".into());
+        s.create_session(&sess).await.unwrap();
+        assert!(s.is_avatar_referenced("/s.png").await.unwrap());
+        let mut def = Definition::new("char", "D", "x");
+        def.meta = serde_json::json!({ "avatar": "/d.png" });
+        s.create_definition(&def).await.unwrap();
+        assert!(s.is_avatar_referenced("/d.png").await.unwrap());
+        let mut pack = Pack::new("P");
+        pack.identity.avatar = Some("/k.png".into());
+        s.create_pack(&pack).await.unwrap();
+        assert!(s.is_avatar_referenced("/k.png").await.unwrap());
+        assert!(!s.is_avatar_referenced("/nope.png").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn get_asset_by_path_finds_the_row() {
+        let s = temp_storage().await;
+        let a = Asset::new("name", "stored-xyz.png");
+        s.create_asset(&a).await.unwrap();
+        assert_eq!(s.get_asset_by_path("stored-xyz.png").await.unwrap().unwrap().id, a.id);
+        assert!(s.get_asset_by_path("missing.png").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn get_pack_and_template_by_name() {
+        let s = temp_storage().await;
+        let p = Pack::new("My Pack");
+        s.create_pack(&p).await.unwrap();
+        assert_eq!(s.get_pack_by_name("My Pack").await.unwrap().unwrap().id, p.id);
+        assert!(s.get_pack_by_name("nope").await.unwrap().is_none());
+        let t = Template::new("My Tmpl");
+        s.create_template(&t).await.unwrap();
+        assert_eq!(s.get_template_by_name("My Tmpl").await.unwrap().unwrap().id, t.id);
+        assert!(s.get_template_by_name("nope").await.unwrap().is_none());
     }
 }

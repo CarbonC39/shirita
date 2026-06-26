@@ -1,5 +1,5 @@
-//! 变量状态沙箱：声明 schema、合并有效状态、解析/应用 <state_update> 指令。
-//! 纯函数、无 I/O；写侧（apply）与读侧（effective_state）共用同一 schema 兜底。
+//! Variable state sandbox: Declare the schema, merge valid states, and parse/apply <state_update> directives.
+//! Pure functions, no I/O; the write side (apply) and read side (effective_state) share the same schema as a fallback.
 
 use std::collections::HashMap;
 
@@ -9,7 +9,7 @@ use serde_json::{Map, Value};
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, PromptNode};
 
-/// 变量类型。
+/// Variable types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VarType {
@@ -19,7 +19,7 @@ pub enum VarType {
     List,
 }
 
-/// 一条变量声明。`scope` 仅供前端分组（system/template/local），存储时可省略。
+/// A variable declaration. `scope` is used solely for front-end grouping (system/template/local) and can be omitted when storing the variable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VarDecl {
     pub name: String,
@@ -31,7 +31,7 @@ pub struct VarDecl {
     pub scope: Option<String>,
 }
 
-/// 内置系统变量注册表（保留 `$` 命名空间，恒存在，绑定到渲染行为）。
+/// Built-in system variable registry (retains the `$` namespace, is persistent, and is bound to rendering behavior).
 pub fn system_variables() -> Vec<VarDecl> {
     vec![
         VarDecl {
@@ -55,13 +55,13 @@ pub fn system_variables() -> Vec<VarDecl> {
     ]
 }
 
-/// schema 的初值映射 {name: initial}。
+/// The initial value mapping for the schema: {name: initial}.
 pub fn schema_initials(schema: &[VarDecl]) -> Map<String, Value> {
     schema.iter().map(|d| (d.name.clone(), d.initial.clone())).collect()
 }
 
-/// 当前变量清单文本（仅非系统变量，取当前值否则初值）。无用户变量时返回 None，
-/// 这同时作为 state_update 协议的注入触发条件。
+/// Text of the current variable list (non-system variables only; returns the current value if available, otherwise the initial value). Returns None if there are no user variables;
+/// this also serves as the trigger condition for the `state_update` protocol.
 pub fn variables_block(schema: &[VarDecl], state: &Value) -> Option<String> {
     let lines: Vec<String> = schema
         .iter()
@@ -83,8 +83,8 @@ pub fn variables_block(schema: &[VarDecl], state: &Value) -> Option<String> {
     Some(format!("Current variables:\n{}", lines.join("\n")))
 }
 
-/// 读侧唯一真相：schema 初值 < seed(session.current_state) < 分支叶子快照（后者覆盖前者）。
-/// 保证新增变量在旧快照分支上回填初值，旧快照对 schema 增长免疫。
+/// The only truth on the read side: schema initial value < seed(session.current_state) < branch leaf snapshot (the latter overrides the former).
+/// Ensures that new variables are backfilled with their initial values on the old snapshot branch, and that the old snapshot is immune to schema growth.。
 pub fn effective_state(schema: &[VarDecl], seed: &Value, leaf_snapshot: &Value) -> Value {
     let mut out = schema_initials(schema);
     if let Some(o) = seed.as_object() {
@@ -100,7 +100,7 @@ pub fn effective_state(schema: &[VarDecl], seed: &Value, leaf_snapshot: &Value) 
     Value::Object(out)
 }
 
-/// 指令动作集。
+/// Action set。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Set,
@@ -125,7 +125,7 @@ impl Action {
     }
 }
 
-/// 一条解析后的状态更新指令。
+/// A parsed state update command.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Update {
     pub action: Action,
@@ -133,7 +133,7 @@ pub struct Update {
     pub value: Option<String>,
 }
 
-/// 从流式文本中提取所有 `<state_update action=".." key=".." value=".."/>`（按出现顺序）。
+/// Extract all `<state_update action=".." key=".." value=".."/>` elements from the streamed text (in the order they appear).
 pub fn parse_state_updates(text: &str) -> Vec<Update> {
     static TAG_RE: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r#"(?is)<state_update\b([^>]*?)/?>"#).unwrap());
@@ -161,7 +161,7 @@ pub fn parse_state_updates(text: &str) -> Vec<Update> {
     out
 }
 
-/// 移除所有 state_update 标签（用于展示文本）。
+/// Remove all `state_update` tags (used to display text).
 pub fn strip_state_tags(text: &str) -> String {
     static TAG_RE: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r#"(?is)<state_update\b[^>]*?/?>"#).unwrap());
@@ -184,7 +184,7 @@ fn parse_decls(v: Option<&Value>, scope: &str) -> Vec<VarDecl> {
 fn merge_decls(out: &mut Vec<VarDecl>, decls: Vec<VarDecl>) {
     for d in decls {
         if let Some(existing) = out.iter_mut().find(|x| x.name == d.name) {
-            *existing = d; // 后者覆盖（precedence: system < template < local）
+            *existing = d; // precedence: system < template < local
         } else {
             out.push(d);
         }
@@ -258,7 +258,9 @@ fn num_value(n: f64) -> Value {
 fn coerce(value: &Option<String>, vt: VarType) -> Option<Value> {
     let s = value.as_ref()?;
     match vt {
-        VarType::Number => s.parse::<f64>().ok().map(num_value),
+        // Reject non-finite (NaN/inf) so the update is ignored rather than stored
+        // as Null — a Null reads back as 0.0 on the next Add/Sub (a silent reset).
+        VarType::Number => s.parse::<f64>().ok().filter(|n| n.is_finite()).map(num_value),
         VarType::Bool => match s.to_ascii_lowercase().as_str() {
             "true" => Some(Value::Bool(true)),
             "false" => Some(Value::Bool(false)),
@@ -269,12 +271,17 @@ fn coerce(value: &Option<String>, vt: VarType) -> Option<Value> {
     }
 }
 
-/// 按 schema 类型逐条应用更新；未声明的 key 或类型不符的动作一律忽略（沙箱不执行代码）。
+/// Apply updates one by one according to the schema type; any undeclared keys or actions with mismatched types are ignored (the sandbox does not execute code).
+/// Upper bound on the length of a List variable. APPEND is model-driven, so
+/// without a cap a runaway or looping response could grow a list (and the state
+/// JSON persisted with every message) without bound.
+const MAX_LIST_LEN: usize = 1000;
+
 pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> Value {
     let mut obj = state.as_object().cloned().unwrap_or_default();
     for u in updates {
         let Some(vt) = schema.iter().find(|d| d.name == u.key).map(|d| d.var_type) else {
-            continue; // 未声明
+            continue; // undeclared
         };
         match (u.action, vt) {
             (Action::Set, _) => {
@@ -284,9 +291,11 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
             }
             (Action::Add, VarType::Number) | (Action::Sub, VarType::Number) => {
                 let cur = obj.get(&u.key).and_then(|v| v.as_f64()).unwrap_or(0.0);
-                if let Some(n) = u.value.as_ref().and_then(|s| s.parse::<f64>().ok()) {
+                if let Some(n) = u.value.as_ref().and_then(|s| s.parse::<f64>().ok()).filter(|n| n.is_finite()) {
                     let next = if u.action == Action::Add { cur + n } else { cur - n };
-                    obj.insert(u.key.clone(), num_value(next));
+                    if next.is_finite() {
+                        obj.insert(u.key.clone(), num_value(next));
+                    }
                 }
             }
             (Action::Toggle, VarType::Bool) => {
@@ -296,8 +305,10 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
             (Action::Append, VarType::List) => {
                 if let Some(val) = &u.value {
                     let mut arr = obj.get(&u.key).and_then(|v| v.as_array().cloned()).unwrap_or_default();
-                    arr.push(Value::String(val.clone()));
-                    obj.insert(u.key.clone(), Value::Array(arr));
+                    if arr.len() < MAX_LIST_LEN {
+                        arr.push(Value::String(val.clone()));
+                        obj.insert(u.key.clone(), Value::Array(arr));
+                    }
                 }
             }
             (Action::Remove, VarType::List) => {
@@ -309,7 +320,7 @@ pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> V
                     obj.insert(u.key.clone(), Value::Array(arr));
                 }
             }
-            _ => {} // 动作/类型不匹配
+            _ => {} // action/type mismatch
         }
     }
     Value::Object(obj)
@@ -417,11 +428,37 @@ mod tests {
     }
 
     #[test]
+    fn non_finite_number_updates_are_ignored() {
+        let s = full_schema(); // hp: Number, initial 100
+        let st = json!({ "hp": 100 });
+        // SET to NaN / inf and ADD NaN must leave hp untouched (not null/zeroed).
+        let out = apply_updates(&st, &s, &[Update { action: Action::Set, key: "hp".into(), value: Some("NaN".into()) }]);
+        assert_eq!(out["hp"], 100);
+        let out = apply_updates(&out, &s, &[Update { action: Action::Set, key: "hp".into(), value: Some("inf".into()) }]);
+        assert_eq!(out["hp"], 100);
+        let out = apply_updates(&out, &s, &[Update { action: Action::Add, key: "hp".into(), value: Some("NaN".into()) }]);
+        assert_eq!(out["hp"], 100);
+    }
+
+    #[test]
     fn remove_drops_first_match() {
         let s = full_schema();
         let st = json!({ "bag": ["key", "map", "key"] });
         let out = apply_updates(&st, &s, &[Update { action: Action::Remove, key: "bag".into(), value: Some("key".into()) }]);
         assert_eq!(out["bag"], json!(["map", "key"]));
+    }
+
+    #[test]
+    fn append_is_capped_to_prevent_unbounded_growth() {
+        let s = full_schema();
+        let ups: Vec<Update> = (0..MAX_LIST_LEN + 100)
+            .map(|i| Update { action: Action::Append, key: "bag".into(), value: Some(format!("item-{i}")) })
+            .collect();
+        let out = apply_updates(&json!({}), &s, &ups);
+        let arr = out["bag"].as_array().unwrap();
+        assert_eq!(arr.len(), MAX_LIST_LEN); // capped; appends past the cap are dropped
+        assert_eq!(arr[0], "item-0"); // earliest entries kept
+        assert_eq!(arr[MAX_LIST_LEN - 1], format!("item-{}", MAX_LIST_LEN - 1));
     }
 
     #[test]

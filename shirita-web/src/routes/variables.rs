@@ -10,7 +10,7 @@ use shirita_core::{Message, Role};
 
 use crate::AppState;
 
-/// 返回当前激活分支的有效变量状态 + schema（合并在服务端完成，单一真相）。
+/// Returns the valid variable state + schema for the currently active branch (merged on the server, single source of truth).
 pub async fn get_state(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -83,16 +83,16 @@ pub async fn apply_state_updates(
     let mut node = Message::new(&id, session.active_leaf_id.clone(), Role::System, "");
     node.is_hidden = true;
     node.snapshot_state = new_snapshot.clone();
-    state.storage.create_message(&node).await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    state.storage.set_session_active_leaf(&id, Some(&node.id)).await
+    // Insert the carrier node and advance the leaf onto it atomically, so a
+    // failure can't leave a node the active branch never reaches.
+    state.storage.create_message_and_advance_leaf(&node).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let values = effective_state(&schema, &session.current_state, &new_snapshot);
     Ok(Json(json!({ "values": values })))
 }
 
-/// 替换会话本地变量声明（存于 override_config.local_variables）。
+/// Replaces the session local variable declarations (stored in `override_config.local_variables`).
 pub async fn set_local_variables(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -104,7 +104,7 @@ pub async fn set_local_variables(
     {
         return Err(StatusCode::NOT_FOUND);
     }
-    // 原子整列替换 override_config.local_variables（无读改写竞争）。
+    // Atomic block replacement: override_config.local_variables (no read-write contention).
     state.storage.set_local_variables(&id, &body.variables).await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)

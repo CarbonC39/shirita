@@ -1,4 +1,4 @@
-//! Template 模型。
+//! Template model。
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

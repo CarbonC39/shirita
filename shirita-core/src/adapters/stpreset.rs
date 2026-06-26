@@ -13,13 +13,18 @@ use crate::state::{VarDecl, VarType};
 /// Type-infer an ST setvar value: f64-parseable -> Number, bool-parseable ->
 /// Bool, else String. Uses the standard parses (no hand-rolled numeric regex).
 fn infer_var(value: &str) -> (VarType, serde_json::Value) {
+    // Only treat as Number when the value is in canonical numeric form, so a
+    // numeric-looking string the author meant as text ("007", "1.0", "1e3", an
+    // ID/version) keeps its string form instead of being silently renumbered.
     if let Ok(n) = value.parse::<f64>() {
-        (VarType::Number, serde_json::json!(n))
-    } else if let Ok(b) = value.parse::<bool>() {
-        (VarType::Bool, serde_json::json!(b))
-    } else {
-        (VarType::String, serde_json::json!(value))
+        if format!("{n}") == value {
+            return (VarType::Number, serde_json::json!(n));
+        }
     }
+    if let Ok(b) = value.parse::<bool>() {
+        return (VarType::Bool, serde_json::json!(b));
+    }
+    (VarType::String, serde_json::json!(value))
 }
 
 /// Strip `{{setvar::name::value}}` macros (collecting them as VarDecls in
@@ -752,6 +757,21 @@ mod tests {
         assert_eq!(open.content, "first");
         assert_eq!(close.content, "second");
         assert!(open.meta.get("wrap_in_tag").is_none(), "span children not individually wrapped");
+    }
+
+    #[test]
+    fn infer_var_keeps_noncanonical_numeric_strings_as_string() {
+        // Values that look numeric but aren't in canonical form (leading zeros,
+        // trailing-zero decimals, scientific notation) are kept as strings so an
+        // author's ID / version / code isn't silently renumbered.
+        assert_eq!(infer_var("007").0, VarType::String);
+        assert_eq!(infer_var("1.0").0, VarType::String);
+        assert_eq!(infer_var("1e3").0, VarType::String);
+        // canonical numbers and bools still infer correctly
+        assert_eq!(infer_var("100").0, VarType::Number);
+        assert_eq!(infer_var("3.14").0, VarType::Number);
+        assert_eq!(infer_var("-5").0, VarType::Number);
+        assert_eq!(infer_var("true").0, VarType::Bool);
     }
 
     #[test]

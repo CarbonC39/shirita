@@ -32,7 +32,7 @@ fn build(id: String, body: DefinitionBody) -> Definition {
     }
 }
 
-/// regex_rule 创作期校验：非空 `meta.pattern` 必须能编译，否则 400（运行期则宽容跳过）。
+/// regex_rule creation-time validation: The non-empty `meta.pattern` must be compilable; otherwise, a 400 error is returned (at runtime, this is ignored).
 fn validate_regex_rule(body: &DefinitionBody) -> Result<(), StatusCode> {
     if body.r#type == "regex_rule" {
         if let Some(p) = body.meta.get("pattern").and_then(|v| v.as_str()) {
@@ -44,7 +44,7 @@ fn validate_regex_rule(body: &DefinitionBody) -> Result<(), StatusCode> {
     Ok(())
 }
 
-/// type 必须是保留类型，或已注册的容器类型。
+/// `type` must be a reserved type or a registered container type.
 async fn validate_type(state: &AppState, t: &str) -> Result<(), StatusCode> {
     if shirita_core::is_reserved(t) {
         return Ok(());
@@ -70,14 +70,12 @@ pub async fn list(
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<Definition>>, StatusCode> {
-    let mut defs = state
-        .storage
-        .list_definitions()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    if let Some(t) = q.r#type {
-        defs.retain(|d| d.def_type.as_str() == t);
+    // Filter by type in SQL when requested, instead of loading the whole table.
+    let defs = match q.r#type {
+        Some(t) => state.storage.list_definitions_by_type(&t).await,
+        None => state.storage.list_definitions().await,
     }
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(defs))
 }
 
@@ -119,20 +117,15 @@ pub async fn update(
     validate_type(&state, &body.r#type).await?;
     validate_regex_rule(&body)?;
     let def = build(id.clone(), body);
-    if state
-        .storage
-        .get_definition(&id)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .is_none()
-    {
-        return Err(StatusCode::NOT_FOUND);
-    }
-    state
+    // UPDATE ... WHERE id = ? reports whether the row existed — no separate read.
+    if !state
         .storage
         .update_definition(&def)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        return Err(StatusCode::NOT_FOUND);
+    }
     Ok(Json(def))
 }
 

@@ -31,6 +31,17 @@ pub fn collect_panels(
     nodes: &[PromptNode],
     defs: &HashMap<String, Definition>,
 ) -> Vec<RenderedPanel> {
+    // Index enabled ref children by parent id once, so each panel folder is a
+    // map lookup rather than a fresh scan over every node (was O(folders×nodes)).
+    let mut children: HashMap<&str, Vec<&PromptNode>> = HashMap::new();
+    for n in nodes {
+        if n.kind == NodeKind::Ref && n.enabled {
+            if let Some(pid) = n.parent_id.as_deref() {
+                children.entry(pid).or_default().push(n);
+            }
+        }
+    }
+
     let mut folders: Vec<&PromptNode> = nodes
         .iter()
         .filter(|n| n.kind == NodeKind::Folder && n.enabled && n.tag.as_deref() == Some("panel"))
@@ -39,14 +50,8 @@ pub fn collect_panels(
 
     let mut out = Vec::new();
     for folder in folders {
-        let mut kids: Vec<&PromptNode> = nodes
-            .iter()
-            .filter(|n| {
-                n.kind == NodeKind::Ref
-                    && n.enabled
-                    && n.parent_id.as_deref() == Some(folder.id.as_str())
-            })
-            .collect();
+        let mut kids: Vec<&PromptNode> =
+            children.get(folder.id.as_str()).cloned().unwrap_or_default();
         kids.sort_by_key(|n| n.sort_order);
 
         let mut html_parts: Vec<String> = Vec::new();

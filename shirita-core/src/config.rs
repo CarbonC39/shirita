@@ -1,4 +1,4 @@
-//! 运行时配置：DATABASE_PATH / ASSETS_DIR / TOKEN_SECRET。
+//! Runtime configuration: DATABASE_PATH / ASSETS_DIR / TOKEN_SECRET.
 
 use crate::{Error, Result};
 
@@ -31,7 +31,7 @@ impl Config {
         })
     }
 
-    /// 从环境变量读取；DATABASE_PATH/ASSETS_DIR 有默认值，TOKEN_SECRET 必填。
+    /// Read from environment variables; DATABASE_PATH and ASSETS_DIR have default values, while TOKEN_SECRET is mandatory.
     pub fn from_env() -> Result<Self> {
         let database_path =
             std::env::var("DATABASE_PATH").unwrap_or_else(|_| "shirita.db".into());
@@ -45,8 +45,8 @@ impl Config {
     }
 }
 
-/// 把 provider 相关 env（OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL）叠加到 cfg。
-/// 供 `from_env` 与桌面（Tauri）入口共享，避免重复。
+/// Merges provider-related environment variables (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL) into the configuration.
+/// Shared by `from_env` and the desktop (Tauri) entry point to avoid duplication.
 pub fn apply_provider_env(cfg: &mut Config) {
     if let Ok(v) = std::env::var("OPENAI_BASE_URL") {
         cfg.openai_base_url = v;
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn apply_provider_env_overlays_openai_fields() {
-        // SAFETY: 单线程测试内设置/清理 env。
+        // SAFETY: Set up/clean up env within a single-threaded test.
         std::env::set_var("OPENAI_BASE_URL", "http://x/v1");
         std::env::set_var("OPENAI_MODEL", "m-test");
         let mut cfg = Config::new("db", "assets", "tok").unwrap();

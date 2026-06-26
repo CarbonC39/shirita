@@ -7,14 +7,15 @@ use crate::AppState;
 
 pub async fn get_all(State(state): State<AppState>) -> Result<Json<Value>, StatusCode> {
     let pairs = state.storage.list_settings().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut obj = serde_json::Map::new();
-    for (key, value) in pairs { obj.insert(key, value); }
+    let obj: serde_json::Map<String, Value> = pairs.into_iter().collect();
     Ok(Json(Value::Object(obj)))
 }
 
 pub async fn update_all(State(state): State<AppState>, Json(body): Json<Value>) -> Result<StatusCode, StatusCode> {
-    if let Some(o) = body.as_object() {
-        for (key, value) in o { state.storage.set_setting(key, value).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?; }
-    }
+    let o = body.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    // Persist every key in one transaction so a mid-batch failure can't leave
+    // settings half-applied.
+    let pairs: Vec<(String, Value)> = o.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    state.storage.set_settings(&pairs).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
 }

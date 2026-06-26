@@ -5,8 +5,6 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
 
-use shirita_core::OwnerKind;
-
 use crate::AppState;
 
 #[derive(Serialize)]
@@ -26,19 +24,14 @@ pub async fn list_regex_scopes(
 ) -> Result<Json<Vec<RegexScope>>, StatusCode> {
     let err = |_| StatusCode::INTERNAL_SERVER_ERROR;
     let defs = state.storage.list_definitions().await.map_err(err)?;
-    let templates = state.storage.list_templates().await.map_err(err)?;
 
-    // def_id -> ordered unique template names referencing it
+    // def_id -> ordered unique template names referencing it, from one JOIN
+    // (was a per-template list_nodes N+1).
     let mut refs: HashMap<String, Vec<String>> = HashMap::new();
-    for t in &templates {
-        let nodes = state.storage.list_nodes(&OwnerKind::Template, &t.id).await.map_err(err)?;
-        for n in nodes {
-            if let Some(did) = n.definition_id {
-                let names = refs.entry(did).or_default();
-                if !names.contains(&t.name) {
-                    names.push(t.name.clone());
-                }
-            }
+    for (template_name, def_id) in state.storage.template_definition_refs().await.map_err(err)? {
+        let names = refs.entry(def_id).or_default();
+        if !names.contains(&template_name) {
+            names.push(template_name);
         }
     }
 

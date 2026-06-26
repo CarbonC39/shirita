@@ -21,17 +21,17 @@ pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<Template>>, 
 pub async fn create(State(state): State<AppState>, Json(body): Json<TemplateBody>) -> Result<Json<Template>, StatusCode> {
     let mut t = Template::new(body.name);
     if !body.meta.is_null() { t.meta = body.meta; }
-    state.storage.create_template(&t).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     // Auto-add the undeletable magic nodes: <<content>> (pack mount point) then
     // the chat-history node. Default enabled; content sorts before history.
     let mut content = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 0, "content");
     content.kind = NodeKind::Content;
     content.tag = None;
-    state.storage.create_node(&content).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let mut hist = PromptNode::new_folder(OwnerKind::Template, &t.id, None, 1, "history");
     hist.kind = NodeKind::History;
     hist.tag = None;
-    state.storage.create_node(&hist).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Template + both magic nodes land atomically — no template without its
+    // required content/history nodes if a write fails midway.
+    state.storage.create_template_with_nodes(&t, &[content, hist]).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(t))
 }
 

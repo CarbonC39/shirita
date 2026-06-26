@@ -1,13 +1,13 @@
-//! 把消息上挂的 asset id 解析成 provider 能直接消费的图片 data URL。
-//! 资产元数据（id → 相对路径）来自 `Storage::get_asset`；字节本身在
-//! `config.assets_dir` 下按相对路径读取（与 `routes::assets` 的磁盘布局一致）。
+//! Parses the asset ID attached to a message into an image data URL that the provider can consume directly.
+//! Asset metadata (ID → relative path) comes from `Storage::get_asset`; the bytes themselves are
+//! read from `config.assets_dir` using the relative path (matching the disk layout of `routes::assets`).
 
 use base64::Engine;
 
 use crate::storage::Storage;
 
-/// 由文件名/路径的扩展名猜 MIME type；未知扩展名兜底 `application/octet-stream`
-/// （provider 侧会因不支持的类型报错，比静默丢图更安全）。
+/// Guess the MIME type based on the file name/path extension; use `application/octet-stream` as a fallback for unknown extensions.
+/// (The provider will throw an error for unsupported types, which is safer than silently discarding the image.)
 pub fn mime_from_ext(path: &str) -> &'static str {
     let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     match ext.as_str() {
@@ -19,12 +19,17 @@ pub fn mime_from_ext(path: &str) -> &'static str {
     }
 }
 
-/// 解析一批 asset id 为 `data:<mime>;base64,<data>` URL 列表，保持输入顺序。
-/// 找不到的 asset / 读不到的文件直接跳过（不阻断发送；多为已删除的资产）。
+/// Parse a list of URLs with asset IDs in the format `data:<mime>;base64,<data>`, preserving the input order.
+/// Assets that cannot be found or files that cannot be read are skipped (without blocking the request; these are typically deleted assets).
 pub async fn resolve_images(storage: &dyn Storage, assets_dir: &str, attachment_ids: &[String]) -> Vec<String> {
     let mut out = Vec::new();
     for id in attachment_ids {
         let Ok(Some(asset)) = storage.get_asset(id).await else { continue };
+        // Defense-in-depth: stored paths are app-generated UUID filenames, but
+        // never let a stray `..` segment escape assets_dir.
+        if asset.path.split(['/', '\\']).any(|seg| seg == "..") {
+            continue;
+        }
         let full = format!("{}/{}", assets_dir.trim_end_matches('/'), asset.path.trim_start_matches('/'));
         let Ok(bytes) = tokio::fs::read(&full).await else { continue };
         let mime = mime_from_ext(&asset.path);
@@ -79,6 +84,19 @@ mod tests {
         let (storage, dir) = temp_storage_and_dir().await;
         let urls = resolve_images(&storage, dir.path().to_str().unwrap(), &["missing".to_string()]).await;
         assert!(urls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejects_path_traversal_in_asset_path() {
+        let (storage, dir) = temp_storage_and_dir().await;
+        let assets_dir = dir.path().join("assets");
+        tokio::fs::create_dir_all(&assets_dir).await.unwrap();
+        // A secret file OUTSIDE the assets dir; a `..` path must not reach it.
+        tokio::fs::write(dir.path().join("secret.txt"), b"top-secret").await.unwrap();
+        let asset = Asset { id: "a1".into(), name: "x".into(), path: "../secret.txt".into(), kind: "background".into(), hash: None, created_at: "".into() };
+        storage.create_asset(&asset).await.unwrap();
+        let urls = resolve_images(&storage, assets_dir.to_str().unwrap(), &["a1".to_string()]).await;
+        assert!(urls.is_empty(), "a traversal path must not be read");
     }
 
     #[tokio::test]

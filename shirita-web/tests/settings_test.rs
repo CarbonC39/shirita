@@ -1,4 +1,5 @@
-//! /api/types：列出（3 内置）/ 新建 / 删除（内置受保护）。
+//! PUT/GET /api/settings: a key/value object round-trips, and a non-object body
+//! is rejected. Guards the update_all handler against regressions.
 
 use std::sync::Arc;
 
@@ -15,7 +16,7 @@ use shirita_web::{app, AppState};
 
 async fn test_state() -> AppState {
     let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("types_test.db");
+    let path = dir.path().join("settings_test.db");
     std::mem::forget(dir);
     let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
     storage.run_migrations().await.unwrap();
@@ -49,39 +50,22 @@ fn json(text: &str) -> Value {
 }
 
 #[tokio::test]
-async fn types_crud_and_builtin_protected() {
+async fn update_all_persists_then_get_all_returns_pairs() {
     let state = test_state().await;
-    // list seeds 3 builtin
-    let (st, body) = send(&state, "GET", "/api/types", None).await;
+    let (st, _) =
+        send(&state, "PUT", "/api/settings", Some(r#"{"theme":"dark","provider":"openai"}"#)).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(json(&body).as_array().unwrap().len(), 3);
 
-    // create custom
-    let (st, _) = send(&state, "POST", "/api/types", Some(r#"{"id":"faction","label":"Faction"}"#)).await;
+    let (st, body) = send(&state, "GET", "/api/settings", None).await;
     assert_eq!(st, StatusCode::OK);
-    assert_eq!(json(&send(&state, "GET", "/api/types", None).await.1).as_array().unwrap().len(), 4);
-
-    // delete custom OK
-    let (st, _) = send(&state, "DELETE", "/api/types/faction", None).await;
-    assert_eq!(st, StatusCode::NO_CONTENT);
-
-    // delete builtin rejected
-    let (st, _) = send(&state, "DELETE", "/api/types/char", None).await;
-    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let v = json(&body);
+    assert_eq!(v["theme"], "dark");
+    assert_eq!(v["provider"], "openai");
 }
 
 #[tokio::test]
-async fn deleting_a_type_still_in_use_is_rejected() {
+async fn update_all_rejects_a_non_object_body() {
     let state = test_state().await;
-    let (st, _) = send(&state, "POST", "/api/types", Some(r#"{"id":"faction","label":"Faction"}"#)).await;
-    assert_eq!(st, StatusCode::OK);
-    // A definition of that container type.
-    let (st, _) =
-        send(&state, "POST", "/api/definitions", Some(r#"{"type":"faction","name":"Reds","content":"x"}"#)).await;
-    assert_eq!(st, StatusCode::OK);
-    // Deleting the type while a definition still references it would orphan that
-    // definition onto a non-existent type — refuse it.
-    let (st, _) = send(&state, "DELETE", "/api/types/faction", None).await;
-    assert_eq!(st, StatusCode::CONFLICT);
-    assert_eq!(json(&send(&state, "GET", "/api/types", None).await.1).as_array().unwrap().len(), 4);
+    let (st, _) = send(&state, "PUT", "/api/settings", Some(r#"["not","an","object"]"#)).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
 }

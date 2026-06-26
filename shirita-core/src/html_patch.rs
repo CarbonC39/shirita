@@ -137,7 +137,16 @@ pub fn apply_patches(base: &str, patches: &[HtmlPatch]) -> Option<String> {
         if p.find.is_empty() {
             return None;
         }
-        let idx = doc.find(&p.find)?;
+        // Require a unique match: a `find` that occurs more than once (or not at
+        // all) is ambiguous, so bail rather than edit the wrong occurrence.
+        let idx = {
+            let mut hits = doc.match_indices(&p.find);
+            let first = hits.next()?.0;
+            if hits.next().is_some() {
+                return None;
+            }
+            first
+        };
         doc.replace_range(idx..idx + p.find.len(), &p.replace);
     }
     Some(doc)
@@ -211,6 +220,15 @@ mod tests {
     fn unmatched_block_fails_so_caller_can_fall_back() {
         let patches = vec![HtmlPatch { find: "<p>MP: 50</p>".into(), replace: "x".into() }];
         assert_eq!(apply_patches(CARD, &patches), None);
+    }
+
+    #[test]
+    fn ambiguous_find_occurring_more_than_once_fails() {
+        // "<p>x</p>" appears twice — editing the first is a guess. Bail so the
+        // caller falls back to the raw reply instead of editing the wrong spot.
+        let base = "<p>x</p>\n<p>x</p>";
+        let patches = vec![HtmlPatch { find: "<p>x</p>".into(), replace: "<p>y</p>".into() }];
+        assert_eq!(apply_patches(base, &patches), None);
     }
 
     #[test]

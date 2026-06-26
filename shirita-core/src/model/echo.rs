@@ -1,5 +1,5 @@
-//! 离线 Echo 适配器：把最后一条 user 消息以 `echo: <text>` 形式逐词流式回放。
-//! 用于无 API key 时的演示与确定性测试。
+//! Offline Echo Adapter: Streams the last user message word by word in the format `echo: <text>`.
+//! Used for demonstrations and deterministic testing when no API key is available.
 
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
@@ -22,7 +22,7 @@ impl ModelProvider for EchoProvider {
             .map(|m| m.content.clone())
             .unwrap_or_default();
         let reply = format!("echo: {last_user}");
-        // split_inclusive 保留空格，拼回去 == reply。
+        // split_inclusive preserves spaces; reassembled == reply.
         let chunks: Vec<Result<String>> = reply
             .split_inclusive(' ')
             .map(|s| Ok(s.to_string()))

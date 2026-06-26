@@ -1,4 +1,10 @@
-//! 基于 tiktoken（cl100k_base）的轻量计数器，作为所有模型的近似计数。
+//! Lightweight counter based on tiktoken (o200k_base — the GPT-4o / modern
+//! encoding), used as an approximate token count for budget/trim decisions
+//! across all providers. It is an estimate, not an exact per-model count:
+//! o200k matches GPT-4o-class models, and is a closer proxy for current models
+//! than the older cl100k_base, but no local tokenizer reproduces a given
+//! provider's exact counts (Claude in particular tokenizes differently). The
+//! 0.8 summarize threshold and provider-side overflow handling absorb the gap.
 
 use tiktoken_rs::CoreBPE;
 
@@ -10,8 +16,7 @@ pub struct TiktokenCounter {
 
 impl TiktokenCounter {
     pub fn new() -> Self {
-        // cl100k_base 内置词表，无需联网。
-        let bpe = tiktoken_rs::cl100k_base().expect("cl100k_base must load");
+        let bpe = tiktoken_rs::o200k_base().expect("o200k_base must load");
         Self { bpe }
     }
 }
@@ -27,7 +32,7 @@ impl TokenCounter for TiktokenCounter {
         if text.is_empty() {
             return 0;
         }
-        self.bpe.encode_with_special_tokens(text).len()
+        self.bpe.encode_ordinary(text).len()
     }
 }
 
