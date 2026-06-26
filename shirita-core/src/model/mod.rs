@@ -91,6 +91,14 @@ pub fn parse_delta_kind(json_after_data: &str) -> Result<Delta> {
 /// immediately replaced with U+FFFD, but are left in `pending` to be decoded once the next segment of bytes is received.
 /// Only truly invalid byte sequences are replaced and skipped (so they do not accumulate indefinitely in `pending`).
 pub fn decode_utf8_chunk(pending: &mut Vec<u8>, chunk: &[u8]) -> String {
+    // Fast path: nothing buffered and the whole chunk is valid UTF-8 (the common
+    // case) — decode it directly instead of copying it through `pending` and back
+    // out. Any incomplete tail or invalid byte falls through to the buffered path.
+    if pending.is_empty() {
+        if let Ok(s) = std::str::from_utf8(chunk) {
+            return s.to_string();
+        }
+    }
     pending.extend_from_slice(chunk);
     let mut out = String::new();
     loop {
