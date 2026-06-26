@@ -8,9 +8,9 @@ describe('ui store', () => {
     setActivePinia(createPinia())
   })
 
-  it('defaults to bubble style and system theme', () => {
+  it('defaults to flat style and system theme', () => {
     const ui = useUiStore()
-    expect(ui.messageStyle).toBe('bubble')
+    expect(ui.messageStyle).toBe('flat')
     expect(ui.theme).toBe('system')
   })
 
