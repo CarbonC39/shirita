@@ -172,6 +172,7 @@ async fn assemble_request(
     model: String,
     context: &[ChatMessage],
     state: &serde_json::Value,
+    schema: &[VarDecl],
     summary: Option<String>,
 ) -> crate::Result<(ChatRequest, Vec<Definition>)> {
     let nodes = effective_nodes(storage, session).await?;
@@ -232,12 +233,11 @@ async fn assemble_request(
     let has_card = context.iter().any(|m| {
         crate::html_patch::is_html_document(&m.content) || crate::html_patch::has_patch_blocks(&m.content)
     });
-    let schema = resolve_session_schema(storage, session).await;
-    let protocols = storage.list_definitions().await?;
-    for pdef in protocols.iter().filter(|d| d.def_type == "protocol") {
+    let protocols = storage.list_definitions_by_type("protocol").await?;
+    for pdef in &protocols {
         let kind = pdef.meta.get("kind").and_then(|v| v.as_str()).unwrap_or("");
         let content = match kind {
-            "state_update" => match crate::state::variables_block(&schema, state) {
+            "state_update" => match crate::state::variables_block(schema, state) {
                 Some(block) => format!("{}\n\n{}", pdef.content, block),
                 None => continue,
             },
@@ -387,7 +387,7 @@ pub fn send_message(
         }
         let new_turn_images = resolve_images(storage.as_ref(), &assets_dir, &attachment_ids).await;
         context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images });
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, &schema, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
@@ -482,7 +482,7 @@ pub fn regenerate(
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
         let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
 
-        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, summary_text.clone()).await {
+        let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, &schema, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
