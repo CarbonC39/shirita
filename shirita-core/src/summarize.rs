@@ -128,16 +128,26 @@ pub async fn run(
     };
 
     // Aggregate call (non-streaming semantics: collects all deltas).
-    let Ok(mut stream) = provider.stream_chat(req).await else { return };
+    let mut stream = match provider.stream_chat(req).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(error = %e, %session_id, "summary provider request failed");
+            return;
+        }
+    };
     let mut full = String::new();
     while let Some(item) = stream.next().await {
         match item {
             Ok(d) => full.push_str(&d),
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!(error = %e, %session_id, "summary stream error");
+                return;
+            }
         }
     }
     let full = full.trim();
     if full.is_empty() {
+        tracing::warn!(%session_id, "summary provider returned empty output");
         return;
     }
 
