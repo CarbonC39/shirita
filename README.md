@@ -1,6 +1,18 @@
+<div align="center">
+
+<img src="shirita-tauri/icons/icon.png" width="120" alt="Shirita logo">
+
 # Shirita
 
 **Experimental SillyTavern alternative — Rust + Vue, self-hosted, in development.**
+
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+&nbsp;![Rust](https://img.shields.io/badge/Rust-1.80%2B-CE422B?logo=rust&logoColor=white)
+&nbsp;![Vue 3](https://img.shields.io/badge/Vue-3-42B883?logo=vuedotjs&logoColor=white)
+&nbsp;![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=black)
+&nbsp;![Status](https://img.shields.io/badge/status-pre--1.0-yellow)
+
+</div>
 
 A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrite. Many features work (prompt trees, variables, import/export, branching), but the project is pre-1.0 — expect rough edges, breaking changes, and incomplete documentation. Not yet a daily driver.
 
@@ -8,6 +20,20 @@ A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrit
 - **No telemetry, no cloud, no account required**
 - **Development stage** — works for tinkering; not production-ready
 - **Dual build target** — web (standalone Axum server, `--features embed-ui`) and desktop (Tauri + embedded Axum)
+
+---
+
+## Contents
+
+- [Architecture](#architecture)
+- [Features](#features)
+- [Quick start](#quick-start)
+- [Provider configuration](#provider-configuration)
+- [Project layout](#project-layout)
+- [Building for distribution](#building-for-distribution)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [License](#license)
 
 ---
 
@@ -40,6 +66,7 @@ shirita/
 - **Prompt tree** — hierarchical system prompt builder with folders, containers, and triggers (keyword / random / constant). Each node can reference any definition type
 - **Regex rules** — scoped (global or template-level), filtered by target (`ai_output` / `user_input`) and phase (`display` / `prompt`); supports lookaround and backreferences via `fancy-regex`
 - **Variables & state** — declare variables with type and initial value on templates; update them mid-conversation via `<state_update>` tags or future native tool calls; per-message snapshots for branching
+- **HTML cards (panels)** — build live status panels from `html`/`css` definition bricks; the model updates them in place via an HTML-patch protocol (search/replace blocks) applied in the engine and rendered through a sanitizing template layer — never `v-html`
 - **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
 - **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation
 - **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, and chat-completion presets (→ editable templates: prompts imported by enabled/disabled status, `setvar`/`getvar` recognized as variables, cross-node XML bundled into folders); plus Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate)
@@ -104,13 +131,13 @@ cargo tauri build --bundles deb
 
 ## Provider configuration
 
-Set the active provider source and its API key/model in Settings → Provider. Each source is isolated — switching from OpenAI to Anthropic preserves both configurations.
+Set the active provider source and its API key/model in **Settings → Provider**. Each source is isolated — switching from OpenAI to Anthropic preserves both configurations.
 
 ### Environment fallback (desktop, when no settings are configured)
 
 | Env | Default | Purpose |
 |-----|---------|---------|
-| `PROVIDER` | *(empty, =OpenAI compat)* | `anthropic`, `ollama`, or empty |
+| `PROVIDER` | *(empty, = OpenAI compat)* | `anthropic`, `ollama`, or empty |
 | `OPENAI_API_KEY` | — | API key (also used for Anthropic) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL |
 | `OPENAI_MODEL` | `gpt-4o` | Default model |
@@ -140,11 +167,11 @@ When both env and UI settings are configured, the UI settings win.
 
 ### Web (Docker)
 
-A single self-contained binary with the UI embedded, packaged as a Docker image. Pushing a `v*` tag publishes `ghcr.io/carbonc39/shirita:<tag>` + `:latest` via `.github/workflows/docker.yml`. See [`docs/deploy.md`](docs/deploy.md) for `docker run` / compose usage.
+A single self-contained binary with the UI embedded, packaged as a Docker image. Pushing a `v*` tag publishes `ghcr.io/carbonc39/shirita:<tag>` + `:latest` via [`.github/workflows/docker.yml`](.github/workflows/docker.yml). See [`docs/deploy.md`](docs/deploy.md) for `docker run` / compose usage.
 
 ### Web (standalone binary)
 
-`.github/workflows/web.yml` builds the embedded-UI `shirita-web` binary for Linux (static musl — no glibc dependency), macOS, and Windows on tag push or `workflow_dispatch`, uploaded as per-platform artifacts. Build it locally with:
+[`.github/workflows/web.yml`](.github/workflows/web.yml) builds the embedded-UI `shirita-web` binary for Linux (static musl — no glibc dependency), macOS, and Windows on tag push or `workflow_dispatch`, uploaded as per-platform artifacts. Build it locally with:
 
 ```bash
 npm --prefix shirita-ui run build
@@ -153,7 +180,7 @@ cargo build --release -p shirita-web --features embed-ui
 
 ### Desktop CI packages
 
-`.deb` / `.AppImage` / `.dmg` / `.msi` are built via GitHub Actions (`.github/workflows/desktop.yml`) on tag push or `workflow_dispatch`. Artifacts are **unsigned** — macOS requires right-click → Open, Windows shows SmartScreen warnings.
+`.deb` / `.AppImage` / `.dmg` / `.msi` are built via GitHub Actions ([`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)) on tag push or `workflow_dispatch`. Artifacts are **unsigned** — macOS requires right-click → Open, Windows shows SmartScreen warnings.
 
 ---
 
@@ -180,12 +207,6 @@ npm --prefix shirita-ui run build       # vite build
 
 ---
 
-## License
-
-[AGPL-3.0-only](LICENSE) — the strongest copyleft license. If you modify and distribute this software, you must make your changes available under the same license, including network use (the "ASP loophole" is closed).
-
----
-
 ## Roadmap
 
 | Milestone | Status |
@@ -201,4 +222,12 @@ npm --prefix shirita-ui run build       # vite build
 | M8 — Tauri desktop shell | ✅ Done |
 | M9 — Deploy (Docker, CI, release) | ✅ Done |
 
+All milestones (M0–M9) are complete; current focus is correctness hardening and polish toward a 1.0 release.
+
 See `docs/superpowers/specs/` for milestone design documents and `docs/superpowers/plans/` for implementation plans.
+
+---
+
+## License
+
+[AGPL-3.0-only](LICENSE) — the strongest copyleft license. If you modify and distribute this software, you must make your changes available under the same license, including network use (the "ASP loophole" is closed).
