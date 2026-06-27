@@ -984,7 +984,7 @@ async function duplicateDef() {
                     @select="selectTemplate"
                     @create="createTemplateNamed"
                 />
-                <div class="flex items-center">
+                <div class="flex items-center flex-wrap">
                     <button
                         data-test="template-default"
                         class="w-[33px] h-[33px] grid place-items-center rounded-lg disabled:opacity-40"

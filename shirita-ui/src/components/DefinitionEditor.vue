@@ -141,8 +141,8 @@ function startNew() {
     </div>
 
     <!-- search + definition picker + action buttons -->
-    <div class="flex items-center gap-2 mb-3">
-      <div class="flex-1 relative" @focusout="open = false">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      <div class="flex-1 relative min-w-[200px]" @focusout="open = false">
         <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-card px-3 py-2.5 focus-within:border-primary/50">
           <Search :size="16" class="text-muted shrink-0" />
           <input
@@ -170,7 +170,7 @@ function startNew() {
         </div>
         </transition>
       </div>
-      <div v-if="headerActions" class="flex items-center">
+      <div v-if="headerActions" class="flex items-center flex-wrap">
         <button data-test="rename-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.rename')" @click="renaming = !renaming"><Pencil :size="15" /></button>
         <button data-test="import-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
         <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
