@@ -73,6 +73,7 @@ const en = {
     create: 'Create conversation',
     deleteContainerConfirm:
       'Delete this container and its {count} item? | Delete this container and its {count} items?',
+    deleteNodeConfirm: 'Delete prompt node "{name}"?',
     addNode: 'Add node',
     omniPlaceholder: 'Type to add a prompt or container…',
     omniEmpty: 'No prompts or container types yet — type a name to create one.',
@@ -155,7 +156,7 @@ const en = {
     deleteTemplateOrphans:
       'This template is the only thing using {count} definition. Delete it too? | This template is the only thing using {count} definitions. Delete them too?',
     templateHeading: 'Template',
-    definitionsHeading: 'Definitions',
+    definitionHeading: 'Definition',
     editTemplate: 'Edit template…',
     createTemplate: 'New template',
     defaultTemplate: 'Default template',
@@ -164,6 +165,7 @@ const en = {
     createPack: 'New pack',
     packNamePlaceholder: 'Pack name',
     deletePackConfirm: 'Delete this pack?',
+    deleteDefConfirm: 'Delete definition "{name}"?',
   },
   pack: {
     identity: 'Identity',

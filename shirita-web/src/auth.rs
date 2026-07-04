@@ -23,11 +23,16 @@ pub async fn require_bearer(
     req: Request,
     next: Next,
 ) -> Result<Response, StatusCode> {
+    // When HTTP Basic Auth is also configured, the browser will auto-attach
+    // `Authorization: Basic <creds>` to every same-origin request, which
+    // `get(AUTHORIZATION)` sees first. Iterate all values so we pick up the
+    // Bearer token that the frontend JS explicitly sets on fetch() calls.
     let provided = req
         .headers()
-        .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "));
+        .get_all(AUTHORIZATION)
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .find_map(|v| v.strip_prefix("Bearer "));
 
     match provided {
         Some(token) if constant_time_eq(token.as_bytes(), state.config.token_secret.as_bytes()) => {
@@ -66,6 +71,16 @@ fn basic_challenge() -> Response {
 /// leaks. Unlike Bearer (which protects /api only), this gates the served HTML
 /// and assets too — without it, anyone reaching a public origin could pull the
 /// UI shell and its JS even though every API call 401s.
+//
+// When the browser has cached Basic credentials it will auto-attach them to
+// page-navigation requests (so the UI shell loads), but fetch() calls made by
+// the loaded JS explicitly set `Authorization: Bearer <token>`, which
+// *replaces* the browser's Basic header — the browser does not send both.
+// Without a fallback, API calls would face a fresh Basic challenge on every
+// request, breaking the SPA. The fallback: if the request carries a *valid*
+// Bearer token (the same static token that is already embedded in the
+// Basic-protected HTML), let it through. An attacker never sees the token
+// without first passing Basic auth, so this does not weaken the gate.
 pub async fn require_basic(
     State(state): State<AppState>,
     req: Request,
@@ -91,7 +106,7 @@ pub async fn require_basic(
                 .ok()
         });
 
-    let ok = match provided {
+    let basic_ok = match provided {
         Some(decoded) => constant_time_eq(
             &decoded,
             format!("{expected_user}:{expected_pass}").as_bytes(),
@@ -99,11 +114,31 @@ pub async fn require_basic(
         None => false,
     };
 
-    if ok {
-        next.run(req).await
-    } else {
-        basic_challenge()
+    if basic_ok {
+        return next.run(req).await;
     }
+
+    // No (valid) Basic credentials — check whether the request carries the
+    // known Bearer token. When the JS inside the already-Basic-authenticated
+    // page makes fetch() calls it only sends the Bearer header (the browser
+    // omits the cached Basic header because JS set Authorization explicitly).
+    // Letting a valid Bearer token through here avoids re-challenging every API
+    // call while preserving the gate for anonymous visitors.
+    let bearer_ok = req
+        .headers()
+        .get_all(AUTHORIZATION)
+        .iter()
+        .filter_map(|h| h.to_str().ok())
+        .any(|v| {
+            v.strip_prefix("Bearer ")
+                .is_some_and(|token| constant_time_eq(token.as_bytes(), state.config.token_secret.as_bytes()))
+        });
+
+    if bearer_ok {
+        return next.run(req).await;
+    }
+
+    basic_challenge()
 }
 
 #[cfg(test)]

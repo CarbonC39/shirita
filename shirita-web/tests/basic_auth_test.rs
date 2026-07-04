@@ -102,3 +102,34 @@ async fn basic_auth_gates_index_page_too() {
     let res = app(state).oneshot(get("/")).await.unwrap();
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn basic_auth_lets_valid_bearer_through() {
+    // When the JS inside the Basic-authenticated SPA makes fetch() calls it
+    // sends only the Bearer header (the browser omits the cached Basic creds
+    // because JS set Authorization explicitly). The Basic layer must not
+    // re-challenge those requests.
+    let state = make_state(Some("alice"), Some("s3cret")).await;
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .header(header::AUTHORIZATION, "Bearer secret-token")
+        .body(Body::empty())
+        .unwrap();
+    let res = app(state).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn basic_auth_rejects_wrong_bearer() {
+    // A wrong Bearer token without valid Basic creds must still be blocked.
+    let state = make_state(Some("alice"), Some("s3cret")).await;
+    let req = Request::builder()
+        .method("GET")
+        .uri("/")
+        .header(header::AUTHORIZATION, "Bearer wrong-token")
+        .body(Body::empty())
+        .unwrap();
+    let res = app(state).oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}

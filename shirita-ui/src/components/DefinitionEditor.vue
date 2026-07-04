@@ -126,6 +126,13 @@ function pick(id: string) {
   emit('select-definition', id)
   open.value = false
 }
+// Sync the search box to the selected definition's name and close any open
+// rename input when the definition changes (e.g. after deletion selects blank).
+watch(() => props.definition, (def) => {
+  if (def.name) search.value = def.name
+  else search.value = ''
+  renaming.value = false
+})
 function startNew() {
   // Seed the new definition's name from whatever the user typed in the search
   // box, so an unmatched query becomes the name instead of being discarded.
@@ -138,21 +145,6 @@ function startNew() {
 <template>
   <div>
     <h3 v-if="!hideHeading" class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
-
-    <!-- rename inline input: replaces the heading area when active -->
-    <div v-if="renaming" class="flex items-center gap-2 mb-2.5 px-0.5">
-      <input
-        :value="definition.name"
-        type="text"
-        data-test="def-name-input"
-        class="field flex-1"
-        placeholder="Name"
-        @input="emit('update:name', ($event.target as HTMLInputElement).value)"
-        @blur="renaming = false"
-        @keydown.enter="renaming = false"
-      />
-      <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
-    </div>
 
     <!-- search + definition picker + action buttons -->
     <div class="flex items-center gap-2 mb-3 flex-wrap">
@@ -191,6 +183,22 @@ function startNew() {
         <button data-test="duplicate-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
         <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
       </div>
+    </div>
+
+    <!-- rename inline input: appears below the search bar when the rename
+         button is clicked, matching the Template and Pack sections. -->
+    <div v-if="renaming" class="flex items-center gap-2 mb-2.5 px-0.5">
+      <input
+        :value="definition.name"
+        type="text"
+        data-test="def-name-input"
+        class="field flex-1"
+        placeholder="Name"
+        @input="emit('update:name', ($event.target as HTMLInputElement).value)"
+        @blur="renaming = false"
+        @keydown.enter="renaming = false"
+      />
+      <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
     </div>
 
     <!-- editor body: revealed only once a definition is picked or a new one started -->

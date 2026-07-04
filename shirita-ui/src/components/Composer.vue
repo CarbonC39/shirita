@@ -133,8 +133,8 @@ function onKeydown(e: KeyboardEvent) {
         <ArrowUp :size="18" />
       </button>
     </div>
-    <div v-if="hasText" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pt-1">
-      <span class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
+    <div class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pt-1 h-[18px]">
+      <span v-if="hasText" class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
     </div>
   </div>
 </template>

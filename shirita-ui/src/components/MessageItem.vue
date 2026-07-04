@@ -124,7 +124,7 @@ function cancelEdit() { editing.value = false }
           <Pencil :size="15" :stroke-width="1.8" />
         </button>
         <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
-          <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
+          <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
         </button>
         <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
           <Trash2 :size="15" :stroke-width="1.8" />
@@ -186,7 +186,7 @@ function cancelEdit() { editing.value = false }
         <Pencil :size="15" :stroke-width="1.8" />
       </button>
       <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
-        <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
+        <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
       </button>
       <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
         <Trash2 :size="15" :stroke-width="1.8" />

@@ -398,6 +398,7 @@ async function localDeleteNode(nodeId: string) {
     if (!node) return;
     const childCount = localNodes.value.filter((n) => n.parent_id === nodeId).length;
     if (node.kind === "folder" && childCount > 0 && !confirm(tr("prompt.deleteContainerConfirm", childCount))) return;
+    if (!confirm(tr("prompt.deleteNodeConfirm", { name: node.tag || "(untitled)" }))) return;
     try {
         await ensureMaterialized();
         await deleteNode(nodeId);
@@ -719,6 +720,7 @@ async function handleDeleteNode(nodeId: string) {
         !confirm(tr("prompt.deleteContainerConfirm", childCount))
     )
         return;
+    if (!confirm(tr("prompt.deleteNodeConfirm", { name: node.tag || "(untitled)" }))) return;
     try {
         await deleteNode(nodeId);
         await reload();
@@ -864,10 +866,13 @@ async function deleteDef() {
         defActive.value = false;
         return;
     }
+    if (!confirm(tr("book.deleteDefConfirm", { name: editDef.name }))) return;
     try {
         await deleteDefinition(editDef.id);
         loadDef(blankDef());
         defActive.value = false;
+        renamingTemplate.value = false;
+        renamingPack.value = false;
         await library.loadDefinitions();
     } catch (e) {
         error.value = (e as Error).message;
@@ -1007,7 +1012,7 @@ async function duplicateDef() {
                         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40"
                         :title="$t('common.rename')"
                         :disabled="!selectedTemplateId"
-                        @click="renamingTemplate = true"
+                        @click="renamingTemplate = !renamingTemplate"
                     >
                         <Pencil :size="15" />
                     </button>
@@ -1131,18 +1136,8 @@ async function duplicateDef() {
             <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
-                <div class="flex items-center gap-2 mb-3 flex-wrap">
-                    <input
-                        v-if="renamingPack"
-                        v-model="packNameDraft"
-                        type="text"
-                        class="field flex-1 min-w-[180px]"
-                        :placeholder="$t('book.packNamePlaceholder')"
-                        @keydown.enter="renamePack"
-                        @blur="renamePack"
-                    />
+                <div class="flex items-center gap-2 flex-wrap">
                     <EntityPicker
-                        v-else
                         class="flex-1 min-w-[180px]"
                         data-test="pack-picker"
                         :items="library.packs.map((p) => ({ id: p.id, name: p.name }))"
@@ -1152,12 +1147,23 @@ async function duplicateDef() {
                         @create="createPackNamed"
                     />
                     <div class="flex items-center">
-                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.rename')" :disabled="!selectedPack" @click="startRenamePack"><Pencil :size="15" /></button>
+                        <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.rename')" :disabled="!selectedPack" @click="renamingPack = !renamingPack; if (renamingPack) { packNameDraft = selectedPack?.name ?? '' }"><Pencil :size="15" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.import')" data-test="pack-import" :disabled="importBusy" @click="importInput?.click()"><Upload :size="16" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('book.exportPackTitle')" data-test="pack-export" :disabled="!selectedPack" @click="exportSelectedPack"><Download :size="16" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-40" :title="$t('common.duplicate')" :disabled="!selectedPack" @click="dupPack"><Copy :size="16" /></button>
                         <button class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-40" :title="$t('common.delete')" :disabled="!selectedPack" @click="delPack"><Trash2 :size="16" /></button>
                     </div>
+                </div>
+                <div v-if="renamingPack" class="flex items-center gap-2 mt-2 mb-2">
+                    <input
+                        v-model="packNameDraft"
+                        type="text"
+                        class="field flex-1"
+                        :placeholder="$t('book.packNamePlaceholder')"
+                        @keydown.enter="renamePack"
+                        @blur="renamePack"
+                    />
+                    <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renamePack">{{ $t('common.done') }}</button>
                 </div>
                 <PackEditor v-if="selectedPack" :pack="selectedPack" @changed="library.loadPacks()" />
             </div>
@@ -1165,7 +1171,7 @@ async function duplicateDef() {
 
             <!-- DEFINITIONS section (neutral accent) -->
             <div class="rounded-2xl bg-ink/[0.03] border border-line/60 p-4">
-            <h2 data-test="section-definitions" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/55 border-l-2 border-muted/50 pl-2 mb-3">{{ $t('book.definitionsHeading') }}</h2>
+            <h2 data-test="section-definitions" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/55 border-l-2 border-muted/50 pl-2 mb-3">{{ $t('book.definitionHeading') }}</h2>
             <DefinitionEditor
                 hide-heading
                 :definition="editDef"
