@@ -111,6 +111,10 @@ function onFolderAdd(id: string) {
 // rest of the row don't accidentally start a drag.
 const dragId = ref<string | null>(null)
 const grabbedHandle = ref(false)
+// Where the dragged row would land if dropped right now: the id of the row
+// being hovered plus whether the cursor is in its top or bottom half. Cleared
+// on drop / drag end. Null when not over a valid same-parent sibling.
+const dropTarget = ref<{ id: string; position: 'before' | 'after' } | null>(null)
 function onMouseDown(e: MouseEvent) {
   grabbedHandle.value = !!(e.target as HTMLElement).closest('[data-test="drag-handle"]')
 }
@@ -128,18 +132,42 @@ function siblingsOf(parentId: string | null) { return getChildren(parentId).map(
 function parentOf(id: string): string | null {
   return props.nodes.find((nd) => nd.id === id)?.parent_id ?? null
 }
+// Compute the drop zone (before/after) from the cursor's vertical position
+// within the hovered row, but only for same-parent siblings. Different-parent
+// rows get no indicator and can't receive a drop (reorder is within-level only).
+function onDragOver(id: string, e: DragEvent) {
+  const src = dragId.value
+  if (!src || src === id || parentOf(src) !== parentOf(id)) {
+    dropTarget.value = null
+    return
+  }
+  e.preventDefault() // allow the drop
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const position: 'before' | 'after' = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+  dropTarget.value = { id, position }
+}
 function onDrop(targetId: string) {
   const src = dragId.value
+  const target = dropTarget.value
   dragId.value = null
   grabbedHandle.value = false
+  dropTarget.value = null
   if (!src || src === targetId) return
   if (parentOf(src) !== parentOf(targetId)) return // only reorder within a level
-  const ids = siblingsOf(parentOf(targetId))
-  const from = ids.indexOf(src)
-  const to = ids.indexOf(targetId)
-  if (from === -1 || to === -1) return
-  ids.splice(to, 0, ids.splice(from, 1)[0])
-  emit('reorder', ids)
+  const without = siblingsOf(parentOf(targetId)).filter((x) => x !== src)
+  const targetIdx = without.indexOf(targetId)
+  if (targetIdx === -1) return
+  const insertAt = target?.id === targetId
+    ? (target.position === 'before' ? targetIdx : targetIdx + 1)
+    : targetIdx + 1 // fallback: after target (old behavior)
+  without.splice(insertAt, 0, src)
+  emit('reorder', without)
+}
+function onDragEnd() {
+  dragId.value = null
+  grabbedHandle.value = false
+  dropTarget.value = null
 }
 </script>
 
@@ -149,12 +177,21 @@ function onDrop(targetId: string) {
       v-for="node in rootNodes"
       :key="node.id"
       data-test="row-wrap"
+      :class="['relative', dragId === node.id ? 'opacity-40' : '']"
       draggable="true"
       @mousedown="onMouseDown"
       @dragstart="onDragStart(node.id, $event)"
-      @dragover.prevent
+      @dragover="onDragOver(node.id, $event)"
       @drop="onDrop(node.id)"
+      @dragend="onDragEnd"
     >
+      <!-- drop-zone indicator: a 2px primary line at the hovered edge -->
+      <span
+        v-if="dropTarget?.id === node.id"
+        data-test="drop-indicator"
+        class="pointer-events-none absolute left-2 right-2 h-[2px] bg-primary rounded-full z-10"
+        :class="dropTarget.position === 'before' ? 'top-0' : 'bottom-0'"
+      />
       <NodeRow
         :node="node"
         :definitions="defMap"
@@ -177,12 +214,20 @@ function onDrop(targetId: string) {
           v-for="child in getChildren(node.id)"
           :key="child.id"
           data-test="row-wrap"
+          :class="['relative', dragId === child.id ? 'opacity-40' : '']"
           draggable="true"
           @mousedown="onMouseDown"
           @dragstart.stop="onDragStart(child.id, $event)"
-          @dragover.prevent
+          @dragover="onDragOver(child.id, $event)"
           @drop.stop="onDrop(child.id)"
+          @dragend="onDragEnd"
         >
+          <span
+            v-if="dropTarget?.id === child.id"
+            data-test="drop-indicator"
+            class="pointer-events-none absolute left-2 right-2 h-[2px] bg-primary rounded-full z-10"
+            :class="dropTarget.position === 'before' ? 'top-0' : 'bottom-0'"
+          />
           <NodeRow
             :node="child"
             :definitions="defMap"

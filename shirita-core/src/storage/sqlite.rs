@@ -482,6 +482,83 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn delete_message_subtree(&self, message_id: &str) -> Result<Option<String>> {
+        use std::collections::{HashMap, HashSet};
+        // Load the root first to learn its session + parent (needed to reset the
+        // active leaf). NOT_FOUND here is surfaced to the caller as None — but we
+        // can't distinguish "gone" from "never existed", so just treat both as a
+        // no-op delete that returns None.
+        let root: Option<(String, Option<String>)> = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT session_id, parent_id FROM messages WHERE id = ?",
+        )
+        .bind(message_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((session_id, parent_id)) = root else { return Ok(None) };
+
+        // Collect the whole subtree by walking parent_id over all messages of
+        // the session. We do it in-memory rather than relying on ON DELETE
+        // CASCADE so the result is identical whether or not the connection
+        // honors FK pragma, and so we can decide the new leaf deterministically.
+        let rows: Vec<(String, Option<String>)> = sqlx::query_as::<_, (String, Option<String>)>(
+            "SELECT id, parent_id FROM messages WHERE session_id = ?",
+        )
+        .bind(&session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        let by_parent: HashMap<Option<String>, Vec<String>> = {
+            let mut m: HashMap<Option<String>, Vec<String>> = HashMap::new();
+            for (id, pid) in &rows {
+                m.entry(pid.clone()).or_default().push(id.clone());
+            }
+            m
+        };
+        let mut to_delete: HashSet<String> = HashSet::new();
+        let mut stack = vec![message_id.to_string()];
+        while let Some(id) = stack.pop() {
+            if to_delete.insert(id.clone()) {
+                if let Some(kids) = by_parent.get(&Some(id)) {
+                    stack.extend(kids.iter().cloned());
+                }
+            }
+        }
+
+        // Active leaf: only reset it if the current leaf falls inside the
+        // deleted subtree (i.e. we just deleted the active branch). If the user
+        // is on a different branch, leave their active leaf untouched — blindly
+        // resetting to the root's parent would yank them off an unaffected branch.
+        let current_leaf: Option<String> = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT active_leaf_id FROM chat_sessions WHERE id = ?",
+        )
+        .bind(&session_id)
+        .fetch_one(&self.pool)
+        .await?;
+        let new_leaf = match &current_leaf {
+            Some(id) if to_delete.contains(id) => parent_id.clone(),
+            other => other.clone(),
+        };
+
+        let mut tx = self.pool.begin().await?;
+        for id in &to_delete {
+            sqlx::query("DELETE FROM messages WHERE id = ?")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        // Only write when the leaf actually changes, to avoid a needless update
+        // (and keep the row's updated_at honest) when the active branch was
+        // unaffected.
+        if new_leaf != current_leaf {
+            sqlx::query("UPDATE chat_sessions SET active_leaf_id = ? WHERE id = ?")
+                .bind(&new_leaf)
+                .bind(&session_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(new_leaf)
+    }
+
     async fn set_session_active_leaf(&self, session_id: &str, leaf_id: Option<&str>) -> Result<()> {
         sqlx::query("UPDATE chat_sessions SET active_leaf_id = ? WHERE id = ?")
             .bind(leaf_id)
@@ -1788,6 +1865,79 @@ mod tests {
         m2.id = m1.id.clone(); // dup id → insert fails → leaf must not advance
         assert!(s.create_message_and_advance_leaf(&m2).await.is_err());
         assert_eq!(s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id, None);
+    }
+
+    // --- delete_message_subtree ---
+
+    // Regression: deleting a branch must NOT touch the active leaf when the user
+    // is on a different, unaffected branch. (Earlier versions unconditionally
+    // reset the leaf to the deleted root's parent, yanking the user off their
+    // active branch.)
+    #[tokio::test]
+    async fn delete_subtree_leaves_unaffected_active_leaf_alone() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        // u1 → {a2, a6}  (two sibling assistant replies to the same user msg)
+        let u1 = Message::new(&sess.id, None, Role::User, "q");
+        let a2 = Message::new(&sess.id, Some(u1.id.clone()), Role::Assistant, "r2");
+        let a6 = Message::new(&sess.id, Some(u1.id.clone()), Role::Assistant, "r6");
+        s.create_messages(&[u1, a2.clone(), a6.clone()]).await.unwrap();
+        s.set_session_active_leaf(&sess.id, Some(&a6.id)).await.unwrap();
+
+        let new_leaf = s.delete_message_subtree(&a2.id).await.unwrap();
+        // a6 is untouched and remains the active leaf; a2 is gone.
+        assert_eq!(new_leaf.as_deref(), Some(a6.id.as_str()));
+        assert_eq!(
+            s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id.as_deref(),
+            Some(a6.id.as_str())
+        );
+        assert!(s.get_message(&a2.id).await.unwrap().is_none());
+        assert!(s.get_message(&a6.id).await.unwrap().is_some());
+    }
+
+    // When the active leaf IS inside the deleted subtree, it must fall back to
+    // the deleted root's parent (here u1), never None.
+    #[tokio::test]
+    async fn delete_subtree_resets_active_leaf_when_inside() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        // u1 → a2 → a3 (a3 is the active leaf); deleting a2 takes a3 with it
+        // and resets the leaf to u1.
+        let u1 = Message::new(&sess.id, None, Role::User, "q");
+        let a2 = Message::new(&sess.id, Some(u1.id.clone()), Role::Assistant, "r2");
+        let a3 = Message::new(&sess.id, Some(a2.id.clone()), Role::Assistant, "r3");
+        let a2_id = a2.id.clone();
+        let a3_id = a3.id.clone();
+        s.create_messages(&[u1.clone(), a2, a3]).await.unwrap();
+        s.set_session_active_leaf(&sess.id, Some(&a3_id)).await.unwrap();
+
+        let new_leaf = s.delete_message_subtree(&a2_id).await.unwrap();
+        assert_eq!(new_leaf.as_deref(), Some(u1.id.as_str()));
+        assert_eq!(
+            s.get_session(&sess.id).await.unwrap().unwrap().active_leaf_id.as_deref(),
+            Some(u1.id.as_str())
+        );
+        // whole subtree gone, root parent survives
+        let remaining: Vec<String> = s.list_messages(&sess.id).await.unwrap().into_iter().map(|m| m.id).collect();
+        assert_eq!(remaining, vec![u1.id]);
+    }
+
+    // Subtree deletion must remove grandchildren too, not just direct children.
+    #[tokio::test]
+    async fn delete_subtree_removes_grandchildren() {
+        let s = temp_storage().await;
+        let sess = Session::new("S");
+        s.create_session(&sess).await.unwrap();
+        let u1 = Message::new(&sess.id, None, Role::User, "q");
+        let a2 = Message::new(&sess.id, Some(u1.id.clone()), Role::Assistant, "r2");
+        let a3 = Message::new(&sess.id, Some(a2.id.clone()), Role::Assistant, "r3");
+        let a4 = Message::new(&sess.id, Some(a3.id.clone()), Role::Assistant, "r4");
+        s.create_messages(&[u1.clone(), a2.clone(), a3, a4]).await.unwrap();
+        s.delete_message_subtree(&a2.id).await.unwrap();
+        let remaining: Vec<String> = s.list_messages(&sess.id).await.unwrap().into_iter().map(|m| m.id).collect();
+        assert_eq!(remaining, vec![u1.id]);
     }
 
     #[tokio::test]

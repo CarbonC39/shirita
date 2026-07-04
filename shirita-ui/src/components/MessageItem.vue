@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X } from 'lucide-vue-next'
+import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X, Trash2 } from 'lucide-vue-next'
 import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
 import { useMediaStore } from '../stores/media'
@@ -25,6 +25,7 @@ const emit = defineEmits<{
   fork: []
   'edit-save': [text: string]
   'toggle-hidden': []
+  delete: []
   swipe: [delta: -1 | 1]
 }>()
 
@@ -125,6 +126,9 @@ function cancelEdit() { editing.value = false }
         <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
           <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
         </button>
+        <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
+          <Trash2 :size="15" :stroke-width="1.8" />
+        </button>
         <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
       </div>
     </div>
@@ -183,6 +187,9 @@ function cancelEdit() { editing.value = false }
       </button>
       <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
         <component :is="message.is_hidden ? Eye : EyeOff" :size="15" :stroke-width="1.8" />
+      </button>
+      <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
+        <Trash2 :size="15" :stroke-width="1.8" />
       </button>
       <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
     </div>

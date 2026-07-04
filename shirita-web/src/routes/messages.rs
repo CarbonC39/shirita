@@ -48,6 +48,34 @@ pub async fn edit_message(
     Ok(Json(msg))
 }
 
+/// Delete a message and its entire subtree (all descendants). If the session's
+/// active branch pointed into the deleted subtree, the active leaf is reset to
+/// the deleted root's parent (or cleared if the root was top-level). Returns the
+/// new active leaf id for the session (may be `null`).
+pub async fn delete_message(
+    State(state): State<AppState>,
+    Path((session_id, msg_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Verify the message belongs to this session before deleting (a stale
+    // msg_id from another session must not succeed, and the subtree delete
+    // would otherwise touch rows in the wrong session's tree).
+    let msg = state
+        .storage
+        .get_message(&msg_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    if msg.session_id != session_id {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let new_leaf = state
+        .storage
+        .delete_message_subtree(&msg_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(Json(serde_json::json!({ "activeLeafId": new_leaf })))
+}
+
 #[derive(Deserialize)]
 pub struct ActiveLeafBody {
     pub message_id: String,

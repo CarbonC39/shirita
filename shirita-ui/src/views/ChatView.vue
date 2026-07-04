@@ -121,10 +121,21 @@ function onCardMessage(e: MessageEvent) {
 }
 
 onMounted(() => { window.addEventListener('message', onCardMessage) })
-onUnmounted(() => { window.removeEventListener('message', onCardMessage) })
+onUnmounted(() => {
+  window.removeEventListener('message', onCardMessage)
+  // Bug 9: abort any in-flight stream when leaving the chat, so a stale SSE
+  // connection can't fire a late `done` reload into this now-unmounted view
+  // (which surfaced as duplicate / "load failed" messages).
+  chat.abortActive()
+})
 
 async function handleSend(text: string, attachments: string[]) {
   await chat.send(sessionId, text, attachments)
+  await loadState()
+}
+
+async function handleStop() {
+  await chat.stop()
   await loadState()
 }
 
@@ -153,6 +164,11 @@ async function handleSwipe(id: string, delta: -1 | 1) {
 async function handleFork(id: string) {
   const newId = await chat.fork(id)
   if (newId) router.push(`/chat/${newId}`)
+}
+async function handleDelete(id: string) {
+  if (!window.confirm(t('chat.deleteConfirm'))) return
+  await chat.remove(id)
+  await loadState()
 }
 </script>
 
@@ -193,10 +209,11 @@ async function handleFork(id: string) {
       @fork="handleFork"
       @edit-save="handleEditSave"
       @toggle-hidden="handleToggleHidden"
+      @delete="handleDelete"
       @swipe="handleSwipe"
     />
 
     <VariablesPanel :schema="sessionState.schema" :values="sessionState.values" />
-    <Composer ref="composerRef" :disabled="chat.isStreaming" @send="handleSend" />
+    <Composer ref="composerRef" :disabled="chat.isStreaming" :streaming="chat.isStreaming" @send="handleSend" @stop="handleStop" />
   </div>
 </template>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
 import type { Definition, DefType, VarDecl, VariablesMeta } from '../api/types'
 import { triggerFromMeta } from '../api/types'
@@ -12,11 +12,11 @@ import PanelView from './PanelView.vue'
 import VariablesEditor from './VariablesEditor.vue'
 
 const props = withDefaults(
-  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean }>(),
-  { types: () => [], active: false, headerActions: true, hideHeading: false },
+  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean; savedTick?: number }>(),
+  { types: () => [], active: false, headerActions: true, hideHeading: false, savedTick: 0 },
 )
 const emit = defineEmits<{
-  'select-definition': [id: string]
+  'select-definition': [id: string, seedName?: string]
   'update:content': [content: string]
   'update:name': [name: string]
   'update:type': [type: string]
@@ -29,6 +29,17 @@ const emit = defineEmits<{
   'create-type': [name: string]
   'delete-type': [id: string]
 }>()
+
+// Transient "Saved" indicator: parent bumps `savedTick` after a successful
+// save; we flash the label for ~1.5s then hide it.
+const showSaved = ref(false)
+let savedTimer: ReturnType<typeof setTimeout> | undefined
+function flashSaved() {
+  showSaved.value = true
+  if (savedTimer) clearTimeout(savedTimer)
+  savedTimer = setTimeout(() => { showSaved.value = false }, 1500)
+}
+watch(() => props.savedTick, (t) => { if (t) flashSaved() })
 
 const fullscreenOpen = ref(false)
 const open = ref(false)
@@ -116,8 +127,11 @@ function pick(id: string) {
   open.value = false
 }
 function startNew() {
-  emit('select-definition', '')
+  // Seed the new definition's name from whatever the user typed in the search
+  // box, so an unmatched query becomes the name instead of being discarded.
+  emit('select-definition', '', search.value.trim())
   open.value = false
+  search.value = ''
 }
 </script>
 
@@ -332,7 +346,10 @@ function startNew() {
 
     <div class="flex items-center justify-between mt-3">
       <span class="text-[11.5px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(contentTokens) }, contentTokens) }}</span>
-      <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">{{ $t('common.save') }}</button>
+      <div class="flex items-center gap-2">
+        <span v-if="showSaved" class="text-[11.5px] text-emerald">{{ $t('common.saved') }}</span>
+        <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">{{ $t('common.save') }}</button>
+      </div>
     </div>
 
     <FullscreenEditor :model-value="definition.content" :open="fullscreenOpen" @close="fullscreenOpen = false" @update:model-value="emit('update:content', $event)" />

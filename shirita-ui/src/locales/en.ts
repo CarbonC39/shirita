@@ -18,6 +18,7 @@ const en = {
     loading: 'Loading…',
     saved: 'Saved',
     saving: 'Saving…',
+    done: 'Done',
     // Plural: en distinguishes 1 vs many; zh/ja use a single form. `{tokens}`
     // is the pre-formatted display value; pass the raw number as the plural
     // choice: t('common.tokensEstimate', { tokens: formatTokens(n) }, n).
@@ -110,6 +111,8 @@ const en = {
     edit: 'Edit',
     hide: 'Hide',
     unhide: 'Unhide',
+    delete: 'Delete',
+    deleteConfirm: 'Delete this message and all its replies? This cannot be undone.',
     empty: 'No messages yet.',
     noMessages: 'No messages yet',
     dragReorder: 'Drag to reorder',
@@ -120,6 +123,7 @@ const en = {
     attach: 'Attach',
     removeAttachment: 'Remove attachment',
     placeholder: 'Type a message…',
+    stop: 'Stop generating',
   },
   book: {
     localHeading: 'This conversation',

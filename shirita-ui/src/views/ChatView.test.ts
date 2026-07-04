@@ -95,7 +95,7 @@ describe('ChatView', () => {
     await textarea.setValue('hello')
     await wrapper.find('[data-test="send-btn"]').trigger('click')
     await flushPromises()
-    expect(sendSpy).toHaveBeenCalledWith('s1', 'hello', [])
+    expect(sendSpy).toHaveBeenCalledWith('s1', 'hello', [], expect.any(AbortSignal))
   })
 
   it('shows the variables panel from session state', async () => {

@@ -44,7 +44,7 @@ describe('chat store', () => {
     const store = useChatStore()
     await store.send('s1', 'hi')
 
-    expect(client.sendMessage).toHaveBeenCalledWith('s1', 'hi', [])
+    expect(client.sendMessage).toHaveBeenCalledWith('s1', 'hi', [], expect.any(AbortSignal))
     expect(store.messages).toEqual([msg()])
     expect(store.isStreaming).toBe(false)
     expect(store.streamingText).toBe('')

@@ -16,7 +16,16 @@ export type Inline =
   | { type: 'code'; value: string }
   | { type: 'link'; href: string; children: Inline[] }
 
-export type MdNode = Inline | { type: 'codeblock'; lang: string | null; value: string }
+export type Block =
+  | { type: 'heading'; level: 1 | 2 | 3 | 4 | 5 | 6; children: Inline[] }
+  | { type: 'hr' }
+  | { type: 'blockquote'; children: Block[] }
+  | { type: 'list'; ordered: boolean; items: ListItem[] }
+  | { type: 'paragraph'; children: Inline[] }
+
+export type ListItem = { children: Inline[]; checked?: boolean }
+
+export type MdNode = Inline | { type: 'codeblock'; lang: string | null; value: string } | Block
 
 // SillyTavern character cards sometimes ship a full HTML/CSS/JS document as
 // their first message (a "card front-end"), occasionally fenced in ```html.
@@ -68,16 +77,123 @@ function parseInline(text: string): Inline[] {
 
 const FENCE = /```([^\n]*)\n([\s\S]*?)```/g
 
+// Recognize ATX headings (# .. ######) and setext headings (text ===/---).
+const ATX = /^(#{1,6})\s+(.+?)\s*#*\s*$/
+const HR = /^\s*(-{3,}|\*{3,}|_{3,})\s*$/
+
 export function parseMarkdown(src: string): MdNode[] {
   const out: MdNode[] = []
   let last = 0
   for (const m of src.matchAll(FENCE)) {
     const idx = m.index ?? 0
-    if (idx > last) out.push(...parseInline(src.slice(last, idx)))
+    if (idx > last) out.push(...parseBlocks(src.slice(last, idx)))
     const lang = m[1].trim()
     out.push({ type: 'codeblock', lang: lang || null, value: m[2] })
     last = idx + m[0].length
   }
-  if (last < src.length) out.push(...parseInline(src.slice(last)))
+  if (last < src.length) out.push(...parseBlocks(src.slice(last)))
+  return out
+}
+
+// Turn a chunk of non-fenced text into block-level nodes. Splits on blank
+// lines so paragraphs/quotes/lists get their own boundaries.
+function parseBlocks(src: string): Block[] {
+  const lines = src.replace(/\r\n?/g, '\n').split('\n')
+  const out: Block[] = []
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Blank line — skip.
+    if (/^\s*$/.test(line)) { i++; continue }
+
+    // Horizontal rule.
+    if (HR.test(line)) { out.push({ type: 'hr' }); i++; continue }
+
+    // ATX heading.
+    const atx = ATX.exec(line)
+    if (atx) {
+      out.push({ type: 'heading', level: atx[1].length as 1 | 2 | 3 | 4 | 5 | 6, children: parseInline(atx[2]) })
+      i++
+      continue
+    }
+
+    // Blockquote: gather consecutive '>' lines.
+    if (/^>\s?/.test(line)) {
+      const buf: string[] = []
+      while (i < lines.length && /^>\s?/.test(lines[i])) {
+        buf.push(lines[i].replace(/^>\s?/, ''))
+        i++
+      }
+      out.push({ type: 'blockquote', children: parseBlocks(buf.join('\n')) })
+      continue
+    }
+
+    // List: gather consecutive list-item lines (and their lazy continuation).
+    const ul = /^\s*([-*+])\s+(\[[ xX]]\s+)?(.*)$/.exec(line)
+    const ol = /^\s*(\d+)\.\s+(.*)$/.exec(line)
+    if (ul || ol) {
+      const ordered = !!ol
+      const items: ListItem[] = []
+      const itemRe = ordered ? /^\s*\d+\.\s+(.*)$/ : /^\s*[-*+]\s+(\[[ xX]]\s+)?(.*)$/
+      while (i < lines.length) {
+        const cur = lines[i]
+        if (/^\s*$/.test(cur)) {
+          // A blank line then a non-item line ends the list; a following item
+          // continues it (loose vs tight). Peek ahead.
+          if (i + 1 < lines.length && (itemRe.test(lines[i + 1]))) { i++; continue }
+          break
+        }
+        const m = itemRe.exec(cur)
+        if (m) {
+          if (ordered) {
+            items.push({ children: parseInline(m[1]) })
+          } else {
+            const checked = m[1] ? m[1].trim().toLowerCase() === '[x]' : undefined
+            items.push({ children: parseInline(m[2]), ...(checked !== undefined ? { checked } : {}) })
+          }
+          i++
+        } else if (/^\s{2,}\S/.test(cur) && items.length) {
+          // Lazy continuation of the previous item.
+          const prev = items[items.length - 1]
+          prev.children = [...prev.children, ...parseInline('\n' + cur.trim())]
+          i++
+        } else {
+          break
+        }
+      }
+      out.push({ type: 'list', ordered, items })
+      continue
+    }
+
+    // Setext heading: a line of text followed by ===/---.
+    if (i + 1 < lines.length && /^=+\s*$/.test(lines[i + 1]) && line.trim()) {
+      out.push({ type: 'heading', level: 1, children: parseInline(line.trim()) })
+      i += 2
+      continue
+    }
+    if (i + 1 < lines.length && /^-{2,}\s*$/.test(lines[i + 1]) && line.trim() && !HR.test(line)) {
+      out.push({ type: 'heading', level: 2, children: parseInline(line.trim()) })
+      i += 2
+      continue
+    }
+
+    // Paragraph: gather until a blank line or a block-starting construct.
+    const buf: string[] = [line]
+    i++
+    while (
+      i < lines.length &&
+      !/^\s*$/.test(lines[i]) &&
+      !ATX.test(lines[i]) &&
+      !HR.test(lines[i]) &&
+      !/^>\s?/.test(lines[i]) &&
+      !/^\s*([-*+])\s+(\[[ xX]]\s+)?/.test(lines[i]) &&
+      !/^\s*\d+\.\s+/.test(lines[i])
+    ) {
+      buf.push(lines[i])
+      i++
+    }
+    out.push({ type: 'paragraph', children: parseInline(buf.join('\n')) })
+  }
   return out
 }

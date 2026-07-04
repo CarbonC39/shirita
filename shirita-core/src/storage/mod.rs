@@ -64,6 +64,11 @@ pub trait Storage: Send + Sync {
     async fn get_message(&self, id: &str) -> Result<Option<Message>>;
     /// Update an existing message's editable fields (raw/display content, hidden).
     async fn update_message(&self, message: &Message) -> Result<()>;
+    /// Delete `message_id` and its entire subtree (all descendants). If the
+    /// session's active leaf falls inside the deleted subtree, reset it to the
+    /// deleted root's parent (or `None` if the root had no parent). Returns the
+    /// new active leaf id for the session (may be `None`).
+    async fn delete_message_subtree(&self, message_id: &str) -> Result<Option<String>>;
 
     // --- templates ---
     async fn create_template(&self, template: &Template) -> Result<()>;

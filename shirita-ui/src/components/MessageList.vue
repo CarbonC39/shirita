@@ -22,6 +22,7 @@ const emit = defineEmits<{
   fork: [id: string]
   'edit-save': [id: string, text: string]
   'toggle-hidden': [id: string]
+  delete: [id: string]
   swipe: [id: string, delta: -1 | 1]
 }>()
 
@@ -72,6 +73,7 @@ const streamingMsg = computed<Message | null>(() => {
       @fork="emit('fork', msg.id)"
       @edit-save="(t) => emit('edit-save', msg.id, t)"
       @toggle-hidden="emit('toggle-hidden', msg.id)"
+      @delete="emit('delete', msg.id)"
       @swipe="(d) => emit('swipe', msg.id, d)"
     />
 

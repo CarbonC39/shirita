@@ -141,6 +141,9 @@ const editDef = reactive<Definition>(blankDef());
 // Whether the definition editor body is revealed — mirrors the template picker:
 // the search/picker is always shown, the fields appear once one is chosen/new.
 const defActive = ref(false);
+// Bumped after a successful definition save so the editor can flash "Saved".
+const defSavedTick = ref(0);
+const localSavedTick = ref(0);
 function loadDef(d: Definition) {
     Object.assign(editDef, {
         id: d.id,
@@ -210,6 +213,7 @@ async function saveLocal() {
     try {
         await setLocalDefinition(ui.activeChatId, localEditDef.id, patch);
         await loadLocal();
+        localSavedTick.value++;  // signal saved-feedback in the editor
     } catch (e) {
         error.value = (e as Error).message;
     }
@@ -815,10 +819,12 @@ async function exportSelectedPack() {
 }
 
 // ── definition editor ──────────────────────────────────────
-function selectDefinition(id: string) {
+function selectDefinition(id: string, seedName?: string) {
     try { localStorage.setItem("book.defId", id || "") } catch { /* ignore */ }
     if (!id) {
-        loadDef(blankDef());
+        // New blank definition — honor a seed name carried from the search box
+        // (bug 3c) so an unmatched query becomes the name instead of being lost.
+        loadDef({ ...blankDef(), name: seedName?.trim() || "" });
         defActive.value = true;
         return;
     }
@@ -847,6 +853,7 @@ async function saveDefinition() {
             editDef.id = created.id;
         }
         await library.loadDefinitions();
+        defSavedTick.value++;  // signal saved-feedback in the editor
     } catch (e) {
         error.value = (e as Error).message;
     }
@@ -959,6 +966,7 @@ async function duplicateDef() {
                     :types="library.containerTypes"
                     :active="localDefActive"
                     :header-actions="false"
+                    :saved-tick="localSavedTick"
                     @select-definition="editLocal"
                     @update:name="localEditDef.name = $event"
                     @update:type="localEditDef.type = $event as Definition['type']"
@@ -1164,6 +1172,7 @@ async function duplicateDef() {
                 :all-definitions="library.definitions"
                 :types="library.containerTypes"
                 :active="defActive"
+                :saved-tick="defSavedTick"
                 @select-definition="selectDefinition"
                 @update:name="editDef.name = $event"
                 @update:type="editDef.type = $event as Definition['type']"

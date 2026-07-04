@@ -32,6 +32,7 @@ pub use budget::{over_threshold, trim_history};
 pub use config::{apply_provider_env, Config};
 pub use conversation::{
     effective_regex_rules, regenerate, resolve_session_schema, send_message, SendEvent,
+    StopHandle, StopToken,
 };
 pub use error::{Error, Result};
 pub use model::{

@@ -122,16 +122,28 @@ export async function* sendMessage(
   sessionId: string,
   text: string,
   attachments: string[] = [],
+  signal?: AbortSignal,
 ): AsyncGenerator<SseEvent> {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, attachments }),
+    signal,
   })
   if (!res.ok) {
     throw new Error(`POST /sessions/${sessionId}/messages failed: ${res.status}`)
   }
   yield* readSse(res)
+}
+
+/** Cooperatively stop the in-flight generation for a session (Stop button /
+ *  navigate-away). The backend persists partial text before ending the stream. */
+export async function abortSession(sessionId: string): Promise<void> {
+  try {
+    await fetch(`${BASE}/api/sessions/${sessionId}/abort`, { method: 'POST', headers: authHeaders() })
+  } catch {
+    // Best-effort: the SSE stream's own AbortController is the real kill switch.
+  }
 }
 
 export async function editMessage(
@@ -145,6 +157,16 @@ export async function editMessage(
     body: JSON.stringify(patch),
   })
   if (!res.ok) throw new Error(`Edit message failed: ${res.status}`)
+  return res.json()
+}
+
+/** Delete a message and its subtree; returns the session's new active leaf id (may be null). */
+export async function deleteMessage(sessionId: string, msgId: string): Promise<{ activeLeafId: string | null }> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages/${msgId}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  if (!res.ok) throw new Error(`Delete message failed: ${res.status}`)
   return res.json()
 }
 
@@ -192,11 +214,13 @@ export async function materializeNodes(sessionId: string): Promise<void> {
 export async function* regenerateMessage(
   sessionId: string,
   msgId: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<SseEvent> {
   const res = await fetch(`${BASE}/api/sessions/${sessionId}/messages/${msgId}/regenerate`, {
     method: 'POST',
     headers: { ...authHeaders(), 'Content-Type': 'application/json' },
     body: '{}',
+    signal,
   })
   if (!res.ok) throw new Error(`Regenerate failed: ${res.status}`)
   yield* readSse(res)

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
+use tokio::sync::watch;
 
 use crate::assembly::capture_panel_updates;
 use crate::attachments::resolve_images;
@@ -332,8 +333,77 @@ pub enum SendEvent {
     Delta(String),
     /// Completion, with an assistant message ID.
     Done { message_id: String },
+    /// The user explicitly stopped generation; the partial assistant message
+    /// (with whatever text was produced so far) has been persisted.
+    Stopped { message_id: String },
     /// Error (the stream terminates afterward).
     Error(String),
+}
+
+/// A cooperative stop signal threaded into [`send_message`] / [`regenerate`].
+/// When cancelled, the stream stops polling the provider, persists the partial
+/// assistant text accumulated so far, and yields [`SendEvent::Stopped`].
+///
+/// Backed by a `tokio::sync::watch` channel so the web layer can fire it from a
+/// separate request (the Stop button) without adding new dependencies.
+#[derive(Clone)]
+pub struct StopToken(watch::Receiver<bool>);
+
+impl StopToken {
+    /// A token that will never fire (used by tests / callers that don't need a
+    /// stop handle).
+    pub fn never() -> Self {
+        Self(watch::channel(false).1)
+    }
+    /// Resolve once the token has been cancelled. Cancelling after the stream
+    /// already ended is a no-op. `&self` so the stream's `select!` can poll it
+    /// without declaring the token `mut`.
+    ///
+    /// A closed channel (sender dropped, e.g. `StopToken::never()`) means no one
+    /// remains to signal stop, so we pend forever rather than resolve — resolving
+    /// here would make `select!` spuriously treat every non-cancellable stream as
+    /// already stopped.
+    pub async fn cancelled(&self) {
+        let mut rx = self.0.clone();
+        // borrow_and_update marks the current value as seen so the first
+        // `changed()` call won't resolve spuriously on a freshly-cloned
+        // receiver — only a genuine subsequent send (the stop signal) wakes it.
+        if *rx.borrow_and_update() {
+            return;
+        }
+        loop {
+            // changed() resolves on send OR on sender-drop (Err). On Err the
+            // channel closed without a stop signal, so nobody will ever cancel —
+            // pend forever instead of returning (which would be a false stop).
+            if rx.changed().await.is_err() {
+                std::future::pending::<()>().await;
+            }
+            if *rx.borrow_and_update() {
+                return;
+            }
+        }
+    }
+}
+
+/// The sender side: stored by the web layer's generation registry and fired to
+/// stop the in-flight stream for a session.
+#[derive(Clone)]
+pub struct StopHandle(watch::Sender<bool>);
+
+impl StopHandle {
+    pub fn new() -> (Self, StopToken) {
+        let (tx, rx) = watch::channel(false);
+        (Self(tx), StopToken(rx))
+    }
+    pub fn stop(&self) {
+        let _ = self.0.send(true);
+    }
+}
+
+impl Default for StopHandle {
+    fn default() -> Self {
+        Self(watch::channel(false).0)
+    }
 }
 
 /// Send a user message: store user → assemble history → call provider for streaming → accumulate → store assistant.
@@ -347,6 +417,7 @@ pub fn send_message(
     user_text: String,
     assets_dir: String,
     attachment_ids: Vec<String>,
+    stop: StopToken,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
         // 0) Verify that the session exists (before any writes, to avoid relying on foreign key constraints as a fallback).
@@ -407,15 +478,25 @@ pub fn send_message(
         tracing::debug!(prompt_tokens = counter.count(&prompt_text), "assembled prompt");
 
         // 3) Process the provider stream, accumulating and yielding one delta at a time.
+        //    A cooperative stop (Stop button / navigate-away) breaks out of the loop so
+        //    we persist whatever was generated so far instead of discarding it.
         let mut full = String::new();
         let mut stream = match provider.stream_chat(req).await {
             Ok(s) => s,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(delta) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
-                Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        let mut stopped = false;
+        loop {
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => { stopped = true; break; }
+                item = stream.next() => {
+                    match item {
+                        Some(Ok(delta)) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
+                        Some(Err(e)) => { yield SendEvent::Error(e.to_string()); return; }
+                        None => break,
+                    }
+                }
             }
         }
 
@@ -436,7 +517,11 @@ pub fn send_message(
         }
         // Activate the leaf node to advance to the new assistant message: The next round of messages will be attached to it.
         let _ = storage.set_session_active_leaf(&session_id, Some(&assistant.id)).await;
-        yield SendEvent::Done { message_id: assistant.id };
+        if stopped {
+            yield SendEvent::Stopped { message_id: assistant.id };
+        } else {
+            yield SendEvent::Done { message_id: assistant.id };
+        }
     }
 }
 
@@ -451,6 +536,7 @@ pub fn regenerate(
     session_id: String,
     target_id: String,
     assets_dir: String,
+    stop: StopToken,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
         let session = match storage.get_session(&session_id).await {
@@ -502,10 +588,18 @@ pub fn regenerate(
             Ok(s) => s,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
         };
-        while let Some(item) = stream.next().await {
-            match item {
-                Ok(delta) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
-                Err(e) => { yield SendEvent::Error(e.to_string()); return; }
+        let mut stopped = false;
+        loop {
+            tokio::select! {
+                biased;
+                _ = stop.cancelled() => { stopped = true; break; }
+                item = stream.next() => {
+                    match item {
+                        Some(Ok(delta)) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
+                        Some(Err(e)) => { yield SendEvent::Error(e.to_string()); return; }
+                        None => break,
+                    }
+                }
             }
         }
         // Same as above: `capture` comes first, followed by `state_update`; in case of a conflict, the explicit instruction takes precedence.
@@ -521,7 +615,11 @@ pub fn regenerate(
             return;
         }
         let _ = storage.set_session_active_leaf(&session_id, Some(&sibling.id)).await;
-        yield SendEvent::Done { message_id: sibling.id };
+        if stopped {
+            yield SendEvent::Stopped { message_id: sibling.id };
+        } else {
+            yield SendEvent::Done { message_id: sibling.id };
+        }
     }
 }
 
@@ -578,8 +676,7 @@ mod tests {
             session.id.clone(),
             "hello".into(),
             "".into(),
-            Vec::new(),
-        );
+            Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
 
         let mut deltas = String::new();
@@ -588,6 +685,7 @@ mod tests {
             match ev {
                 SendEvent::Delta(d) => deltas.push_str(&d),
                 SendEvent::Done { message_id } => done_id = Some(message_id),
+                SendEvent::Stopped { .. } => panic!("unexpected stop in non-stopped test"),
                 SendEvent::Error(e) => panic!("unexpected error: {e}"),
             }
         }
@@ -658,7 +756,7 @@ mod tests {
 
         // first turn
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new())).await;
+            "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never())).await;
         let s1 = storage.get_session(&session.id).await.unwrap().unwrap();
         let msgs1 = storage.list_messages(&session.id).await.unwrap();
         assert_eq!(msgs1.len(), 2); // user + assistant
@@ -667,7 +765,7 @@ mod tests {
 
         // second turn chains under the previous assistant (the active leaf)
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "again".into(), "".into(), Vec::new())).await;
+            "m".into(), session.id.clone(), "again".into(), "".into(), Vec::new(), StopToken::never())).await;
         let msgs2 = storage.list_messages(&session.id).await.unwrap();
         let user2 = msgs2.iter().find(|m| m.role == Role::User && m.raw_content == "again").unwrap();
         assert_eq!(user2.parent_id.as_deref(), Some(assistant1.id.as_str()));
@@ -734,8 +832,7 @@ mod tests {
             session.id.clone(),
             "hi".into(),
             "".into(),
-            Vec::new(),
-        );
+            Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -782,7 +879,7 @@ mod tests {
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
 
         // user says nothing about zion → A constant active, B only if recursion scans A's content.
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -805,7 +902,7 @@ mod tests {
         let card = "<!DOCTYPE html>\n<html><body><p>HP: 100</p></body></html>";
         let seen1 = Arc::new(Mutex::new(None));
         let p1: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen1.clone(), reply: card.into() });
-        let s1 = send_message(storage.clone(), p1, counter.clone(), "m".into(), session.id.clone(), "draw".into(), "".into(), Vec::new());
+        let s1 = send_message(storage.clone(), p1, counter.clone(), "m".into(), session.id.clone(), "draw".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(s1);
         while s1.next().await.is_some() {}
         let req1 = seen1.lock().unwrap().clone().unwrap();
@@ -820,7 +917,7 @@ mod tests {
         let patch = "<<<<<<< SEARCH\n<p>HP: 100</p>\n=======\n<p>HP: 80</p>\n>>>>>>> REPLACE";
         let seen2 = Arc::new(Mutex::new(None));
         let p2: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen2.clone(), reply: patch.into() });
-        let s2 = send_message(storage.clone(), p2, counter, "m".into(), session.id.clone(), "hit".into(), "".into(), Vec::new());
+        let s2 = send_message(storage.clone(), p2, counter, "m".into(), session.id.clone(), "hit".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(s2);
         while s2.next().await.is_some() {}
 
@@ -867,7 +964,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -898,7 +995,7 @@ mod tests {
 
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -918,7 +1015,7 @@ mod tests {
 
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -970,7 +1067,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "my dog".into(), "".into(), Vec::new());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "my dog".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -996,8 +1093,7 @@ mod tests {
             "ghost-session".into(),
             "hi".into(),
             "".into(),
-            Vec::new(),
-        );
+            Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
 
         match stream.next().await.unwrap() {
@@ -1098,7 +1194,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1146,7 +1242,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1191,7 +1287,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1227,7 +1323,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1265,8 +1361,7 @@ mod tests {
             session.id.clone(),
             "look at this".into(),
             dir.path().to_str().unwrap().to_string(),
-            vec!["a1".to_string()],
-        );
+            vec!["a1".to_string()], StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1306,7 +1401,7 @@ mod tests {
         // The window is set to a very small size → triggers cropping
         storage.set_setting("context.window", &serde_json::json!(20)).await.unwrap();
 
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1341,7 +1436,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into(), "".into(), Vec::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into(), "".into(), Vec::new(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1384,7 +1479,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 

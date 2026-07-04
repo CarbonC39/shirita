@@ -9,7 +9,7 @@ use futures::{Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
 
-use shirita_core::{regenerate, send_message, summarize, SendEvent};
+use shirita_core::{regenerate, send_message, summarize, SendEvent, StopHandle};
 
 use crate::{resolve_provider, AppState};
 
@@ -60,6 +60,9 @@ pub async fn send(
     let reg_id = session_id.clone();
     // Runtime resolution: provider/model—the settings configuration takes precedence; if not configured, fall back to env.
     let (provider, model) = resolve_provider(&state).await;
+    // The cooperative stop token lets the Stop button / abort route end this
+    // stream gracefully (persisting partial text) instead of a hard abort.
+    let (stop_handle, stop_token) = StopHandle::new();
     let events = send_message(
         state.storage.clone(),
         provider,
@@ -69,10 +72,11 @@ pub async fn send(
         body.text,
         state.config.assets_dir.clone(),
         body.attachments,
+        stop_token,
     );
     // A newer generation for the same session aborts this one (no racing writes).
     let (events, handle) = futures::stream::abortable(events);
-    let gen_id = state.generations.replace(&reg_id, handle);
+    let gen_id = state.generations.replace(&reg_id, handle, stop_handle);
 
     // After the reply stream ends (Done), the background process triggers a scroll summary, without ever blocking the SSE main thread.
     let state_for_summary = state.clone();
@@ -85,12 +89,14 @@ pub async fn send(
                 spawn_summary(&state_for_summary, sid_for_summary.clone());
                 state_for_summary.generations.finish(&sid_for_summary, gen_id);
             }
+            SendEvent::Stopped { .. } => state_for_summary.generations.finish(&sid_for_summary, gen_id),
             SendEvent::Error(_) => state_for_summary.generations.finish(&sid_for_summary, gen_id),
             _ => {}
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
             SendEvent::Done { message_id } => json!({ "type": "done", "message_id": message_id }),
+            SendEvent::Stopped { message_id } => json!({ "type": "stopped", "message_id": message_id }),
             SendEvent::Error(message) => json!({ "type": "error", "message": message }),
         };
         Ok(Event::default().data(payload.to_string()))
@@ -105,6 +111,7 @@ pub async fn regenerate_message(
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let reg_id = session_id.clone();
     let (provider, model) = resolve_provider(&state).await;
+    let (stop_handle, stop_token) = StopHandle::new();
     let events = regenerate(
         state.storage.clone(),
         provider,
@@ -113,9 +120,10 @@ pub async fn regenerate_message(
         session_id,
         msg_id,
         state.config.assets_dir.clone(),
+        stop_token,
     );
     let (events, handle) = futures::stream::abortable(events);
-    let gen_id = state.generations.replace(&reg_id, handle);
+    let gen_id = state.generations.replace(&reg_id, handle, stop_handle);
     let state_for_summary = state.clone();
     let sid_for_summary = reg_id.clone();
     let sse = events.map(move |ev| {
@@ -124,17 +132,30 @@ pub async fn regenerate_message(
                 spawn_summary(&state_for_summary, sid_for_summary.clone());
                 state_for_summary.generations.finish(&sid_for_summary, gen_id);
             }
+            SendEvent::Stopped { .. } => state_for_summary.generations.finish(&sid_for_summary, gen_id),
             SendEvent::Error(_) => state_for_summary.generations.finish(&sid_for_summary, gen_id),
             _ => {}
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
             SendEvent::Done { message_id } => json!({ "type": "done", "message_id": message_id }),
+            SendEvent::Stopped { message_id } => json!({ "type": "stopped", "message_id": message_id }),
             SendEvent::Error(message) => json!({ "type": "error", "message": message }),
         };
         Ok(Event::default().data(payload.to_string()))
     });
     Sse::new(sse)
+}
+
+/// Cooperatively stop the in-flight generation for `session_id` (Stop button
+/// or navigate-away). The stream persists whatever was generated so far, then
+/// ends. Idempotent — calling it when nothing is in flight is a no-op.
+pub async fn abort_message(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Json<serde_json::Value> {
+    let stopped = state.generations.stop(&session_id);
+    Json(json!({ "stopped": stopped }))
 }
 
 #[cfg(test)]

@@ -1,22 +1,32 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { ArrowUp, Plus, X } from 'lucide-vue-next'
+import { ref, computed, nextTick } from 'vue'
+import { ArrowUp, Plus, X, Square } from 'lucide-vue-next'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import { uploadAsset, type Asset } from '../api/client'
 
-const props = defineProps<{ disabled: boolean }>()
+const props = defineProps<{ disabled: boolean; streaming?: boolean }>()
 
 const emit = defineEmits<{
   send: [text: string, attachments: string[]]
+  stop: []
 }>()
 
 const text = ref('')
+const textarea = ref<HTMLTextAreaElement | null>(null)
 const pending = ref<Asset[]>([])
 const uploading = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 const hasText = computed(() => text.value.trim().length > 0)
 const canSend = computed(() => hasText.value || pending.value.length > 0)
 const draftTokens = computed(() => estimateTokens(text.value))
+
+// Auto-grow the textarea to fit its content up to a max height (~7 rows).
+function autosize() {
+  const el = textarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+}
 
 function pickFile() {
   fileInput.value?.click()
@@ -44,11 +54,14 @@ function submit() {
   if (!canSend.value || props.disabled) return
   emit('send', trimmed, pending.value.map((a) => a.id))
   text.value = ''
-  pending.value = []
+  nextTick(autosize)
 }
 
 // Called by ChatView when an HTML card posts content via postMessage.
-function setText(val: string) { text.value = val }
+function setText(val: string) {
+  text.value = val
+  nextTick(autosize)
+}
 
 defineExpose({ setText })
 
@@ -61,8 +74,8 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="app-composer border-t border-line bg-card px-4 py-3">
-    <div v-if="pending.length" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pb-2 flex flex-wrap gap-2">
+  <div class="app-composer border-t border-line bg-card px-2 sm:px-4 py-2.5">
+    <div v-if="pending.length" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pb-2 flex flex-wrap gap-2">
       <div v-for="a in pending" :key="a.id" class="relative w-14 h-14 rounded-lg overflow-hidden border border-line">
         <img :src="a.url" class="w-full h-full object-cover" alt="" />
         <button
@@ -75,7 +88,7 @@ function onKeydown(e: KeyboardEvent) {
         </button>
       </div>
     </div>
-    <div class="max-w-[600px] mx-auto flex items-end gap-2.5">
+    <div class="mx-auto w-full max-w-[820px] flex items-end gap-2">
       <button
         type="button"
         class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5 disabled:opacity-50"
@@ -87,16 +100,28 @@ function onKeydown(e: KeyboardEvent) {
       </button>
       <input ref="fileInput" type="file" accept="image/*" class="hidden" @change="onFile" />
       <textarea
+        ref="textarea"
         v-model="text"
         :disabled="disabled"
         rows="1"
         :placeholder="$t('composer.placeholder')"
         class="flex-1 resize-none rounded-xl border border-line px-3.5 py-2.5 text-[15px] leading-relaxed
                focus:outline-none focus:border-primary/50 placeholder:text-muted/60
-               disabled:bg-surface disabled:text-muted/50"
+               disabled:bg-surface disabled:text-muted/50 max-h-[200px]"
         @keydown="onKeydown"
+        @input="autosize"
       />
       <button
+        v-if="streaming"
+        data-test="stop-btn"
+        :title="$t('composer.stop')"
+        class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-coral text-white hover:brightness-110 transition"
+        @click="emit('stop')"
+      >
+        <Square :size="14" fill="currentColor" />
+      </button>
+      <button
+        v-else
         data-test="send-btn"
         :disabled="disabled || !canSend"
         :class="[
@@ -108,7 +133,7 @@ function onKeydown(e: KeyboardEvent) {
         <ArrowUp :size="18" />
       </button>
     </div>
-    <div v-if="hasText" class="max-w-[600px] mx-auto pl-[46px] pr-[50px] pt-1">
+    <div v-if="hasText" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pt-1">
       <span class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
     </div>
   </div>

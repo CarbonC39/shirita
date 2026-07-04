@@ -158,6 +158,26 @@ input[type='number'] {
     @apply rounded-[10px] px-3 py-2 my-1.5 overflow-x-auto text-[13px] font-mono whitespace-pre;
     background: color-mix(in oklab, var(--color-ink) 9%, transparent);
   }
+  /* Block layout: paragraphs collapse their own margins so consecutive blocks
+     sit with a single line of breathing room, and headings/lists/quotes get
+     only the spacing they need inside a chat bubble. */
+  .md-p {
+    @apply my-0 whitespace-pre-wrap break-words;
+  }
+  .md-p + .md-p { @apply mt-2.5; }
+  .md-h { @apply my-1.5 leading-tight break-words; }
+  .md-h:first-child { @apply mt-0; }
+  .md-hr {
+    @apply my-3 border-0 border-t border-line;
+  }
+  .md-quote {
+    @apply my-1.5 pl-3 border-l-2 border-line text-muted whitespace-pre-wrap break-words;
+  }
+  .md-ul { @apply my-1.5 pl-5 list-disc space-y-0.5; }
+  .md-ol { @apply my-1.5 pl-5 list-decimal space-y-0.5; }
+  .md-task { @apply list-none flex items-start gap-1.5 ml-[-4px]; }
+  .md-task-box { @apply mt-1 accent-primary; }
+  .md-task-done { @apply line-through text-muted; }
   /* Collapsible reasoning (<think>) block. */
   .md-think {
     @apply block my-1.5 border-l-2 border-line pl-3 text-[13px] text-muted;

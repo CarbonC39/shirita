@@ -60,7 +60,7 @@ pub fn app(state: AppState) -> Router {
         )
         .route(
             "/sessions/{id}/messages/{msg_id}",
-            put(routes::messages::edit_message),
+            put(routes::messages::edit_message).delete(routes::messages::delete_message),
         )
         .route(
             "/sessions/{id}/active-leaf",
@@ -70,6 +70,7 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/messages/{msg_id}/regenerate",
             post(routes::chat::regenerate_message),
         )
+        .route("/sessions/{id}/abort", post(routes::chat::abort_message))
         .route("/sessions/{id}/fork", post(routes::messages::fork_session))
         .route("/sessions/{id}/mounts", put(routes::sessions::set_mounts))
         .route("/sessions/{id}/packs", get(routes::sessions::get_packs).put(routes::sessions::set_packs))
