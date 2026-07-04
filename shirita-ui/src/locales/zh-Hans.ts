@@ -204,6 +204,11 @@ const zhHans: MessageSchema = {
   settings: {
     title: '设置',
     language: '语言',
+    identity: '身份',
+    yourName: '你的名字',
+    yourNamePlaceholder: '我',
+    yourAvatar: '你的头像',
+    identityHint: '当对话未附加用户定义时，你的消息会显示这些信息。',
     provider: '服务商',
     source: '来源',
     baseUrl: 'Base URL',

@@ -204,6 +204,11 @@ const ja: MessageSchema = {
   settings: {
     title: '設定',
     language: '言語',
+    identity: 'アイデンティティ',
+    yourName: 'あなたの名前',
+    yourNamePlaceholder: 'あなた',
+    yourAvatar: 'あなたのアバター',
+    identityHint: 'チャットにユーザー定義が添付されていないとき、あなたのメッセージに表示されます。',
     provider: 'プロバイダー',
     source: 'ソース',
     baseUrl: 'Base URL',

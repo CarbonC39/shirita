@@ -18,6 +18,7 @@ tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+base64 = "0.22"
 uuid.workspace = true
 zip = "2"
 rust-embed = { version = "8", optional = true }
@@ -29,5 +30,4 @@ embed-ui = ["dep:rust-embed"]
 tempfile = "3"
 tower = "0.5"
 http-body-util = "0.1"
-base64 = "0.22"
 tokio-util = { version = "0.7", features = ["rt"] }

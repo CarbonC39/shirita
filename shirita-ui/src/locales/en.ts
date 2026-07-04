@@ -214,6 +214,11 @@ const en = {
   settings: {
     title: 'Settings',
     language: 'Language',
+    identity: 'Identity',
+    yourName: 'Your name',
+    yourNamePlaceholder: 'You',
+    yourAvatar: 'Your avatar',
+    identityHint: 'Shown on your messages when no user-definition is attached to the chat.',
     provider: 'Provider',
     source: 'Source',
     baseUrl: 'Base URL',

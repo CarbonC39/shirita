@@ -9,6 +9,14 @@ pub struct Config {
     pub openai_base_url: String,
     pub openai_api_key: String,
     pub openai_model: String,
+    /// Optional HTTP Basic Auth credentials for public deployments. When set,
+    /// the entire app (UI shell + /api + /assets + /health) is gated behind a
+    /// browser-native login. Bearer-token auth only protects /api, so on a
+    /// public origin the UI HTML/JS would otherwise be served to anyone — this
+    /// layer closes that gap. `None` when neither env var is set (desktop/local
+    /// mode keeps current behavior).
+    pub http_auth_user: Option<String>,
+    pub http_auth_pass: Option<String>,
 }
 
 impl Config {
@@ -28,6 +36,8 @@ impl Config {
             openai_base_url: "https://api.openai.com/v1".into(),
             openai_api_key: String::new(),
             openai_model: "gpt-4o-mini".into(),
+            http_auth_user: None,
+            http_auth_pass: None,
         })
     }
 
@@ -41,7 +51,27 @@ impl Config {
 
         let mut cfg = Self::new(database_path, assets_dir, token_secret)?;
         apply_provider_env(&mut cfg);
+        apply_http_auth_env(&mut cfg);
         Ok(cfg)
+    }
+}
+
+/// Reads optional HTTP_AUTH_USER / HTTP_AUTH_PASS. Both must be set to enable
+/// Basic auth; setting only one has no effect (avoids a misconfig where a blank
+/// password would gate nothing meaningful), so an unset/blank field clears both.
+pub fn apply_http_auth_env(cfg: &mut Config) {
+    let user = std::env::var("HTTP_AUTH_USER").ok().filter(|s| !s.is_empty());
+    let pass = std::env::var("HTTP_AUTH_PASS").ok().filter(|s| !s.is_empty());
+    // Gate on both being present; partial config → disable auth entirely.
+    match (user, pass) {
+        (Some(u), Some(p)) => {
+            cfg.http_auth_user = Some(u);
+            cfg.http_auth_pass = Some(p);
+        }
+        _ => {
+            cfg.http_auth_user = None;
+            cfg.http_auth_pass = None;
+        }
     }
 }
 
@@ -86,5 +116,42 @@ mod tests {
         assert_eq!(cfg.openai_model, "m-test");
         std::env::remove_var("OPENAI_BASE_URL");
         std::env::remove_var("OPENAI_MODEL");
+    }
+
+    #[test]
+    fn apply_http_auth_env_sets_creds_when_both_present() {
+        // SAFETY: Set up/clean up env within a single-threaded test.
+        std::env::set_var("HTTP_AUTH_USER", "alice");
+        std::env::set_var("HTTP_AUTH_PASS", "s3cret");
+        let mut cfg = Config::new("db", "assets", "tok").unwrap();
+        apply_http_auth_env(&mut cfg);
+        assert_eq!(cfg.http_auth_user.as_deref(), Some("alice"));
+        assert_eq!(cfg.http_auth_pass.as_deref(), Some("s3cret"));
+        std::env::remove_var("HTTP_AUTH_USER");
+        std::env::remove_var("HTTP_AUTH_PASS");
+    }
+
+    #[test]
+    fn apply_http_auth_env_ignores_partial_config() {
+        // SAFETY: single-threaded test. Only the user is set → must NOT enable
+        // auth (a blank password would gate nothing meaningful).
+        std::env::set_var("HTTP_AUTH_USER", "alice");
+        std::env::remove_var("HTTP_AUTH_PASS");
+        let mut cfg = Config::new("db", "assets", "tok").unwrap();
+        apply_http_auth_env(&mut cfg);
+        assert!(cfg.http_auth_user.is_none());
+        assert!(cfg.http_auth_pass.is_none());
+        std::env::remove_var("HTTP_AUTH_USER");
+    }
+
+    #[test]
+    fn apply_http_auth_env_unset_disables_auth() {
+        // SAFETY: single-threaded test. Neither var set → disabled.
+        std::env::remove_var("HTTP_AUTH_USER");
+        std::env::remove_var("HTTP_AUTH_PASS");
+        let mut cfg = Config::new("db", "assets", "tok").unwrap();
+        apply_http_auth_env(&mut cfg);
+        assert!(cfg.http_auth_user.is_none());
+        assert!(cfg.http_auth_pass.is_none());
     }
 }

@@ -138,6 +138,17 @@ const providerStream = computed({
     get: () => (get("provider_stream") as boolean) ?? true,
     set: (v: boolean) => set("provider_stream", v),
 });
+// Default user identity (name + avatar) shown for the user side of messages
+// that have no user-definition attached. Avatar is picked from the shared
+// avatar asset library via AssetPicker (kind="avatar").
+const userName = computed({
+    get: () => (get("user.name") as string) || "",
+    set: (v: string) => set("user.name", v),
+});
+const userAvatar = computed({
+    get: () => (get("user.avatar") as string) || "",
+    set: (v: string) => set("user.avatar", v),
+});
 const genTemp = computed({
     get: () => (get("gen_temperature") as number) ?? 1,
     set: (v: number) => set("gen_temperature", v),
@@ -329,6 +340,8 @@ watch(
         summarizeInstruction.value,
         notifyEnabled.value,
         customCss.value,
+        userName.value,
+        userAvatar.value,
     ],
     () => {
         if (!loaded.value) return;
@@ -342,6 +355,8 @@ watch(
                     [providerKey(providerSource.value, "api_key")]: providerApiKey.value,
                     [providerKey(providerSource.value, "model")]: providerModel.value,
                     provider_stream: providerStream.value,
+                    "user.name": userName.value,
+                    "user.avatar": userAvatar.value,
                     gen_temperature: genTemp.value,
                     gen_top_p: genTopP.value,
                     gen_frequency_penalty: genFreqPenalty.value,
@@ -432,6 +447,50 @@ async function handleTestConnection() {
                     >
                 </span>
             </div>
+
+            <!-- Identity (default user name + avatar) -->
+            <section class="mb-8">
+                <h3
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                >
+                    {{ $t("settings.identity") }}
+                </h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[13px] text-ink block mb-1.5"
+                            >{{ $t("settings.yourName") }}</label
+                        ><input
+                            :value="userName"
+                            type="text"
+                            class="field w-full"
+                            :placeholder="$t('settings.yourNamePlaceholder')"
+                            @input="
+                                userName = (
+                                    $event.target as HTMLInputElement
+                                ).value
+                            "
+                        />
+                    </div>
+                    <div>
+                        <label class="text-[13px] text-ink block mb-1.5"
+                            >{{ $t("settings.yourAvatar") }}</label
+                        >
+                        <div class="border border-line rounded-xl p-3 bg-card">
+                            <AssetPicker
+                                :model-value="userAvatar"
+                                shape="circle"
+                                kind="avatar"
+                                @update:model-value="userAvatar = $event"
+                            />
+                        </div>
+                    </div>
+                    <p class="text-[12px] text-muted/80 leading-relaxed">
+                        {{ $t("settings.identityHint") }}
+                    </p>
+                </div>
+            </section>
+
+            <div class="border-t border-line my-6" />
 
             <!-- Provider -->
             <section class="mb-8">

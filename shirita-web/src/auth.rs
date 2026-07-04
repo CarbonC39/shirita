@@ -1,7 +1,8 @@
 use axum::extract::{Request, State};
-use axum::http::{header::AUTHORIZATION, StatusCode};
+use axum::http::{header::AUTHORIZATION, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::Next;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
+use base64::Engine;
 
 use crate::AppState;
 
@@ -33,6 +34,75 @@ pub async fn require_bearer(
             Ok(next.run(req).await)
         }
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+/// The realm string surfaced in the `WWW-Authenticate` challenge when Basic
+/// auth is configured. Browsers show this label in their native login dialog.
+const BASIC_REALM: &str = "Shirita";
+
+/// 401 response with a `WWW-Authenticate: Basic realm="..."` challenge so the
+/// browser pops its native login dialog. Returned by `require_basic` when no
+/// (or wrong) credentials are supplied.
+fn basic_challenge() -> Response {
+    let mut headers = HeaderMap::new();
+    // realm value is a static literal (no quotes), so it's a valid header value
+    // without further escaping.
+    let v = HeaderValue::from_str(&format!("Basic realm=\"{BASIC_REALM}\""))
+        .expect("static realm string is a valid header value");
+    headers.insert(
+        HeaderName::from_static("www-authenticate"),
+        v,
+    );
+    (StatusCode::UNAUTHORIZED, headers).into_response()
+}
+
+/// Optional HTTP Basic Auth gate applied as the outermost layer on the full
+/// router (UI shell + /api + /assets + /health) for public deployments. When
+/// `config.http_auth_user` / `http_auth_pass` are unset, this is a no-op so
+/// desktop/local mode keeps its current behavior.
+///
+/// Credentials are compared in constant time to avoid byte-by-byte timing
+/// leaks. Unlike Bearer (which protects /api only), this gates the served HTML
+/// and assets too — without it, anyone reaching a public origin could pull the
+/// UI shell and its JS even though every API call 401s.
+pub async fn require_basic(
+    State(state): State<AppState>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let (expected_user, expected_pass) = match (
+        &state.config.http_auth_user,
+        &state.config.http_auth_pass,
+    ) {
+        (Some(u), Some(p)) => (u, p),
+        _ => return next.run(req).await, // disabled: no creds configured
+    };
+
+    // Parse `Authorization: Basic <base64>` → user:pass.
+    let provided = req
+        .headers()
+        .get(AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|v| v.strip_prefix("Basic "))
+        .and_then(|b64| {
+            base64::engine::general_purpose::STANDARD
+                .decode(b64.trim())
+                .ok()
+        });
+
+    let ok = match provided {
+        Some(decoded) => constant_time_eq(
+            &decoded,
+            format!("{expected_user}:{expected_pass}").as_bytes(),
+        ),
+        None => false,
+    };
+
+    if ok {
+        next.run(req).await
+    } else {
+        basic_challenge()
     }
 }
 

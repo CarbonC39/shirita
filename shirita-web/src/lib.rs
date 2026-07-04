@@ -154,7 +154,16 @@ pub fn app(state: AppState) -> Router {
     #[cfg(not(feature = "embed-ui"))]
     let router = router.route("/", get(routes::index::index));
 
-    router.with_state(state)
+    // Optional HTTP Basic Auth gate, applied as the outermost layer on the
+    // FULL router (UI shell + /api + /assets + /health). When
+    // HTTP_AUTH_USER/PASS are unset, `require_basic` is a no-op so desktop/local
+    // mode is unaffected. On public deployments this is what stops an anonymous
+    // visitor from pulling the embedded UI's HTML/JS — Bearer only protects
+    // /api. Layered last (axum runs layers outermost-last) so it wraps
+    // everything, including the served index and static assets.
+    router
+        .with_state(state.clone())
+        .layer(middleware::from_fn_with_state(state, auth::require_basic))
 }
 
 /// Origin of the desktop WebView:

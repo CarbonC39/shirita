@@ -3,6 +3,7 @@ import { onMounted, onUnmounted, ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useChatStore } from '../stores/chat'
+import { useSettingsStore } from '../stores/settings'
 import { useUiStore } from '../stores/ui'
 import { estimateTokens } from '../utils/tokens'
 import { siblings } from '../utils/tree'
@@ -19,6 +20,7 @@ const route = useRoute()
 const router = useRouter()
 const chat = useChatStore()
 const ui = useUiStore()
+const settings = useSettingsStore()
 
 const sessionId = route.params.id as string
 
@@ -39,7 +41,20 @@ async function loadState() {
 const identity = ref<Identity>({ assistant: { name: null, avatar: null }, user: { name: null, avatar: null } })
 async function loadIdentity() {
   try {
-    identity.value = await getSessionIdentity(sessionId)
+    const resolved = await getSessionIdentity(sessionId)
+    // Merge the configured default user identity as a fallback so messages
+    // without a user-definition still show the user's chosen name/avatar
+    // instead of the generic "You". Settings win only when the per-session
+    // side has no value of its own (a user-definition overrides defaults).
+    const defaultName = (settings.data['user.name'] as string) || null
+    const defaultAvatar = (settings.data['user.avatar'] as string) || null
+    identity.value = {
+      assistant: resolved.assistant,
+      user: {
+        name: resolved.user.name ?? defaultName,
+        avatar: resolved.user.avatar ?? defaultAvatar,
+      },
+    }
   } catch {
     /* keep fallback */
   }
@@ -91,9 +106,14 @@ const bg = computed(() => {
 })
 const bgStyle = computed(() => (bg.value ? { backgroundImage: `url(${bg.value})` } : {}))
 
-onMounted(() => {
+onMounted(async () => {
   chat.loadMessages(sessionId)
   loadState()
+  // Ensure settings (incl. default user identity) are loaded before resolving
+  // identity; if they're already cached this is a cheap no-op re-fetch.
+  if (Object.keys(settings.data).length === 0) {
+    try { await settings.load() } catch { /* identity falls back to defaults */ }
+  }
   loadIdentity()
   loadPanels()
 })
@@ -104,6 +124,15 @@ watch(
     if (newId && newId !== sessionId) {
       chat.loadMessages(newId as string)
     }
+  },
+)
+
+// React to default-user-identity changes in settings so a name/avatar edit
+// is reflected without a reload. Per-session user-definition still wins.
+watch(
+  () => [settings.data['user.name'], settings.data['user.avatar']],
+  () => {
+    if (sessionId) loadIdentity()
   },
 )
 
