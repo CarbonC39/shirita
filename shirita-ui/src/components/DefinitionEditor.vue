@@ -163,7 +163,7 @@ function startNew() {
         </div>
         <transition name="expand">
         <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-card border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
-          <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @mousedown.prevent="startNew">{{ $t('definition.newDefinition') }}</button>
+          <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @click.prevent="startNew">{{ $t('definition.newDefinition') }}</button>
           <button
             v-for="d in matches"
             :key="d.id"
