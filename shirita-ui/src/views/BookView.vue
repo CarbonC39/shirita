@@ -134,6 +134,9 @@ async function exportSelectedTemplate() {
     await downloadExport(exportTemplatePath(selectedTemplateId.value), `${templateName.value || "template"}.json`);
 }
 
+// ── session-context: collapse global sections by default ─────────
+const showGlobalSections = ref(false)
+
 function blankDef(): Definition {
     return { id: "", type: "char", name: "", content: "", meta: {} };
 }
@@ -980,9 +983,22 @@ async function duplicateDef() {
                     @save="saveLocal"
                 />
             </section>
-            <div v-if="ui.activeChatId" class="h-px bg-line my-6" />
+            <div v-if="ui.activeChatId" class="flex items-center gap-3 mb-6">
+                <div class="flex-1 h-px bg-line" />
+                <button
+                    v-if="!showGlobalSections"
+                    class="text-[12px] text-muted hover:text-primary whitespace-nowrap shrink-0"
+                    @click="showGlobalSections = true"
+                >{{ $t("book.editGlobalLibrary") }}</button>
+                <button
+                    v-else
+                    class="text-[12px] text-muted hover:text-ink whitespace-nowrap shrink-0"
+                    @click="showGlobalSections = false"
+                >{{ $t("book.hideGlobalLibrary") }}</button>
+                <div class="flex-1 h-px bg-line" />
+            </div>
 
-            <section data-test="book-global">
+            <section data-test="book-global" v-if="!ui.activeChatId || showGlobalSections">
             <!-- TEMPLATE section (mauve accent) -->
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>

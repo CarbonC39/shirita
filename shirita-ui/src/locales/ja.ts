@@ -126,6 +126,8 @@ const ja: MessageSchema = {
     revertToGlobal: 'グローバルに戻す',
     followsTemplate: 'このチャットはテンプレートに従います。',
     customizeLocally: 'ローカルでカスタマイズ',
+    editGlobalLibrary: 'グローバルライブラリを編集',
+    hideGlobalLibrary: 'グローバルライブラリを非表示',
     variablesThisChat: '変数（このチャット）',
     selectTemplate: 'テンプレートを選択…',
     newTemplate: '+ 新規テンプレート',

@@ -126,6 +126,8 @@ const zhHant: MessageSchema = {
     revertToGlobal: '還原為全域',
     followsTemplate: '本對話沿用其範本。',
     customizeLocally: '本機自訂',
+    editGlobalLibrary: '編輯全域庫',
+    hideGlobalLibrary: '隱藏全域庫',
     variablesThisChat: '變數（本對話）',
     selectTemplate: '選擇一個範本…',
     newTemplate: '+ 新增範本',

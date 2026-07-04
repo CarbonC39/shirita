@@ -607,6 +607,13 @@ pub fn regenerate(
         updates.extend(parse_state_updates(&full));
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
+        // Hide the old assistant message so the active path only shows the new
+        // branch. SillyTavern-style: regenerate creates a sibling, hides the
+        // old one, and the frontend renders swipe counters for the sibling group.
+        let mut hidden_target = target.clone();
+        hidden_target.is_hidden = true;
+        let _ = storage.update_message(&hidden_target).await;
+
         let mut sibling = Message::new(&session_id, target.parent_id.clone(), Role::Assistant, &full);
         sibling.snapshot_state = new_snapshot;
         sibling.display_content = resolve_display(&path, &full, &cleaned);
@@ -614,7 +621,10 @@ pub fn regenerate(
             yield SendEvent::Error(e.to_string());
             return;
         }
-        let _ = storage.set_session_active_leaf(&session_id, Some(&sibling.id)).await;
+        if let Err(e) = storage.set_session_active_leaf(&session_id, Some(&sibling.id)).await {
+            yield SendEvent::Error(e.to_string());
+            return;
+        }
         if stopped {
             yield SendEvent::Stopped { message_id: sibling.id };
         } else {

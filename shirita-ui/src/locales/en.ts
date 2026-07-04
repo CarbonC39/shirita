@@ -133,6 +133,8 @@ const en = {
     revertToGlobal: 'Revert to global',
     followsTemplate: 'This conversation follows its template.',
     customizeLocally: 'Customize locally',
+    editGlobalLibrary: 'Edit global library',
+    hideGlobalLibrary: 'Hide global library',
     variablesThisChat: 'Variables (this chat)',
     selectTemplate: 'Select a template…',
     newTemplate: '+ New template',

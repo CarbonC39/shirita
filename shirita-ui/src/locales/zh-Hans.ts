@@ -126,6 +126,8 @@ const zhHans: MessageSchema = {
     revertToGlobal: '还原为全局',
     followsTemplate: '本对话沿用其模板。',
     customizeLocally: '本地自定义',
+    editGlobalLibrary: '编辑全局库',
+    hideGlobalLibrary: '隐藏全局库',
     variablesThisChat: '变量（本对话）',
     selectTemplate: '选择一个模板…',
     newTemplate: '+ 新建模板',

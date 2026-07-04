@@ -7,14 +7,18 @@ function newest(messages: Message[]): Message | null {
   )
 }
 
-/** Root→active-leaf branch. Falls back to the newest message when leaf unknown. */
+/** Root→active-leaf branch, excluding hidden swiped-out branches.
+ *  Falls back to the newest non-hidden message when leaf unknown. */
 export function activePath(messages: Message[], activeLeafId: string | null): Message[] {
   const byId = new Map(messages.map((m) => [m.id, m]))
-  let cur: Message | null = (activeLeafId ? byId.get(activeLeafId) : undefined) ?? newest(messages)
+  const visible = (msgs: Message[]) => msgs.filter((m) => !m.is_hidden)
+  let cur: Message | null = (activeLeafId ? byId.get(activeLeafId) : undefined)
+    ?? newest(visible(messages))
   const path: Message[] = []
   while (cur) {
     path.push(cur)
     cur = cur.parent_id ? byId.get(cur.parent_id) ?? null : null
+    if (cur?.is_hidden) break // hidden ancestor orphans its children from the active path
   }
   return path.reverse()
 }
