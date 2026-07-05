@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
+import { Check, ChevronDown, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { useMediaStore } from "../stores/media";
@@ -1055,6 +1055,7 @@ async function duplicateDef() {
                 </div>
 
                 <DefinitionEditor
+                    v-if="localDefActive"
                     :definition="localEditDef"
                     :all-definitions="library.definitions"
                     :types="library.containerTypes"
@@ -1069,20 +1070,29 @@ async function duplicateDef() {
                     @save="saveLocal"
                 />
             </section>
-            <div v-if="ui.activeChatId" class="flex items-center gap-3 mb-6">
+            <button
+                v-if="ui.activeChatId"
+                class="flex items-center gap-2 w-full py-2.5 mb-2 rounded-lg hover:bg-card/60 transition-colors"
+                @click="showGlobalSections = !showGlobalSections"
+            >
                 <div class="flex-1 h-px bg-line" />
-                <button
-                    v-if="!showGlobalSections"
-                    class="text-[12px] text-muted hover:text-primary whitespace-nowrap shrink-0"
-                    @click="showGlobalSections = true"
-                >{{ $t("book.editGlobalLibrary") }}</button>
-                <button
-                    v-else
-                    class="text-[12px] text-muted hover:text-ink whitespace-nowrap shrink-0"
-                    @click="showGlobalSections = false"
-                >{{ $t("book.hideGlobalLibrary") }}</button>
+                <ChevronDown
+                    :size="16"
+                    :stroke-width="2"
+                    class="text-muted shrink-0 transition-transform duration-200"
+                    :class="showGlobalSections ? '' : '-rotate-90'"
+                />
+                <span class="text-[12px] text-muted whitespace-nowrap shrink-0">
+                    {{ showGlobalSections ? $t("book.hideGlobalLibrary") : $t("book.editGlobalLibrary") }}
+                </span>
+                <ChevronDown
+                    :size="16"
+                    :stroke-width="2"
+                    class="text-muted shrink-0 transition-transform duration-200"
+                    :class="showGlobalSections ? '' : '-rotate-90'"
+                />
                 <div class="flex-1 h-px bg-line" />
-            </div>
+            </button>
 
             <section data-test="book-global" v-if="!ui.activeChatId || showGlobalSections">
             <!-- TEMPLATE section (mauve accent) -->
