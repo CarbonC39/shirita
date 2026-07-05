@@ -67,15 +67,49 @@ describe('BookView scopes', () => {
     expect(w.find('[data-test="book-global"]').exists()).toBe(true)
   })
 
-  it('shows the changed-in-this-chat chip strip when a local override exists', async () => {
+  it('drills into a definition via the navigator when customized', async () => {
     ;(api.getSession as any).mockResolvedValue({
-      id: 'c1', template_id: null,
+      id: 'c1', template_id: 't1',
       override_config: { local_definitions: { d1: { content: 'local' } } },
     })
+    ;(api.listNodes as any).mockResolvedValue([
+      { id: 'n1', owner_kind: 'session', owner_id: 'c1', parent_id: null, sort_order: 0,
+        kind: 'ref', tag: null, definition_id: 'd1', enabled: true, created_at: '', meta: { _source: 'template' } },
+    ])
+    libraryMock.definitions = [{ id: 'd1', type: 'prompt', name: 'D1', content: 'global', meta: {} }]
     const ui = useUiStore(); ui.setActiveChatId('c1')
     const w = mount(BookView)
     await flushPromises()
-    expect(w.find('[data-test="local-chips"]').exists()).toBe(true)
+    await w.find('[data-test="customize-locally"]').trigger('click')
+    await flushPromises()
+    await w.find('[data-test="node-row-n1"]').trigger('click')
+    await flushPromises()
+    expect(w.find('[data-test="nav-level-definition"]').exists()).toBe(true)
+  })
+
+  it('deep-copies the definition so editing the local buffer cannot mutate the global definition', async () => {
+    // template_id must be set so customize-locally actually flips customizedLocally
+    // (materializeAll is otherwise a no-op) — without it the drill cannot run.
+    ;(api.getSession as any).mockResolvedValue({ id: 'c1', template_id: 't1', override_config: {} })
+    ;(api.listNodes as any).mockResolvedValue([
+      { id: 'n1', owner_kind: 'session', owner_id: 'c1', parent_id: null, sort_order: 0,
+        kind: 'ref', tag: null, definition_id: 'd1', enabled: true, created_at: '', meta: { _source: 'template' } },
+    ])
+    const globalDef = { id: 'd1', type: 'prompt', name: 'D1', content: 'global', meta: { trigger: { keys: ['a'] } } }
+    libraryMock.definitions = [globalDef]
+    const ui = useUiStore(); ui.setActiveChatId('c1')
+    const w = mount(BookView)
+    await flushPromises()
+    await w.find('[data-test="customize-locally"]').trigger('click')
+    await flushPromises()
+    await w.find('[data-test="node-row-n1"]').trigger('click')   // drill -> editLocal('d1') -> deepClone
+    await flushPromises()
+    const editor = w.findComponent({ name: 'DefinitionEditor' })
+    const localMeta = (editor.props('definition') as any).meta
+    expect(localMeta).not.toBe(globalDef.meta)                 // top-level reference severed
+    expect(localMeta.trigger).not.toBe(globalDef.meta.trigger) // nested reference severed
+    expect(globalDef.meta.trigger).toEqual({ keys: ['a'] })    // global unchanged
+    expect(globalDef.content).toBe('global')
   })
 
   it('shows the Pack section (picker + heading) in the global view', async () => {

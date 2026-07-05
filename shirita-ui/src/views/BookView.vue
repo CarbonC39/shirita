@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
+import { ref, reactive, computed, watch, onMounted, nextTick, provide } from "vue";
 import { useI18n } from "vue-i18n";
 import { Check, ChevronDown, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
@@ -23,7 +23,6 @@ import {
     getSession,
     setLocalDefinition,
     clearLocalDefinition,
-    promoteLocalDefinition,
     materializeNodes,
     materializePackNodes,
     setLocalVariables,
@@ -40,7 +39,10 @@ import {
 } from "../api/client";
 import type { PromptNode, Definition, Trigger, Session, VarDecl, OnConflict, ImportSummary } from "../api/types";
 import { selectOneSiblingsToDisable } from "../utils/tree";
+import { deepClone } from "../utils/clone";
 import PromptTree from "../components/PromptTree.vue";
+import BookNavigator from "../components/book/BookNavigator.vue";
+import { LOCAL_BOOK_KEY, type LocalBookApi } from "../components/book/types";
 import DefinitionEditor from "../components/DefinitionEditor.vue";
 import VariablesEditor from "../components/VariablesEditor.vue";
 import EntityPicker from "../components/EntityPicker.vue";
@@ -191,16 +193,17 @@ function editLocal(defId: string) {
     const base = library.definitions.find((d) => d.id === defId);
     if (!base) return;
     const patch = localDefs.value[defId] ?? {};
+    // Deep-copy base.meta so the session buffer never aliases the library
+    // entity — nested fields (trigger, scan) must not be shared references.
+    const meta = deepClone(base.meta) as Record<string, unknown>;
+    if (patch.trigger) meta.trigger = patch.trigger;
+    if (patch.scan) meta.scan = patch.scan;
     Object.assign(localEditDef, {
         id: base.id,
         type: base.type,
         name: (patch.name as string) ?? base.name,
         content: (patch.content as string) ?? base.content,
-        meta: {
-            ...base.meta,
-            ...(patch.trigger ? { trigger: patch.trigger } : {}),
-            ...(patch.scan ? { scan: patch.scan } : {}),
-        },
+        meta,
     });
     localDefActive.value = true;
 }
@@ -220,16 +223,6 @@ async function saveLocal() {
         await setLocalDefinition(ui.activeChatId, localEditDef.id, patch);
         await loadLocal();
         localSavedTick.value++;  // signal saved-feedback in the editor
-    } catch (e) {
-        error.value = (e as Error).message;
-    }
-}
-async function promoteLocal(defId: string) {
-    if (!ui.activeChatId) return;
-    if (!confirm(tr("book.promoteConfirm"))) return;
-    try {
-        await promoteLocalDefinition(ui.activeChatId, defId);
-        await Promise.all([library.loadDefinitions(), loadLocal()]);
     } catch (e) {
         error.value = (e as Error).message;
     }
@@ -276,6 +269,12 @@ async function saveLocalVars(vars: VarDecl[]) {
 
 // ── local template tree (session-owned, copy-on-write) ─────
 const localNodes = ref<PromptNode[]>([]);
+// Session template nodes: localNodes filtered by the backend's _source marker.
+// BookNavigator's SessionTemplateRoot renders only these (pack nodes are
+// addressed in Phase 1B).
+const templateNodes = computed(() =>
+    localNodes.value.filter((n) => (n.meta as Record<string, unknown>)?._source === "template"),
+);
 async function loadLocalNodes() {
     if (!ui.activeChatId) { localNodes.value = []; return; }
     try { localNodes.value = await listNodes("session", ui.activeChatId); }
@@ -807,6 +806,40 @@ async function handleUpdateDefName(definitionId: string, name: string) {
     } catch (e) { error.value = (e as Error).message; }
 }
 
+// ── LocalBookApi: everything BookNavigator's level components inject. ──────
+// Built after every referenced ref/handler is declared so there are no TDZ
+// surprises; provided here so children see the same reactive instances.
+const localBookApi: LocalBookApi = {
+    templateNodes,
+    definitions: library.definitions,
+    types: library.containerTypes,
+    localDefs,
+    localEditDef,
+    localDefActive,
+    localSavedTick,
+    tree: {
+        toggleEnabled: localToggleEnabled,
+        addPrompt: localAddPrompt,
+        addContainer: localAddContainer,
+        addRefToContainer: localAddRefToContainer,
+        createNewPrompt: localCreateNewPrompt,
+        createNewInContainer: localCreateNewInContainer,
+        createType: localCreateType,
+        updateContent: localUpdateContent,
+        updateTrigger: localUpdateTrigger,
+        updateNodeMeta: localUpdateNodeMeta,
+        updateDefMeta: handleUpdateDefMeta,
+        updateDefName: handleUpdateDefName,
+        deleteNode: localDeleteNode,
+        reorder: localReorder,
+    },
+    editLocal,
+    saveLocal,
+    revertLocal,
+    defName,
+};
+provide(LOCAL_BOOK_KEY, localBookApi);
+
 // ── packs ───────────────────────────────────────────────────
 const selectedPackId = ref<string | null>(null);
 const selectedPack = computed(() => library.packs.find((p) => p.id === selectedPackId.value) ?? null);
@@ -962,93 +995,12 @@ async function duplicateDef() {
                     </div>
                 </template>
 
-                <!-- AFTER customization: full local editing surface with sub-headings -->
-                <template v-else>
-                    <!-- Template sub-tree -->
-                    <template v-if="localSession?.template_id && localNodes.length > 0">
-                        <h3 class="text-[11px] font-semibold text-mauve uppercase tracking-wide border-l-2 border-mauve pl-2 mb-2">{{ $t("book.templateHeading") }}</h3>
-                        <PromptTree
-                            :nodes="localNodes"
-                            :definitions="library.definitions"
-                            :types="library.containerTypes"
-                            @toggle-enabled="localToggleEnabled"
-                            @add-prompt="localAddPrompt"
-                            @add-container="localAddContainer"
-                            @add-ref-to-container="localAddRefToContainer"
-                            @create-new-prompt="localCreateNewPrompt"
-                            @create-new-in-container="localCreateNewInContainer"
-                            @create-type="localCreateType"
-                            @update-content="localUpdateContent"
-                            @update-trigger="localUpdateTrigger"
-                            @update-node-meta="localUpdateNodeMeta"
-                            @update-def-meta="handleUpdateDefMeta"
-                            @update-def-name="handleUpdateDefName"
-                            @delete-node="localDeleteNode"
-                            @reorder="localReorder"
-                        />
-                        <div class="h-px bg-line my-4" />
-                    </template>
-                    <!-- Pack sub-tree -->
-                    <template v-if="selectedPack && localNodes.length > 0">
-                        <h3 class="text-[11px] font-semibold text-teal uppercase tracking-wide border-l-2 border-teal pl-2 mb-2">{{ $t("book.packHeading") }}: {{ selectedPack.name }}</h3>
-                        <PromptTree
-                            :nodes="localNodes"
-                            :definitions="library.definitions"
-                            :types="library.containerTypes"
-                            data-test="pack-local-tree"
-                            @toggle-enabled="localToggleEnabled"
-                            @add-prompt="localAddPrompt"
-                            @add-container="localAddContainer"
-                            @add-ref-to-container="localAddRefToContainer"
-                            @create-new-prompt="localCreateNewPrompt"
-                            @create-new-in-container="localCreateNewInContainer"
-                            @create-type="localCreateType"
-                            @update-content="localUpdateContent"
-                            @update-trigger="localUpdateTrigger"
-                            @update-node-meta="localUpdateNodeMeta"
-                            @update-def-meta="handleUpdateDefMeta"
-                            @update-def-name="handleUpdateDefName"
-                            @delete-node="localDeleteNode"
-                            @reorder="localReorder"
-                        />
-                        <div class="h-px bg-line my-4" />
-                    </template>
-                </template>
-                <!-- Local definition overrides: per-chat patches, independent of tree materialization -->
-                <div v-if="Object.keys(localDefs).length || localDefActive" class="mb-3">
-                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.definitionHeading") }}</h3>
-                    <div
-                        v-if="Object.keys(localDefs).length"
-                        data-test="local-chips"
-                        class="flex flex-wrap items-center gap-2 mb-3"
-                    >
-                        <span class="text-[12px] text-muted">{{ $t("book.localChangedLabel") }}</span>
-                        <span
-                            v-for="(_patch, defId) in localDefs"
-                            :key="defId"
-                            class="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[12px]"
-                        >
-                            <button class="text-ink" @click="editLocal(defId)">{{ defName(defId) }}</button>
-                            <button class="text-muted hover:text-primary" :title="$t('book.syncToGlobal')" @click="promoteLocal(defId)">↥</button>
-                            <button class="text-muted hover:text-coral" :title="$t('book.revertToGlobal')" @click="revertLocal(defId)">×</button>
-                        </span>
-                    </div>
-                    <DefinitionEditor
-                        v-if="localDefActive"
-                        :definition="localEditDef"
-                        :all-definitions="library.definitions"
-                        :types="library.containerTypes"
-                        :active="localDefActive"
-                        :header-actions="false"
-                        :saved-tick="localSavedTick"
-                        @select-definition="editLocal"
-                        @update:name="localEditDef.name = $event"
-                        @update:type="localEditDef.type = $event as Definition['type']"
-                        @update:content="localEditDef.content = $event"
-                        @update:meta="localEditDef.meta = $event"
-                        @save="saveLocal"
-                    />
-                </div>
+                <!-- AFTER customization: BookNavigator hosts the drill-down UI
+                     (L0 template tree -> L2 definition override editor). The
+                     pack subtree and chip strip intentionally retire here;
+                     Phase 1B restores pack behind an L1 level. -->
+                <BookNavigator v-else :root-target="{ kind: 'sessionRoot' }" />
+
                 <!-- Variables (this chat) -->
                 <div data-test="local-variables" class="mb-3">
                     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.variablesThisChat") }}</h3>
