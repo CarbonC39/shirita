@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, ChevronDown, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
+import { Check, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { useMediaStore } from "../stores/media";
@@ -135,8 +135,10 @@ async function exportSelectedTemplate() {
     await downloadExport(exportTemplatePath(selectedTemplateId.value), `${templateName.value || "template"}.json`);
 }
 
-// ── session-context: collapse global sections by default ─────────
-const showGlobalSections = ref(false)
+// ── session-context: local-vs-global switching ─────────────────────
+// false = local untouched (shows customize button, global visible)
+// true  = local customizing (local expanded, global hidden)
+const customizedLocally = ref(false)
 
 function blankDef(): Definition {
     return { id: "", type: "char", name: "", content: "", meta: {} };
@@ -311,6 +313,7 @@ async function ensureMaterialized() {
         await materializeNodes(ui.activeChatId);
         await loadLocalNodes();
     }
+    customizedLocally.value = true;
 }
 async function ensurePackMaterialized(packId: string) {
     if (!ui.activeChatId) return;
@@ -318,6 +321,7 @@ async function ensurePackMaterialized(packId: string) {
         await materializePackNodes(ui.activeChatId, packId);
         await loadLocalPackNodes();
     }
+    customizedLocally.value = true;
 }
 
 async function localAddPrompt(definitionId: string) {
@@ -958,83 +962,61 @@ async function duplicateDef() {
             {{ $t("common.loading") }}
         </p>
         <template v-else>
-            <!-- this-conversation copy-on-write overrides, shown only while
-                 you're inside a chat. Sits above the global library. -->
-            <section v-if="ui.activeChatId" data-test="book-local" class="mb-6">
-                <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5">
+            <!-- Local override section: session-context only. Starts minimal
+                 (just a customize button) so users aren't overwhelmed by two
+                 full editing surfaces on one page. Clicking "Customize locally"
+                 expands the local panel and hides the global sections below. -->
+            <section v-if="ui.activeChatId" data-test="book-local" class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-6">
+                <h2 class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">
                     {{ $t("book.localHeading") }}
-                </h3>
-                <div
-                    v-if="Object.keys(localDefs).length"
-                    data-test="local-chips"
-                    class="flex flex-wrap items-center gap-2 mb-3"
-                >
-                    <span class="text-[12px] text-muted">{{ $t("book.localChangedLabel") }}</span>
-                    <span
-                        v-for="(_patch, defId) in localDefs"
-                        :key="defId"
-                        class="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[12px]"
-                    >
-                        <button class="text-ink" @click="editLocal(defId)">{{ defName(defId) }}</button>
-                        <button class="text-muted hover:text-primary" :title="$t('book.syncToGlobal')" @click="promoteLocal(defId)">↥</button>
-                        <button class="text-muted hover:text-coral" :title="$t('book.revertToGlobal')" @click="revertLocal(defId)">×</button>
-                    </span>
-                </div>
-                <!-- local node tree: session-owned, materialized on first edit -->
-                <template v-if="localSession && localSession.template_id">
-                    <div
-                        v-if="localNodes.length === 0"
-                        class="text-[13px] text-muted py-3 flex items-center gap-2"
-                    >
+                </h2>
+
+                <!-- BEFORE customization: only the "follows template"/"follows pack" hints + customize buttons -->
+                <template v-if="!customizedLocally">
+                    <div v-if="localSession?.template_id" class="text-[13px] text-muted py-1.5 flex items-center gap-2">
                         <span>{{ $t("book.followsTemplate") }}</span>
-                        <button
-                            data-test="customize-locally"
-                            class="btn btn-primary !px-2.5 !py-1 text-[12px]"
-                            @click="ensureMaterialized"
-                        >
+                        <button data-test="customize-locally" class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="ensureMaterialized">
                             {{ $t("book.customizeLocally") }}
                         </button>
                     </div>
-                    <PromptTree
-                        v-else
-                        :nodes="localNodes"
-                        :definitions="library.definitions"
-                        :types="library.containerTypes"
-                        @toggle-enabled="localToggleEnabled"
-                        @add-prompt="localAddPrompt"
-                        @add-container="localAddContainer"
-                        @add-ref-to-container="localAddRefToContainer"
-                        @create-new-prompt="localCreateNewPrompt"
-                        @create-new-in-container="localCreateNewInContainer"
-                        @create-type="localCreateType"
-                        @update-content="localUpdateContent"
-                        @update-trigger="localUpdateTrigger"
-                        @update-node-meta="localUpdateNodeMeta"
-                        @update-def-meta="handleUpdateDefMeta"
-                        @update-def-name="handleUpdateDefName"
-                        @delete-node="localDeleteNode"
-                        @reorder="localReorder"
-                    />
-                    <div class="h-px bg-line my-5" />
+                    <div v-if="selectedPack" class="text-[13px] text-muted py-1.5 flex items-center gap-2">
+                        <span>{{ $t("book.followsPack") }}</span>
+                        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="ensurePackMaterialized(selectedPack.id)">
+                            {{ $t("book.customizeLocally") }}
+                        </button>
+                    </div>
                 </template>
 
-                <!-- local pack override: materialize-then-edit, same pattern as template -->
-                <template v-if="selectedPack">
-                    <div class="h-px bg-line my-5" />
-                    <div class="mb-3">
-                        <span class="text-[13px] text-teal font-medium">{{ selectedPack.name }}</span>
+                <!-- AFTER customization: full local editing surface -->
+                <template v-else>
+                    <div class="mb-3 flex items-center gap-2">
+                        <span class="text-[12px] text-primary">{{ $t("book.customizingLocally") }}</span>
+                        <button class="text-[11px] text-muted hover:text-ink underline" @click="customizedLocally = false">{{ $t("book.showGlobalLibrary") }}</button>
                     </div>
-                    <template v-if="localPackNodes.length === 0">
-                        <div class="text-[13px] text-muted py-2">
-                            <span>{{ $t("book.followsPack") }}</span>
-                            <button class="ml-2 text-primary hover:underline" @click="ensurePackMaterialized(selectedPack.id)">{{ $t("book.customizeLocally") }}</button>
-                        </div>
+                    <template v-if="localSession?.template_id && localNodes.length > 0">
+                        <PromptTree
+                            :nodes="localNodes"
+                            :definitions="library.definitions"
+                            :types="library.containerTypes"
+                            @toggle-enabled="localToggleEnabled"
+                            @add-prompt="localAddPrompt"
+                            @add-container="localAddContainer"
+                            @add-ref-to-container="localAddRefToContainer"
+                            @create-new-prompt="localCreateNewPrompt"
+                            @create-new-in-container="localCreateNewInContainer"
+                            @create-type="localCreateType"
+                            @update-content="localUpdateContent"
+                            @update-trigger="localUpdateTrigger"
+                            @update-node-meta="localUpdateNodeMeta"
+                            @update-def-meta="handleUpdateDefMeta"
+                            @update-def-name="handleUpdateDefName"
+                            @delete-node="localDeleteNode"
+                            @reorder="localReorder"
+                        />
+                        <div class="h-px bg-line my-4" />
                     </template>
-                    <template v-else>
-                        <div class="mb-2 flex items-center gap-2">
-                            <span class="text-[12px] text-primary">{{ $t("book.customizedLocally") }}</span>
-                            <button class="text-[11px] text-muted hover:text-ink underline" @click="localPackNodes = []; loadLocalPackNodes()">{{ $t("book.revertToGlobal") }}</button>
-                        </div>
+                    <template v-if="selectedPack && localPackNodes.length > 0">
+                        <div class="text-[13px] text-teal font-medium mb-2">{{ selectedPack.name }}</div>
                         <PromptTree
                             :nodes="localPackNodes"
                             :definitions="library.definitions"
@@ -1046,55 +1028,47 @@ async function duplicateDef() {
                             @delete-node="localDeletePackNodeFn"
                             @reorder="localPackReorderFn"
                         />
+                        <div class="h-px bg-line my-4" />
                     </template>
+                    <div
+                        v-if="Object.keys(localDefs).length"
+                        data-test="local-chips"
+                        class="flex flex-wrap items-center gap-2 mb-3"
+                    >
+                        <span class="text-[12px] text-muted">{{ $t("book.localChangedLabel") }}</span>
+                        <span
+                            v-for="(_patch, defId) in localDefs"
+                            :key="defId"
+                            class="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-[12px]"
+                        >
+                            <button class="text-ink" @click="editLocal(defId)">{{ defName(defId) }}</button>
+                            <button class="text-muted hover:text-primary" :title="$t('book.syncToGlobal')" @click="promoteLocal(defId)">↥</button>
+                            <button class="text-muted hover:text-coral" :title="$t('book.revertToGlobal')" @click="revertLocal(defId)">×</button>
+                        </span>
+                    </div>
+                    <DefinitionEditor
+                        v-if="localDefActive"
+                        :definition="localEditDef"
+                        :all-definitions="library.definitions"
+                        :types="library.containerTypes"
+                        :active="localDefActive"
+                        :header-actions="false"
+                        :saved-tick="localSavedTick"
+                        @select-definition="editLocal"
+                        @update:name="localEditDef.name = $event"
+                        @update:type="localEditDef.type = $event as Definition['type']"
+                        @update:content="localEditDef.content = $event"
+                        @update:meta="localEditDef.meta = $event"
+                        @save="saveLocal"
+                    />
+                    <div class="mb-3">
+                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
+                        <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
+                    </div>
                 </template>
-
-                <div data-test="local-variables" class="mb-4">
-                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
-                    <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
-                </div>
-
-                <DefinitionEditor
-                    v-if="localDefActive"
-                    :definition="localEditDef"
-                    :all-definitions="library.definitions"
-                    :types="library.containerTypes"
-                    :active="localDefActive"
-                    :header-actions="false"
-                    :saved-tick="localSavedTick"
-                    @select-definition="editLocal"
-                    @update:name="localEditDef.name = $event"
-                    @update:type="localEditDef.type = $event as Definition['type']"
-                    @update:content="localEditDef.content = $event"
-                    @update:meta="localEditDef.meta = $event"
-                    @save="saveLocal"
-                />
             </section>
-            <button
-                v-if="ui.activeChatId"
-                class="flex items-center gap-2 w-full py-2.5 mb-2 rounded-lg hover:bg-card/60 transition-colors"
-                @click="showGlobalSections = !showGlobalSections"
-            >
-                <div class="flex-1 h-px bg-line" />
-                <ChevronDown
-                    :size="16"
-                    :stroke-width="2"
-                    class="text-muted shrink-0 transition-transform duration-200"
-                    :class="showGlobalSections ? '' : '-rotate-90'"
-                />
-                <span class="text-[12px] text-muted whitespace-nowrap shrink-0">
-                    {{ showGlobalSections ? $t("book.hideGlobalLibrary") : $t("book.editGlobalLibrary") }}
-                </span>
-                <ChevronDown
-                    :size="16"
-                    :stroke-width="2"
-                    class="text-muted shrink-0 transition-transform duration-200"
-                    :class="showGlobalSections ? '' : '-rotate-90'"
-                />
-                <div class="flex-1 h-px bg-line" />
-            </button>
 
-            <section data-test="book-global" v-if="!ui.activeChatId || showGlobalSections">
+            <section data-test="book-global" v-if="!ui.activeChatId || !customizedLocally">
             <!-- TEMPLATE section (mauve accent) -->
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
