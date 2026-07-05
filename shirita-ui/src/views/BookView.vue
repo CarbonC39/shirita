@@ -269,11 +269,15 @@ async function saveLocalVars(vars: VarDecl[]) {
 
 // ── local template tree (session-owned, copy-on-write) ─────
 const localNodes = ref<PromptNode[]>([]);
-// Session template nodes: localNodes filtered by the backend's _source marker.
-// BookNavigator's SessionTemplateRoot renders only these (pack nodes are
-// addressed in Phase 1B).
+// Session template nodes: materialized template nodes (tagged _source='template'
+// by the backend) PLUS newly-created session nodes (which have no _source tag
+// yet — _source-tagging for created nodes lands in Phase 1B). Pack nodes
+// (_source='pack') stay excluded. See docs/superpowers/specs/2026-07-04-book-ui-refactor-design.md.
 const templateNodes = computed(() =>
-    localNodes.value.filter((n) => (n.meta as Record<string, unknown>)?._source === "template"),
+    localNodes.value.filter((n) => {
+        const s = (n.meta as Record<string, unknown> | null)?._source;
+        return s === "template" || s === undefined;
+    }),
 );
 async function loadLocalNodes() {
     if (!ui.activeChatId) { localNodes.value = []; return; }

@@ -39,6 +39,7 @@ function onRevert() {
       @update:content="book.localEditDef.content = $event"
       @update:meta="book.localEditDef.meta = $event"
       @save="book.saveLocal"
+      @select-definition="(id: string) => emit('drill', { kind: 'definition', definitionId: id })"
     />
     <button
       v-if="isOverridden"

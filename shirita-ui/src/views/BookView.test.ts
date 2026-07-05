@@ -87,6 +87,31 @@ describe('BookView scopes', () => {
     expect(w.find('[data-test="nav-level-definition"]').exists()).toBe(true)
   })
 
+  it('shows newly-created (untagged) session nodes in the template tree', async () => {
+    // A session node with no _source tag simulates one just created via the
+    // tree's create affordances (createNode body carries no meta). It must
+    // still render alongside materialized template nodes.
+    ;(api.getSession as any).mockResolvedValue({ id: 'c1', template_id: 't1', override_config: {} })
+    ;(api.listNodes as any).mockResolvedValue([
+      { id: 'tmpl', owner_kind: 'session', owner_id: 'c1', parent_id: null, sort_order: 0,
+        kind: 'ref', tag: null, definition_id: 'd1', enabled: true, created_at: '', meta: { _source: 'template' } },
+      { id: 'fresh', owner_kind: 'session', owner_id: 'c1', parent_id: null, sort_order: 1,
+        kind: 'ref', tag: null, definition_id: 'd2', enabled: true, created_at: '', meta: {} },
+    ])
+    libraryMock.definitions = [
+      { id: 'd1', type: 'prompt', name: 'Tmpl', content: '', meta: {} },
+      { id: 'd2', type: 'prompt', name: 'Fresh', content: '', meta: {} },
+    ]
+    const ui = useUiStore(); ui.setActiveChatId('c1')
+    const w = mount(BookView)
+    await flushPromises()
+    await w.find('[data-test="customize-locally"]').trigger('click')
+    await flushPromises()
+    // NodeRow's per-id data-test is `node-row-${node.id}` (NodeRow.vue:132).
+    expect(w.find('[data-test="node-row-tmpl"]').exists()).toBe(true)
+    expect(w.find('[data-test="node-row-fresh"]').exists()).toBe(true)
+  })
+
   it('deep-copies the definition so editing the local buffer cannot mutate the global definition', async () => {
     // template_id must be set so customize-locally actually flips customizedLocally
     // (materializeAll is otherwise a no-op) — without it the drill cannot run.
