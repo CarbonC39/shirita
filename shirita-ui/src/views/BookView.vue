@@ -966,7 +966,7 @@ async function duplicateDef() {
                 <template v-else>
                     <!-- Template sub-tree -->
                     <template v-if="localSession?.template_id && localNodes.length > 0">
-                        <h3 class="text-[11px] font-semibold text-mauve uppercase tracking-wide mb-2">{{ $t("book.templateHeading") }}</h3>
+                        <h3 class="text-[11px] font-semibold text-mauve uppercase tracking-wide border-l-2 border-mauve pl-2 mb-2">{{ $t("book.templateHeading") }}</h3>
                         <PromptTree
                             :nodes="localNodes"
                             :definitions="library.definitions"
@@ -1014,6 +1014,8 @@ async function duplicateDef() {
                         <div class="h-px bg-line my-4" />
                     </template>
                     <!-- Local definition overrides -->
+                    <div class="mb-3">
+                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.definitionHeading") }}</h3>
                     <div
                         v-if="Object.keys(localDefs).length"
                         data-test="local-chips"
@@ -1045,6 +1047,7 @@ async function duplicateDef() {
                         @update:meta="localEditDef.meta = $event"
                         @save="saveLocal"
                     />
+                    </div>
                     <!-- Variables -->
                     <div class="mb-3">
                         <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.variablesThisChat") }}</h3>
@@ -1215,7 +1218,7 @@ async function duplicateDef() {
 
             <!-- PACK section (teal accent) -->
             <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
-            <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-primary border-l-2 border-primary pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
+            <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-teal border-l-2 border-teal pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
                 <div class="flex items-center gap-2 flex-wrap">
                     <EntityPicker

@@ -118,6 +118,15 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
   if (!def) return
   try { await updateDefinition(definitionId, { meta: { ...def.meta, trigger } }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
 }
+// Inline definition edits emitted by PromptTree (regex_rule name/meta, etc.) —
+// mirror BookView's handleUpdateDef{Name,Meta}: persist, then refresh the library
+// so the tree re-renders with the new values.
+async function updateDefMeta(definitionId: string, meta: Record<string, unknown>) {
+  try { await updateDefinition(definitionId, { meta }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
+}
+async function updateDefName(definitionId: string, name: string) {
+  try { await updateDefinition(definitionId, { name }); await library.loadDefinitions() } catch (e) { error.value = (e as Error).message }
+}
 </script>
 
 <template>
@@ -160,6 +169,8 @@ async function updateTrigger(definitionId: string, trigger: Trigger) {
       @create-type="createType"
       @update-content="updateContent"
       @update-trigger="updateTrigger"
+      @update-def-meta="updateDefMeta"
+      @update-def-name="updateDefName"
       @update-node-meta="updateNodeMeta"
       @delete-node="handleDelete"
       @reorder="reorder"
