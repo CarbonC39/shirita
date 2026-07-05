@@ -81,7 +81,10 @@
 - **Toggle back.** From This-chat mode the user can return to Library (e.g. a
   mode switch control). Toggling does **not** discard overrides — the session's
   materialized nodes and `local_definitions` persist in the DB; re-entering
-  This-chat shows them again without re-materializing.
+  This-chat shows them again without re-materializing. Both modes are kept alive
+  across toggles (§7) so Library UI state (search, dropdown, scroll) and the
+  drill stack are preserved. The customize click runs materialization **only on
+  first entry**; later toggles are pure view swaps.
 - A session that already has overrides when Book opens: Library is still the
   landing view; the customize affordance reflects "this chat has local edits"
   and entering This-chat shows them (no re-materialize).
@@ -110,6 +113,10 @@ Replaces the three tiled global editors with **one entity type at a time**:
   (`PackView`/`DefinitionView` with `editTarget`); the two modes differ only in
   **root** (entity list vs session template tree) and **edit target** (global vs
   local).
+- **State survives mode toggles.** The Library's search term, selected entity
+  type, and scroll position must persist when the user switches to This-chat and
+  back. `LibraryBrowser` is therefore kept alive across mode switches (see §7),
+  not destroyed and recreated.
 
 ## 4. This-chat mode — drill-down (`BookNavigator`)
 
@@ -157,6 +164,15 @@ L2  ‹ back to Pack (girl)     (DefinitionView, editTarget=local)
   user drills into a mounted pack in This-chat mode, `materializePackNodes` runs
   for that pack only (an improvement over today's "materialize all"). Already-
   materialized packs are not re-materialized.
+- **Deep-copy invariant (correctness).** Data written to `owner_kind='session'`
+  must be a **thorough deep copy** — session-owned state must never alias global
+  entity state. Backend `materializeNodes` / `materializePackNodes` create fresh
+  session rows with deep-copied `meta`/content JSON (verify in Phase 1: no row
+  reuse, no shared JSON object). On the frontend, every copy-on-write derivation
+  — override patches built in `editLocal` / `saveLocal`, the `localEditDef`
+  edit buffer, variables carried into `localVars` — is constructed via deep copy
+  (`structuredClone`), never by referencing a library-store object, so mutating
+  a session edit can never leak into the global pack/template or vice-versa.
 - **Revert to global.** `DefinitionView` in local mode, when editing a
   definition that has a `local_definitions` patch, shows a "revert to global"
   action (`clearLocalDefinition`).
@@ -207,13 +223,26 @@ BookView (thin shell)
   dropdown+list, with only the shallow editor⇄definition back action — no
   full nav stack. The level-component contract (`editTarget` + presentational
   editors) is the stable seam; the two orchestrators may be unified in Phase 3.
+- **Mode components are kept alive.** `BookView` swaps Library ⇄ This-chat via
+  `<KeepAlive>` (not `v-if`, which would destroy state), so each mode's local UI
+  state survives toggling: Library's search / entity-type / **scroll position**
+  (scroll container lives inside `LibraryBrowser`) and `BookNavigator`'s
+  `navigationStack` + `transitionDirection`. The customize gate runs
+  materialization **only on first entry** to This-chat; subsequent mode toggles
+  are state-preserving view swaps.
 - **Why not alternatives**: route-per-level (rejected by requirement — breaks
   chat-page state); keep single-file `BookView` (defeats the refactor's purpose).
 
 ## 8. Transitions
 
-- **Drill**: push → slide new level in from the right; pop → slide back to the
-  left. Implemented with Vue `<Transition :name="driftDir">` + CSS `translateX`.
+- **Drill direction is an explicit reactive ref.** `BookNavigator` owns
+  `transitionDirection: Ref<'forward' | 'backward'>`. `push()` sets it to
+  `'forward'`, `pop()` to `'backward'`, and `<Transition :name="transitionDirection">`
+  binds to it (forward = new level slides in from the right; backward = current
+  level slides out to the right / previous slides in from the left), via CSS
+  `translateX`. Keeping direction as dedicated reactive state — rather than
+  recomputing it from stack length — makes the animation unambiguous and easy to
+  reason about.
 - **Mode switch** (Library ↔ This-chat): a simple fade, consistent with the
   existing `<transition name="page">`.
 - Transition direction is derived from stack push/pop, not from absolute level,
@@ -246,6 +275,12 @@ guidance).
   variables editor; chip click pushes a pack target.
 - **Migrate `BookView.test.ts`**: existing tests assert the tiled structure and
   are rewritten against the new components (no users → no compat).
+- **Deep-copy guard**: after materializing, mutating a session node's meta does
+  not change the source template/pack node's meta; editing a local definition
+  patch does not mutate the global `Definition` in the library store.
+- **State-preservation guard**: toggling Library ⇄ This-chat and back preserves
+  Library search term, entity-type selection, scroll position, and the
+  `BookNavigator` stack depth.
 - Gates: `vue-tsc --noEmit` clean; `vitest` green.
 
 ## 11. Phased migration
