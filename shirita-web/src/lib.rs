@@ -88,6 +88,10 @@ pub fn app(state: AppState) -> Router {
             "/sessions/{id}/materialize-nodes",
             post(routes::local_overrides::materialize_nodes),
         )
+        .route(
+            "/sessions/{id}/materialize-pack",
+            post(routes::local_overrides::materialize_pack_nodes),
+        )
         .route("/sessions/{id}/state", get(routes::variables::get_state))
         .route("/sessions/{id}/local-variables", put(routes::variables::set_local_variables))
         .route("/sessions/{id}/state-updates", post(routes::variables::apply_state_updates))

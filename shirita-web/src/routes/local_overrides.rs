@@ -67,6 +67,26 @@ pub async fn materialize_nodes(
     Ok(StatusCode::OK)
 }
 
+/// Copy a pack's node tree into the session so the session can locally edit it
+/// without changing the global pack. Idempotent: only copies if no session nodes
+/// from this pack already exist.
+pub async fn materialize_pack_nodes(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<StatusCode, StatusCode> {
+    let pack_id = body
+        .get("pack_id")
+        .and_then(|v| v.as_str())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    state
+        .storage
+        .materialize_session_pack_nodes(&session_id, pack_id)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
+
 /// Sync to global: fold the patch into the global definition, then clear it.
 pub async fn promote_local_definition(
     State(state): State<AppState>,

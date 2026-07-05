@@ -102,6 +102,8 @@ pub trait Storage: Send + Sync {
     /// all in one transaction. Returns whether it materialized. The check and the
     /// copy share a transaction so two concurrent calls can't both copy.
     async fn materialize_session_nodes(&self, session_id: &str, template_id: &str) -> Result<bool>;
+    /// Same as above but materializes nodes from a pack.
+    async fn materialize_session_pack_nodes(&self, session_id: &str, pack_id: &str) -> Result<bool>;
 
     // --- override config ---
     async fn update_session_override_config(&self, session_id: &str, config: &serde_json::Value) -> Result<()>;

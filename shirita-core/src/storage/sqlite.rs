@@ -48,6 +48,60 @@ impl SqliteStorage {
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
     }
+
+    /// Copy a template or pack's node tree into session-owned nodes, tagging
+    /// each copied node's meta with `_source` / `_source_id` so the frontend
+    /// can filter by origin (template vs pack).
+    pub(crate) async fn materialize_owner_nodes(
+        &self,
+        session_id: &str,
+        source_kind: &OwnerKind,
+        source_id: &str,
+    ) -> Result<bool> {
+        let source: Vec<PromptNode> = self.list_nodes(source_kind, source_id).await?;
+        let source = source; // drop mut qualifier
+        if source.is_empty() {
+            return Ok(false);
+        }
+        // Idempotency: if this source has already been materialized into the
+        // session, skip. We detect this by checking for session-owned nodes
+        // whose meta._source matches the source (template or pack).
+        let mut tx = self.pool.begin().await?;
+        let already: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ? AND json_extract(meta, '$._source') = ?",
+        )
+        .bind(session_id)
+        .bind(source_kind.as_str())
+        .fetch_one(&mut *tx)
+        .await?;
+        if already > 0 {
+            tx.commit().await?;
+            return Ok(false);
+        }
+        let mut id_map: HashMap<String, String> = HashMap::new();
+        let mut sorted = source.clone();
+        sorted.sort_by_key(|n| (n.parent_id.is_some(), n.sort_order));
+        let source_tag = source_kind.as_str();
+        for node in &sorted {
+            let new_id = uuid::Uuid::new_v4().to_string();
+            let new_parent_id = node.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned());
+            let mut enriched = node.meta.clone();
+            enriched.as_object_mut().map(|m| {
+                m.insert("_source".into(), serde_json::Value::String(source_tag.into()));
+                m.insert("_source_id".into(), serde_json::Value::String(source_id.into()));
+            });
+            let nmeta = serde_json::to_string(&enriched)?;
+            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                .bind(&new_id).bind(OwnerKind::Session.as_str()).bind(session_id)
+                .bind(&new_parent_id).bind(node.sort_order).bind(node.kind.as_str())
+                .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64)
+                .bind(chrono::Utc::now().to_rfc3339()).bind(nmeta)
+                .execute(&mut *tx).await?;
+            id_map.insert(node.id.clone(), new_id);
+        }
+        tx.commit().await?;
+        Ok(true)
+    }
 }
 
 fn row_to_definition(row: &SqliteRow) -> Result<Definition> {
@@ -877,37 +931,11 @@ impl Storage for SqliteStorage {
     }
 
     async fn materialize_session_nodes(&self, session_id: &str, template_id: &str) -> Result<bool> {
-        // Source nodes are read before the write transaction; the emptiness check
-        // and the inserts share that transaction, so a second concurrent call —
-        // which serialises behind this write — won't also copy the tree.
-        let source = self.list_nodes(&OwnerKind::Template, template_id).await?;
-        let mut tx = self.pool.begin().await?;
-        let existing: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM prompt_nodes WHERE owner_kind = 'session' AND owner_id = ?")
-                .bind(session_id)
-                .fetch_one(&mut *tx)
-                .await?;
-        if existing > 0 {
-            tx.commit().await?;
-            return Ok(false);
-        }
-        let mut id_map: HashMap<String, String> = HashMap::new();
-        let mut sorted = source.clone();
-        sorted.sort_by_key(|n| (n.parent_id.is_some(), n.sort_order));
-        for node in &sorted {
-            let new_id = uuid::Uuid::new_v4().to_string();
-            let new_parent_id = node.parent_id.as_ref().and_then(|pid| id_map.get(pid).cloned());
-            let nmeta = serde_json::to_string(&node.meta)?;
-            sqlx::query("INSERT INTO prompt_nodes (id, owner_kind, owner_id, parent_id, sort_order, kind, tag, definition_id, enabled, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-                .bind(&new_id).bind(OwnerKind::Session.as_str()).bind(session_id)
-                .bind(&new_parent_id).bind(node.sort_order).bind(node.kind.as_str())
-                .bind(&node.tag).bind(&node.definition_id).bind(node.enabled as i64)
-                .bind(chrono::Utc::now().to_rfc3339()).bind(nmeta)
-                .execute(&mut *tx).await?;
-            id_map.insert(node.id.clone(), new_id);
-        }
-        tx.commit().await?;
-        Ok(true)
+        self.materialize_owner_nodes(session_id, &OwnerKind::Template, template_id).await
+    }
+
+    async fn materialize_session_pack_nodes(&self, session_id: &str, pack_id: &str) -> Result<bool> {
+        self.materialize_owner_nodes(session_id, &OwnerKind::Pack, pack_id).await
     }
 
     // --- override config ---

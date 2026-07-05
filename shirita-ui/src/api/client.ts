@@ -210,6 +210,15 @@ export async function materializeNodes(sessionId: string): Promise<void> {
   if (!res.ok) throw new Error(`Materialize nodes failed: ${res.status}`)
 }
 
+export async function materializePackNodes(sessionId: string, packId: string): Promise<void> {
+  const res = await fetch(`${BASE}/api/sessions/${sessionId}/materialize-pack`, {
+    method: 'POST',
+    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pack_id: packId }),
+  })
+  if (!res.ok) throw new Error(`Materialize pack nodes failed: ${res.status}`)
+}
+
 /** SSE regenerate — same event shape as sendMessage. */
 export async function* regenerateMessage(
   sessionId: string,

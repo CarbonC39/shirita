@@ -25,6 +25,7 @@ import {
     clearLocalDefinition,
     promoteLocalDefinition,
     materializeNodes,
+    materializePackNodes,
     setLocalVariables,
     importFile,
     downloadExport,
@@ -279,12 +280,29 @@ async function loadLocalNodes() {
         return;
     }
     try {
-        localNodes.value = await listNodes("session", ui.activeChatId);
+        const all = await listNodes("session", ui.activeChatId);
+        localNodes.value = all.filter((n) => !n.meta?._source || n.meta._source === "template");
     } catch {
         localNodes.value = [];
     }
 }
-watch(() => ui.activeChatId, loadLocalNodes, { immediate: true });
+const localPackNodes = ref<PromptNode[]>([]);
+async function loadLocalPackNodes() {
+    if (!ui.activeChatId) {
+        localPackNodes.value = [];
+        return;
+    }
+    try {
+        const all = await listNodes("session", ui.activeChatId);
+        localPackNodes.value = all.filter((n) => n.meta?._source === "pack");
+    } catch {
+        localPackNodes.value = [];
+    }
+}
+watch(() => ui.activeChatId, () => { loadLocalNodes(); loadLocalPackNodes(); }, { immediate: true });
+watch(() => selectedPack.value?.id, (pid) => {
+    if (pid) loadLocalPackNodes();
+});
 
 // First structural edit copies the template tree into the session (idempotent).
 async function ensureMaterialized() {
@@ -292,6 +310,13 @@ async function ensureMaterialized() {
     if (localNodes.value.length === 0) {
         await materializeNodes(ui.activeChatId);
         await loadLocalNodes();
+    }
+}
+async function ensurePackMaterialized(packId: string) {
+    if (!ui.activeChatId) return;
+    if (localPackNodes.value.length === 0) {
+        await materializePackNodes(ui.activeChatId, packId);
+        await loadLocalPackNodes();
     }
 }
 
@@ -420,6 +445,36 @@ async function localReorder(orderedIds: string[]) {
     } catch (e) {
         error.value = (e as Error).message;
     }
+}
+// ── pack local overrides (same materialize-then-edit pattern as template) ─
+async function localAddPromptToPack(defId: string) {
+    if (!ui.activeChatId || !selectedPack.value) return;
+    try {
+        await ensurePackMaterialized(selectedPack.value.id);
+        await createNode("session", ui.activeChatId, { parent_id: null, kind: "ref", definition_id: defId });
+        await loadLocalPackNodes();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function localAddPackContainer(typeId: string) {
+    if (!ui.activeChatId || !selectedPack.value) return;
+    try {
+        await ensurePackMaterialized(selectedPack.value.id);
+        await createNode("session", ui.activeChatId, { parent_id: null, kind: "folder", tag: typeId });
+        await loadLocalPackNodes();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function localDeletePackNodeFn(nodeId: string) {
+    try {
+        await deleteNode(nodeId);
+        await loadLocalPackNodes();
+    } catch (e) { error.value = (e as Error).message; }
+}
+async function localPackReorderFn(orderedIds: string[]) {
+    if (!ui.activeChatId) return;
+    try {
+        await reorderNodes("session", ui.activeChatId, orderedIds);
+        await loadLocalPackNodes();
+    } catch (e) { error.value = (e as Error).message; }
 }
 // Inline content/trigger edits in the local tree write a local definition patch
 // (not the global definition).
@@ -961,6 +1016,37 @@ async function duplicateDef() {
                         @reorder="localReorder"
                     />
                     <div class="h-px bg-line my-5" />
+                </template>
+
+                <!-- local pack override: materialize-then-edit, same pattern as template -->
+                <template v-if="selectedPack">
+                    <div class="h-px bg-line my-5" />
+                    <div class="mb-3">
+                        <span class="text-[13px] text-teal font-medium">{{ selectedPack.name }}</span>
+                    </div>
+                    <template v-if="localPackNodes.length === 0">
+                        <div class="text-[13px] text-muted py-2">
+                            <span>{{ $t("book.followsPack") }}</span>
+                            <button class="ml-2 text-primary hover:underline" @click="ensurePackMaterialized(selectedPack.id)">{{ $t("book.customizeLocally") }}</button>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div class="mb-2 flex items-center gap-2">
+                            <span class="text-[12px] text-primary">{{ $t("book.customizedLocally") }}</span>
+                            <button class="text-[11px] text-muted hover:text-ink underline" @click="localPackNodes = []; loadLocalPackNodes()">{{ $t("book.revertToGlobal") }}</button>
+                        </div>
+                        <PromptTree
+                            :nodes="localPackNodes"
+                            :definitions="library.definitions"
+                            :types="library.containerTypes"
+                            data-test="pack-local-tree"
+                            @add-prompt="localAddPromptToPack"
+                            @add-container="localAddPackContainer"
+                            @add-to-container="localAddRefToContainer"
+                            @delete-node="localDeletePackNodeFn"
+                            @reorder="localPackReorderFn"
+                        />
+                    </template>
                 </template>
 
                 <div data-test="local-variables" class="mb-4">
