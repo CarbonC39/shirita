@@ -133,6 +133,8 @@ const en = {
     revertToGlobal: 'Revert to global',
     followsTemplate: 'This conversation follows its template.',
     followsPack: 'This conversation follows its pack.',
+    followsGlobal: 'This conversation follows the global library.',
+    globalHeading: 'Global',
     customizeLocally: 'Customize locally',
     customizingLocally: 'Customizing locally',
     showGlobalLibrary: 'Show global library',

@@ -315,6 +315,10 @@ async function ensureMaterialized() {
     }
     customizedLocally.value = true;
 }
+async function materializeAll() {
+    if (localSession.value?.template_id) await ensureMaterialized();
+    if (selectedPack.value?.id) await ensurePackMaterialized(selectedPack.value.id);
+}
 async function ensurePackMaterialized(packId: string) {
     if (!ui.activeChatId) return;
     if (localPackNodes.value.length === 0) {
@@ -971,17 +975,11 @@ async function duplicateDef() {
                     {{ $t("book.localHeading") }}
                 </h2>
 
-                <!-- BEFORE customization: only the "follows template"/"follows pack" hints + customize buttons -->
+                <!-- BEFORE customization: single button materializes both template and pack together -->
                 <template v-if="!customizedLocally">
-                    <div v-if="localSession?.template_id" class="text-[13px] text-muted py-1.5 flex items-center gap-2">
-                        <span>{{ $t("book.followsTemplate") }}</span>
-                        <button data-test="customize-locally" class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="ensureMaterialized">
-                            {{ $t("book.customizeLocally") }}
-                        </button>
-                    </div>
-                    <div v-if="selectedPack" class="text-[13px] text-muted py-1.5 flex items-center gap-2">
-                        <span>{{ $t("book.followsPack") }}</span>
-                        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="ensurePackMaterialized(selectedPack.id)">
+                    <div class="text-[13px] text-muted py-1.5 flex items-center gap-2">
+                        <span>{{ $t("book.followsGlobal") }}</span>
+                        <button data-test="customize-locally" class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="materializeAll">
                             {{ $t("book.customizeLocally") }}
                         </button>
                     </div>
@@ -1068,7 +1066,10 @@ async function duplicateDef() {
                 </template>
             </section>
 
-            <section data-test="book-global" v-if="!ui.activeChatId || !customizedLocally">
+            <section v-if="!ui.activeChatId || !customizedLocally" data-test="book-global">
+            <h2 class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-muted pl-2 mb-3">
+                {{ $t("book.globalHeading") }}
+            </h2>
             <!-- TEMPLATE section (mauve accent) -->
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>

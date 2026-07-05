@@ -126,6 +126,8 @@ const ja: MessageSchema = {
     revertToGlobal: 'グローバルに戻す',
     followsTemplate: 'このチャットはテンプレートに従います。',
     followsPack: 'このチャットはパックに従います。',
+    followsGlobal: 'このチャットはグローバルライブラリに従います。',
+    globalHeading: 'グローバル',
     customizeLocally: 'ローカルでカスタマイズ',
     customizingLocally: 'ローカル編集中',
     showGlobalLibrary: 'グローバルライブラリを表示',
