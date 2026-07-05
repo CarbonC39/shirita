@@ -990,7 +990,7 @@ async function duplicateDef() {
                     </template>
                     <!-- Pack sub-tree -->
                     <template v-if="selectedPack && localNodes.length > 0">
-                        <h3 class="text-[11px] font-semibold text-teal uppercase tracking-wide mb-2">{{ $t("book.packHeading") }}: {{ selectedPack.name }}</h3>
+                        <h3 class="text-[11px] font-semibold text-teal uppercase tracking-wide border-l-2 border-teal pl-2 mb-2">{{ $t("book.packHeading") }}: {{ selectedPack.name }}</h3>
                         <PromptTree
                             :nodes="localNodes"
                             :definitions="library.definitions"
@@ -1047,7 +1047,7 @@ async function duplicateDef() {
                     />
                     <!-- Variables -->
                     <div class="mb-3">
-                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
+                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.variablesThisChat") }}</h3>
                         <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
                     </div>
                 </template>
