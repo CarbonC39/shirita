@@ -1013,9 +1013,10 @@ async function duplicateDef() {
                         />
                         <div class="h-px bg-line my-4" />
                     </template>
-                    <!-- Local definition overrides -->
-                    <div class="mb-3">
-                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.definitionHeading") }}</h3>
+                </template>
+                <!-- Local definition overrides: per-chat patches, independent of tree materialization -->
+                <div v-if="Object.keys(localDefs).length || localDefActive" class="mb-3">
+                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.definitionHeading") }}</h3>
                     <div
                         v-if="Object.keys(localDefs).length"
                         data-test="local-chips"
@@ -1047,13 +1048,12 @@ async function duplicateDef() {
                         @update:meta="localEditDef.meta = $event"
                         @save="saveLocal"
                     />
-                    </div>
-                    <!-- Variables -->
-                    <div class="mb-3">
-                        <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.variablesThisChat") }}</h3>
-                        <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
-                    </div>
-                </template>
+                </div>
+                <!-- Variables (this chat) -->
+                <div data-test="local-variables" class="mb-3">
+                    <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-wide border-l-2 border-muted/50 pl-2 mb-2">{{ $t("book.variablesThisChat") }}</h3>
+                    <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
+                </div>
             </section>
 
             <!-- Global toggle: collapsible panel below the local section -->
