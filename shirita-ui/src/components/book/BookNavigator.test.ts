@@ -2,21 +2,17 @@ import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import BookNavigator from './BookNavigator.vue'
 import SessionTemplateRoot from './SessionTemplateRoot.vue'
-import { LOCAL_BOOK_KEY, type LocalBookApi } from './types'
+import { LOCAL_BOOK_KEY } from './types'
+import { blankDefHolder } from './_testkit'
 
-// Minimal LocalBookApi stub: BookNavigator doesn't read the API, but the
-// rendered SessionTemplateRoot child does (templateNodes.value + PromptTree).
-const stubBook = {
-  templateNodes: { value: [] },
-  definitions: [],
-  types: [],
-  tree: {},
-} as any as LocalBookApi
-
+// BookNavigator itself doesn't read the API, but its rendered children do:
+// SessionTemplateRoot reads templateNodes, and DefinitionView (mounted when the
+// stack top is a definition target) calls editLocal on mount. blankDefHolder
+// gives every descendant a complete, no-op LocalBookApi.
 function mountNavigator() {
   return mount(BookNavigator, {
     props: { rootTarget: { kind: 'sessionRoot' } },
-    global: { provide: { [LOCAL_BOOK_KEY as symbol]: stubBook } },
+    global: { provide: { [LOCAL_BOOK_KEY as symbol]: blankDefHolder() } },
   })
 }
 
