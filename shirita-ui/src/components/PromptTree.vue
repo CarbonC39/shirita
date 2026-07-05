@@ -22,6 +22,7 @@ const emit = defineEmits<{
   deleteNode: [nodeId: string]
   reorder: [orderedIds: string[]]
   addPanel: []
+  openDefinition: [definitionId: string]
 }>()
 
 const expanded = ref<Set<string>>(new Set())
@@ -206,6 +207,7 @@ function onDragEnd() {
         @update-def-meta="(m) => node.definition_id && emit('updateDefMeta', node.definition_id, m)"
         @update-def-name="(n) => node.definition_id && emit('updateDefName', node.definition_id, n)"
         @delete="emit('deleteNode', node.id)"
+        @open-definition="(id) => emit('openDefinition', id)"
       />
 
       <!-- folder children + contextual picker (opened from the row's + button) -->
@@ -242,6 +244,7 @@ function onDragEnd() {
             @update-def-meta="(m) => child.definition_id && emit('updateDefMeta', child.definition_id, m)"
             @update-def-name="(n) => child.definition_id && emit('updateDefName', child.definition_id, n)"
             @delete="emit('deleteNode', child.id)"
+            @open-definition="(id) => emit('openDefinition', id)"
           />
         </div>
         <transition name="expand">

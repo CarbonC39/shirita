@@ -27,7 +27,15 @@ const emit = defineEmits<{
   updateDefMeta: [meta: Record<string, unknown>]
   updateDefName: [name: string]
   add: []
+  openDefinition: [definitionId: string]
 }>()
+
+// Drill-down: clicking a ref row opens its definition (Task 4 navigator listens
+// for the openDefinition that PromptTree re-emits upward). Folders/history/content
+// have no definition_id, so the guard naturally no-ops for them.
+function onRowClick() {
+  if (props.node.definition_id) emit('openDefinition', props.node.definition_id)
+}
 
 const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
@@ -121,9 +129,10 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
 <template>
   <div>
     <div
-      data-test="node-row"
+      :data-test="`node-row-${node.id}`"
       :style="{ paddingLeft: `${8 + depth * 26}px` }"
       class="flex items-center gap-2.5 py-2 pr-2 rounded-lg hover:bg-surface/70 group text-[14px]"
+      @click="onRowClick"
     >
       <!-- drag handle: the row is only draggable when grabbed here (PromptTree
            gates dragstart on this element), so the rest of the row stays clickable -->
@@ -140,7 +149,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         :aria-pressed="node.enabled"
         :class="['w-[18px] h-[18px] rounded-full grid place-items-center shrink-0 border transition-colors',
                  node.enabled ? 'border-primary' : 'border-[#d4d6da] bg-card']"
-        @click="emit('toggleEnabled')"
+        @click.stop="emit('toggleEnabled')"
       >
         <span v-if="node.enabled" class="w-[10px] h-[10px] rounded-full bg-primary" />
       </button>
@@ -150,7 +159,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         :aria-pressed="node.enabled"
         :class="['w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 transition-colors',
                  node.enabled ? 'bg-primary' : 'bg-card border border-[#d4d6da]']"
-        @click="emit('toggleEnabled')"
+        @click.stop="emit('toggleEnabled')"
       >
         <Check v-if="node.enabled" :size="12" class="text-white" :stroke-width="3" />
       </button>
@@ -191,7 +200,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
       ><Trash2 :size="15" /></button>
 
       <!-- trailing expand chevron: folders expand children, refs expand content -->
-      <button v-if="!isHistory && !isContent" data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click="emit('toggleExpand')">
+      <button v-if="!isHistory && !isContent" data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click.stop="emit('toggleExpand')">
         <ChevronRight :size="16" :class="isExpanded ? 'rotate-90' : ''" class="transition-transform" />
       </button>
     </div>

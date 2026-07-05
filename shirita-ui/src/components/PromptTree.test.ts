@@ -134,3 +134,18 @@ describe('PromptTree regex brick', () => {
     expect(w.emitted('createNewInContainer')![0]).toEqual([null, 'regex_rule'])
   })
 })
+
+describe('PromptTree openDefinition', () => {
+  it('emits openDefinition with the definition_id when a ref row is clicked', async () => {
+    const makeNode = (id: string, definitionId: string | null) => ({
+      id, owner_kind: 'session' as const, owner_id: 's', parent_id: null,
+      sort_order: 0, kind: 'ref' as const, tag: null, definition_id: definitionId,
+      enabled: true, created_at: '', meta: {},
+    })
+    const w = mount(PromptTree, {
+      props: { nodes: [makeNode('n1', 'def-1')], definitions: [], types: [] },
+    })
+    await w.find('[data-test="node-row-n1"]').trigger('click')
+    expect(w.emitted('openDefinition')).toEqual([['def-1']])
+  })
+})
