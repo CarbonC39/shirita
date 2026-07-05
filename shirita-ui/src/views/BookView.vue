@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch, onMounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { Check, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
+import { Check, ChevronDown, Pencil, Upload, Download, Copy, Trash2, Star } from "lucide-vue-next";
 import { useLibraryStore } from "../stores/library";
 import { useUiStore } from "../stores/ui";
 import { useMediaStore } from "../stores/media";
@@ -277,34 +277,11 @@ async function saveLocalVars(vars: VarDecl[]) {
 // ── local template tree (session-owned, copy-on-write) ─────
 const localNodes = ref<PromptNode[]>([]);
 async function loadLocalNodes() {
-    if (!ui.activeChatId) {
-        localNodes.value = [];
-        return;
-    }
-    try {
-        const all = await listNodes("session", ui.activeChatId);
-        localNodes.value = all.filter((n) => !n.meta?._source || n.meta._source === "template");
-    } catch {
-        localNodes.value = [];
-    }
+    if (!ui.activeChatId) { localNodes.value = []; return; }
+    try { localNodes.value = await listNodes("session", ui.activeChatId); }
+    catch { localNodes.value = []; }
 }
-const localPackNodes = ref<PromptNode[]>([]);
-async function loadLocalPackNodes() {
-    if (!ui.activeChatId) {
-        localPackNodes.value = [];
-        return;
-    }
-    try {
-        const all = await listNodes("session", ui.activeChatId);
-        localPackNodes.value = all.filter((n) => n.meta?._source === "pack");
-    } catch {
-        localPackNodes.value = [];
-    }
-}
-watch(() => ui.activeChatId, () => { loadLocalNodes(); loadLocalPackNodes(); }, { immediate: true });
-watch(() => selectedPack.value?.id, (pid) => {
-    if (pid) loadLocalPackNodes();
-});
+watch(() => ui.activeChatId, loadLocalNodes, { immediate: true });
 
 // First structural edit copies the template tree into the session (idempotent).
 async function ensureMaterialized() {
@@ -321,9 +298,9 @@ async function materializeAll() {
 }
 async function ensurePackMaterialized(packId: string) {
     if (!ui.activeChatId) return;
-    if (localPackNodes.value.length === 0) {
+    if (localNodes.value.length === 0) {
         await materializePackNodes(ui.activeChatId, packId);
-        await loadLocalPackNodes();
+        await loadLocalNodes();
     }
     customizedLocally.value = true;
 }
@@ -460,7 +437,7 @@ async function localAddPromptToPack(defId: string) {
     try {
         await ensurePackMaterialized(selectedPack.value.id);
         await createNode("session", ui.activeChatId, { parent_id: null, kind: "ref", definition_id: defId });
-        await loadLocalPackNodes();
+        await loadLocalNodes();
     } catch (e) { error.value = (e as Error).message; }
 }
 async function localAddPackContainer(typeId: string) {
@@ -468,20 +445,20 @@ async function localAddPackContainer(typeId: string) {
     try {
         await ensurePackMaterialized(selectedPack.value.id);
         await createNode("session", ui.activeChatId, { parent_id: null, kind: "folder", tag: typeId });
-        await loadLocalPackNodes();
+        await loadLocalNodes();
     } catch (e) { error.value = (e as Error).message; }
 }
 async function localDeletePackNodeFn(nodeId: string) {
     try {
         await deleteNode(nodeId);
-        await loadLocalPackNodes();
+        await loadLocalNodes();
     } catch (e) { error.value = (e as Error).message; }
 }
 async function localPackReorderFn(orderedIds: string[]) {
     if (!ui.activeChatId) return;
     try {
         await reorderNodes("session", ui.activeChatId, orderedIds);
-        await loadLocalPackNodes();
+        await loadLocalNodes();
     } catch (e) { error.value = (e as Error).message; }
 }
 // Inline content/trigger edits in the local tree write a local definition patch
@@ -985,13 +962,11 @@ async function duplicateDef() {
                     </div>
                 </template>
 
-                <!-- AFTER customization: full local editing surface -->
+                <!-- AFTER customization: full local editing surface with sub-headings -->
                 <template v-else>
-                    <div class="mb-3 flex items-center gap-2">
-                        <span class="text-[12px] text-primary">{{ $t("book.customizingLocally") }}</span>
-                        <button class="text-[11px] text-muted hover:text-ink underline" @click="customizedLocally = false">{{ $t("book.showGlobalLibrary") }}</button>
-                    </div>
+                    <!-- Template sub-tree -->
                     <template v-if="localSession?.template_id && localNodes.length > 0">
+                        <h3 class="text-[11px] font-semibold text-mauve uppercase tracking-wide mb-2">{{ $t("book.templateHeading") }}</h3>
                         <PromptTree
                             :nodes="localNodes"
                             :definitions="library.definitions"
@@ -1013,21 +988,32 @@ async function duplicateDef() {
                         />
                         <div class="h-px bg-line my-4" />
                     </template>
-                    <template v-if="selectedPack && localPackNodes.length > 0">
-                        <div class="text-[13px] text-teal font-medium mb-2">{{ selectedPack.name }}</div>
+                    <!-- Pack sub-tree -->
+                    <template v-if="selectedPack && localNodes.length > 0">
+                        <h3 class="text-[11px] font-semibold text-teal uppercase tracking-wide mb-2">{{ $t("book.packHeading") }}: {{ selectedPack.name }}</h3>
                         <PromptTree
-                            :nodes="localPackNodes"
+                            :nodes="localNodes"
                             :definitions="library.definitions"
                             :types="library.containerTypes"
                             data-test="pack-local-tree"
-                            @add-prompt="localAddPromptToPack"
-                            @add-container="localAddPackContainer"
-                            @add-to-container="localAddRefToContainer"
-                            @delete-node="localDeletePackNodeFn"
-                            @reorder="localPackReorderFn"
+                            @toggle-enabled="localToggleEnabled"
+                            @add-prompt="localAddPrompt"
+                            @add-container="localAddContainer"
+                            @add-ref-to-container="localAddRefToContainer"
+                            @create-new-prompt="localCreateNewPrompt"
+                            @create-new-in-container="localCreateNewInContainer"
+                            @create-type="localCreateType"
+                            @update-content="localUpdateContent"
+                            @update-trigger="localUpdateTrigger"
+                            @update-node-meta="localUpdateNodeMeta"
+                            @update-def-meta="handleUpdateDefMeta"
+                            @update-def-name="handleUpdateDefName"
+                            @delete-node="localDeleteNode"
+                            @reorder="localReorder"
                         />
                         <div class="h-px bg-line my-4" />
                     </template>
+                    <!-- Local definition overrides -->
                     <div
                         v-if="Object.keys(localDefs).length"
                         data-test="local-chips"
@@ -1059,6 +1045,7 @@ async function duplicateDef() {
                         @update:meta="localEditDef.meta = $event"
                         @save="saveLocal"
                     />
+                    <!-- Variables -->
                     <div class="mb-3">
                         <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2">{{ $t("book.variablesThisChat") }}</h3>
                         <VariablesEditor :model-value="localVars" @update:model-value="saveLocalVars" />
@@ -1066,10 +1053,17 @@ async function duplicateDef() {
                 </template>
             </section>
 
-            <section v-if="!ui.activeChatId || !customizedLocally" data-test="book-global">
-            <h2 class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-muted pl-2 mb-3">
+            <!-- Global toggle: collapsible panel below the local section -->
+            <button
+                v-if="ui.activeChatId"
+                class="flex items-center gap-2 w-full py-2 mb-3 text-[13px] font-semibold text-muted hover:text-ink transition-colors"
+                @click="customizedLocally = !customizedLocally"
+            >
+                <ChevronDown :size="16" :stroke-width="2" class="transition-transform duration-200" :class="customizedLocally ? '-rotate-90' : ''" />
                 {{ $t("book.globalHeading") }}
-            </h2>
+            </button>
+
+            <section v-if="!ui.activeChatId || !customizedLocally" data-test="book-global">
             <!-- TEMPLATE section (mauve accent) -->
             <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">{{ $t('book.templateHeading') }}</h2>
