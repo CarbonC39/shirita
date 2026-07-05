@@ -163,6 +163,11 @@ const ja: MessageSchema = {
     packNamePlaceholder: 'パック名',
     deletePackConfirm: 'このパックを削除しますか？',
     deleteDefConfirm: '定義"{name}"を削除しますか？',
+    nav: {
+      back: '戻る',
+      backToTemplate: 'テンプレートに戻る',
+      backToPack: 'パックに戻る',
+    },
   },
   pack: {
     identity: 'アイデンティティ',

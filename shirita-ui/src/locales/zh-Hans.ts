@@ -163,6 +163,11 @@ const zhHans: MessageSchema = {
     packNamePlaceholder: '包名称',
     deletePackConfirm: '删除这个包？',
     deleteDefConfirm: '删除定义"{name}"？',
+    nav: {
+      back: '返回',
+      backToTemplate: '返回模板',
+      backToPack: '返回设定包',
+    },
   },
   pack: {
     identity: '身份',

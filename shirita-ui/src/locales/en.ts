@@ -173,6 +173,11 @@ const en = {
     packNamePlaceholder: 'Pack name',
     deletePackConfirm: 'Delete this pack?',
     deleteDefConfirm: 'Delete definition "{name}"?',
+    nav: {
+      back: 'Back',
+      backToTemplate: 'Back to template',
+      backToPack: 'Back to pack',
+    },
   },
   pack: {
     identity: 'Identity',
