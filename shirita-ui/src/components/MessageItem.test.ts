@@ -167,6 +167,22 @@ describe('MessageItem', () => {
     await w.find('[data-test="edit-save"]').trigger('click')
     expect(w.emitted('edit-save')![0]).toEqual(['hello edited'])
   })
+
+  it('caps plain-text bubbles at 78% width', () => {
+    const w = mount(MessageItem, {
+      props: { message: makeMsg({ raw_content: 'just text' }), style: 'bubble' },
+    })
+    expect(w.find('[data-test="msg-bubble-wrapper"]').classes()).toContain('max-w-[78%]')
+  })
+
+  it('lets an HTML card bubble use the full message-row width', () => {
+    const w = mount(MessageItem, {
+      props: { message: makeMsg({ raw_content: '<!DOCTYPE html><html><body>card</body></html>' }), style: 'bubble' },
+    })
+    const wrapper = w.find('[data-test="msg-bubble-wrapper"]')
+    expect(wrapper.classes()).toContain('max-w-full')
+    expect(wrapper.classes()).not.toContain('max-w-[78%]')
+  })
 })
 
 describe('MessageItem identity', () => {

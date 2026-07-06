@@ -114,6 +114,7 @@ export interface SessionPanel {
   html: string
   css: string
   caps: PanelCaps
+  /** Hide the panel header until the chat has at least this many messages. 0 = always show. */
   min_messages: number
 }
 

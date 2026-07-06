@@ -36,6 +36,16 @@ export function isHtmlDocument(text: string): boolean {
   return s.startsWith('<!doctype html') || s.startsWith('<html')
 }
 
+/** True if `text`, rendered as Markdown, would produce at least one HtmlCardFrame
+ *  (a raw HTML document, or a fenced ```html / detected-HTML code block). Mirrors
+ *  MarkdownText.vue's own rendering decision — used by MessageItem.vue to decide
+ *  whether the chat-bubble width cap should apply (cards want full width, plain
+ *  text bubbles don't). */
+export function containsHtmlCard(text: string): boolean {
+  if (isHtmlDocument(text)) return true
+  return parseMarkdown(text).some((n) => n.type === 'codeblock' && (n.lang === 'html' || isHtmlDocument(n.value)))
+}
+
 // Allow only obviously-safe link targets; anything else (javascript:, data:, …)
 // falls through and the link renders as literal text.
 function safeHref(href: string): boolean {

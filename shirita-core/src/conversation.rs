@@ -131,12 +131,12 @@ pub async fn effective_regex_rules(
     storage: &dyn Storage,
     session: &Session,
 ) -> crate::Result<Vec<Definition>> {
-    let referenced: std::collections::HashSet<String> =
-        storage.referenced_definition_ids().await?.into_iter().collect();
     let all = storage.list_definitions().await?;
     let mut rules: Vec<Definition> = all
         .iter()
-        .filter(|d| d.def_type == "regex_rule" && !referenced.contains(&d.id))
+        .filter(|d| {
+            d.def_type == "regex_rule" && d.meta.get("is_global").and_then(|v| v.as_bool()).unwrap_or(false)
+        })
         .cloned()
         .collect();
     let by_id: std::collections::HashMap<&str, &Definition> =
@@ -731,7 +731,7 @@ mod tests {
         let storage = Arc::new(temp_storage().await);
         // global orphan rule (referenced by no node)
         let mut g = crate::models::definition::Definition::new("regex_rule", "G", "");
-        g.meta = serde_json::json!({ "pattern": "g", "replacement": "" });
+        g.meta = serde_json::json!({ "pattern": "g", "replacement": "", "is_global": true });
         storage.create_definition(&g).await.unwrap();
         // scoped rule referenced by a template the session uses
         let mut s = crate::models::definition::Definition::new("regex_rule", "S", "");
@@ -754,6 +754,23 @@ mod tests {
         storage.create_session(&other).await.unwrap();
         let other_rules = super::effective_regex_rules(storage.as_ref(), &other).await.unwrap();
         assert_eq!(other_rules.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), vec!["G"]);
+    }
+
+    #[tokio::test]
+    async fn effective_regex_rules_ignores_unreferenced_rule_without_is_global() {
+        // Regression test for the global-regex-pollution fix: an unreferenced
+        // regex_rule that never had `is_global` set (e.g. left behind by
+        // deleting its owning pack/template without choosing to delete
+        // orphans) must NOT silently apply everywhere anymore.
+        let storage = Arc::new(temp_storage().await);
+        let mut accidental_orphan = crate::models::definition::Definition::new("regex_rule", "Accidental", "");
+        accidental_orphan.meta = serde_json::json!({ "pattern": "a", "replacement": "" });
+        storage.create_definition(&accidental_orphan).await.unwrap();
+
+        let session = Session::new("x");
+        storage.create_session(&session).await.unwrap();
+        let rules = super::effective_regex_rules(storage.as_ref(), &session).await.unwrap();
+        assert!(rules.is_empty(), "unreferenced rule without is_global must not apply");
     }
 
     #[tokio::test]
@@ -1039,7 +1056,7 @@ mod tests {
         // a global orphan rule (referenced by nothing)
         let mut global = Definition::new("regex_rule", "global", "");
         global.id = "r_global".into();
-        global.meta = serde_json::json!({ "pattern": "a", "replacement": "b" });
+        global.meta = serde_json::json!({ "pattern": "a", "replacement": "b", "is_global": true });
         storage.create_definition(&global).await.unwrap();
         // a pack with a scoped regex rule
         let p = crate::models::pack::Pack::new("FX");
@@ -1230,9 +1247,11 @@ mod tests {
         )
         .await;
 
-        // An orphan (unreferenced) regex_rule with capture_vars — same shape
-        // `try_convert_status_panel` produces — is globally effective per
-        // `effective_regex_rules`.
+        // A regex_rule with capture_vars — same shape `try_convert_status_panel`
+        // produces — referenced by the template's tree, same as the real
+        // import path (`charcard_to_loreset` always creates a Ref node for
+        // every regex_scripts entry, including the one chosen for panel
+        // conversion; it is never left as an unreferenced/global rule).
         let mut rule = Definition::new("regex_rule", "status", "");
         rule.meta = serde_json::json!({
             "pattern": "<mood>(\\w+)</mood>",
@@ -1240,6 +1259,7 @@ mod tests {
             "capture_vars": ["field1"]
         });
         storage.create_definition(&rule).await.unwrap();
+        storage.create_node(&PromptNode::new_ref(OwnerKind::Template, &t.id, None, 0, &rule.id)).await.unwrap();
 
         let mut session = Session::new("s");
         session.template_id = Some(t.id.clone());

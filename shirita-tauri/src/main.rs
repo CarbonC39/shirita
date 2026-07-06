@@ -49,6 +49,9 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
     shirita_core::ensure_templates_have_content_node(&storage)
         .await
         .map_err(|e| format!("Failed to migrate template content nodes: {e}"))?;
+    shirita_core::ensure_global_regex_flag(&storage)
+        .await
+        .map_err(|e| format!("Failed to backfill regex global flags: {e}"))?;
     shirita_core::ensure_asset_hashes(&storage, &config.assets_dir)
         .await
         .map_err(|e| format!("Failed to backfill asset hashes: {e}"))?;

@@ -30,6 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     shirita_core::ensure_builtin_definitions(&storage).await?;
     // Backfill: legacy templates gain the undeletable <<content>> mount node.
     shirita_core::ensure_templates_have_content_node(&storage).await?;
+    // Backfill: unreferenced regex_rule defs that predate the is_global flag.
+    shirita_core::ensure_global_regex_flag(&storage).await?;
     shirita_core::ensure_asset_hashes(&storage, &config.assets_dir).await?;
     tokio::fs::create_dir_all(&config.assets_dir).await?;
 

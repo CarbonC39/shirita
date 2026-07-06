@@ -79,6 +79,21 @@ describe('PackEditor', () => {
     expect(api.createNode).toHaveBeenCalledWith('pack', 'p1', expect.objectContaining({ parent_id: 'folder1', definition_id: 'css1' }))
   })
 
+  it('seeds the min-messages threshold from meta.panel and saves edits to it', async () => {
+    const withPanel = { ...pack, meta: { panel: { html: '', css: '', caps: {}, min_messages: 3 } } }
+    const w = mount(PackEditor, { props: { pack: withPanel }, global: { stubs } })
+    await flushPromises()
+    expect((w.find('[data-test="panel-min-messages"]').element as HTMLInputElement).value).toBe('3')
+
+    const input = w.find('[data-test="panel-min-messages"]')
+    await input.setValue('5')
+    await input.trigger('change')
+    await flushPromises()
+    expect(api.updatePack).toHaveBeenCalledWith('p1', expect.objectContaining({
+      meta: expect.objectContaining({ panel: expect.objectContaining({ min_messages: 5 }) }),
+    }))
+  })
+
   it('editing the display name updates identity and emits changed', async () => {
     const w = mount(PackEditor, { props: { pack }, global: { stubs } })
     await flushPromises()
