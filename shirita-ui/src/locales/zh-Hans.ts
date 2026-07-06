@@ -181,6 +181,7 @@ const zhHans: MessageSchema = {
     capWrite: '改变量',
     capInsert: '填输入框',
     capSend: '发送',
+    panelMinMessages: '满 N 条消息后显示面板',
   },
   definition: {
     heading: '定义',

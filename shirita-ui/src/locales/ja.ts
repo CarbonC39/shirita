@@ -181,6 +181,7 @@ const ja: MessageSchema = {
     capWrite: '変数を変更',
     capInsert: '入力欄に挿入',
     capSend: '送信',
+    panelMinMessages: 'N件のメッセージ後にパネルを表示',
   },
   definition: {
     heading: '定義',

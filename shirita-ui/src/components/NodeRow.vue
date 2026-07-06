@@ -66,17 +66,21 @@ const label = computed(() => {
   return def.value ? def.value.name : t('prompt.missing')
 })
 
-// Panel folder: meta carries { name, caps: {write,insert,send} }, editable
-// inline (name input + 3 cap checkboxes) like a regular ref's content editor.
+// Panel folder: meta carries { name, caps: {write,insert,send}, min_messages }, editable
+// inline (name input + 3 cap checkboxes + min-messages input) like a regular ref's content editor.
 type PanelCaps = { write?: boolean; insert?: boolean; send?: boolean }
-const panelMeta = computed(() => props.node.meta as { name?: string; caps?: PanelCaps })
+const panelMeta = computed(() => props.node.meta as { name?: string; caps?: PanelCaps; min_messages?: number })
 const panelName = computed(() => panelMeta.value.name ?? '')
 const panelCaps = computed<PanelCaps>(() => panelMeta.value.caps ?? {})
+const panelMinMessages = computed(() => panelMeta.value.min_messages ?? 0)
 function updatePanelName(name: string) {
   emit('updateNodeMeta', { ...panelMeta.value, name })
 }
 function togglePanelCap(cap: keyof PanelCaps) {
   emit('updateNodeMeta', { ...panelMeta.value, caps: { ...panelCaps.value, [cap]: !panelCaps.value[cap] } })
+}
+function updatePanelMinMessages(v: number) {
+  emit('updateNodeMeta', { ...panelMeta.value, min_messages: v || 0 })
 }
 
 // palette tint per definition/container type
@@ -224,6 +228,17 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         <label class="flex items-center gap-1.5"><input type="checkbox" data-test="panel-folder-cap-insert" :checked="panelCaps.insert" @change="togglePanelCap('insert')" />{{ $t('pack.capInsert') }}</label>
         <label class="flex items-center gap-1.5"><input type="checkbox" data-test="panel-folder-cap-send" :checked="panelCaps.send" @change="togglePanelCap('send')" />{{ $t('pack.capSend') }}</label>
       </div>
+      <label class="flex items-center gap-2 text-[12px]">
+        <span class="text-muted">{{ $t('pack.panelMinMessages') }}</span>
+        <input
+          data-test="panel-folder-min-messages"
+          type="number"
+          min="0"
+          :value="panelMinMessages"
+          class="field w-20 !py-1"
+          @change="updatePanelMinMessages(Number(($event.target as HTMLInputElement).value))"
+        />
+      </label>
     </div>
     </transition>
 

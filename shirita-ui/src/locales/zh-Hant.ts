@@ -181,6 +181,7 @@ const zhHant: MessageSchema = {
     capWrite: '改變數',
     capInsert: '填輸入框',
     capSend: '傳送',
+    panelMinMessages: '滿 N 條消息後顯示面板',
   },
   definition: {
     heading: '定義',

@@ -191,6 +191,7 @@ const en = {
     capWrite: 'write vars',
     capInsert: 'fill input',
     capSend: 'send',
+    panelMinMessages: 'Show panel after N messages',
   },
   definition: {
     heading: 'Definition',

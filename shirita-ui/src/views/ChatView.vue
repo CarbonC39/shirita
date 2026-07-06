@@ -61,6 +61,11 @@ async function loadIdentity() {
 }
 // Server-resolved panels for the session (one per `panel` folder), in resolution order.
 const panels = ref<SessionPanel[]>([])
+// Filters out panels whose author set a min_messages threshold the chat
+// hasn't reached yet.
+const visiblePanels = computed(() =>
+  panels.value.filter((p) => chat.messages.length >= (p.min_messages ?? 0)),
+)
 async function loadPanels() {
   try {
     panels.value = await getSessionPanels(sessionId)
@@ -211,8 +216,8 @@ async function handleDelete(id: string) {
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
     </div>
 
-    <div v-if="panels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
-      <details v-for="p in panels" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
+    <div v-if="visiblePanels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
+      <details v-for="p in visiblePanels" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
         <summary class="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-muted">{{ p.name }}</summary>
         <div class="px-2 pb-2">
           <PanelView :html="p.html" :css="p.css" :values="sessionState.values" @action="onPanelAction(p, $event)" />

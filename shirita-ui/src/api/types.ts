@@ -114,6 +114,7 @@ export interface SessionPanel {
   html: string
   css: string
   caps: PanelCaps
+  min_messages: number
 }
 
 /** A user interaction reported by a panel; the host decides whether to honor it. */

@@ -21,6 +21,9 @@ pub struct RenderedPanel {
     pub html: String,
     pub css: String,
     pub caps: Value,
+    /// Minimum number of messages before this panel is shown.
+    #[serde(default)]
+    pub min_messages: u32,
 }
 
 /// Pure: collect `panel` folders from one node tree into RenderedPanels. A panel
@@ -88,6 +91,7 @@ pub fn collect_panels(
             html: html_parts.join("\n"),
             css: css_parts.join("\n"),
             caps,
+            min_messages: folder.meta.get("min_messages").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         });
     }
     out

@@ -124,7 +124,7 @@ describe('ChatView', () => {
 
   it('renders a panel for each session panel returned by the endpoint', async () => {
     vi.spyOn(client, 'getSessionPanels').mockResolvedValue([
-      { id: 'F', name: 'Status', html: '<b>hi</b>', css: '', caps: {} },
+      { id: 'F', name: 'Status', html: '<b>hi</b>', css: '', caps: {}, min_messages: 0 },
     ])
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     const router = makeRouter()
