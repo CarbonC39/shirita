@@ -143,6 +143,13 @@ describe('ChatView', () => {
       meta: { panel: { html: '<span>x</span>', css: '', caps: {}, min_messages: 2 } },
       created_at: '', updated_at: '',
     } as never)
+    vi.spyOn(client, 'getSessionPanels').mockResolvedValue([
+      { id: 'p1-panel', name: 'Alice', html: '<span>x</span>', css: '', caps: {}, min_messages: 2 },
+    ])
+    vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({
+      assistant: { name: null, avatar: null },
+      user: { name: null, avatar: null },
+    })
     const oneMessage = [{
       id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
       raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
@@ -164,6 +171,13 @@ describe('ChatView', () => {
       meta: { panel: { html: '<span>x</span>', css: '', caps: {}, min_messages: 2 } },
       created_at: '', updated_at: '',
     } as never)
+    vi.spyOn(client, 'getSessionPanels').mockResolvedValue([
+      { id: 'p1-panel', name: 'Alice', html: '<span>x</span>', css: '', caps: {}, min_messages: 2 },
+    ])
+    vi.spyOn(client, 'getSessionIdentity').mockResolvedValue({
+      assistant: { name: null, avatar: null },
+      user: { name: null, avatar: null },
+    })
     const twoMessages = [0, 1].map((i) => ({
       id: `m${i}`, session_id: 's1', parent_id: null, role: 'user' as const,
       raw_content: 'hi', display_content: null, is_hidden: false, is_anchor: false, attachments: [],

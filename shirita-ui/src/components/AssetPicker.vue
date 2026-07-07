@@ -46,8 +46,7 @@ async function onCropped(blob: Blob) {
   croppingFile.value = null
   uploading.value = true
   try {
-    const file = new File([blob], 'avatar.png', { type: 'image/png' })
-    const a = await media.upload(file, 'avatar')
+    const a = await media.upload(new File([blob], 'avatar.png', { type: blob.type || 'image/png' }), 'avatar')
     if (a) emit('update:modelValue', a.path)
   } finally { uploading.value = false }
 }

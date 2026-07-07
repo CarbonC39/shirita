@@ -185,9 +185,10 @@ async fn fork_copies_path_to_a_new_isolated_session() {
     assert_ne!(new_id, sid);
     assert_eq!(json(&out)["name"], "Origin (fork)");
 
-    // new session has exactly the 2 messages up to the fork node, new ids
+    // new session has the 2 path messages + 1 sibling (user:two whose parent
+    // is the fork node), for 3 total — fork preserves branching history.
     let forked = messages(&state, &new_id).await;
-    assert_eq!(forked.as_array().unwrap().len(), 2);
+    assert_eq!(forked.as_array().unwrap().len(), 3);
     assert!(forked.as_array().unwrap().iter().all(|m| m["id"].as_str().unwrap() != node));
     // its active leaf is set (the copied leaf)
     assert!(json(&out)["active_leaf_id"].is_string());

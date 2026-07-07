@@ -65,6 +65,14 @@ input[type='number'] {
   appearance: textfield;
 }
 
+/* Prevent iOS auto-zoom when focusing inputs on mobile.
+   Safari zooms when font-size < 16px; keep inputs at 16px on touch devices. */
+@media (pointer: coarse) {
+  input, textarea, select {
+    font-size: 16px !important;
+  }
+}
+
 /* --- Motion ------------------------------------------------------------- */
 /* Page route transition: a quick, soft cross-fade with a hair of lift. */
 .page-enter-active {

@@ -7,6 +7,7 @@ use tokio::sync::watch;
 
 use crate::assembly::capture_panel_updates;
 use crate::attachments::resolve_images;
+use crate::identity::{resolve_identity_with_packs, Identity};
 use crate::model::{ChatMessage, ChatRequest, ModelProvider};
 use crate::models::definition::Definition;
 use crate::models::message::{Message, Role};
@@ -52,6 +53,104 @@ pub async fn resolve_session_schema(storage: &dyn Storage, session: &Session) ->
         pack_decls.push(crate::state::variables_from_nodes(&pnodes, &pdefs));
     }
     crate::state::resolve_schema_from_bricks(template_decls, pack_decls, &session.override_config)
+}
+
+/// Resolve per-message identity from the session's template + mounted packs.
+/// Injected into `snapshot_state` as `$assistant_name` / `$assistant_avatar` /
+/// `$user_name` / `$user_avatar` so each message carries the identity that was
+/// active when it was created, and later template/pack changes don't rewrite
+/// old messages.
+pub async fn resolve_session_identity(storage: &dyn Storage, session: &Session) -> Identity {
+    let nodes = effective_nodes(storage, session).await.unwrap_or_default();
+    let mut defs = load_defs(storage, &nodes).await.unwrap_or_default();
+
+    // Load mounted packs with their node trees and identities.
+    let mut packs: Vec<(crate::models::pack::PackIdentity, Vec<PromptNode>)> = Vec::new();
+    for pid in &session.mounted_packs {
+        if let Ok(Some(pack)) = storage.get_pack(pid).await {
+            let pnodes = storage
+                .list_nodes(&OwnerKind::Pack, pid)
+                .await
+                .unwrap_or_default();
+            packs.push((pack.identity, pnodes));
+        }
+    }
+
+    // Combined node pool: pack refs lead so a pack character/persona wins the
+    // name fallback over any stray template char.
+    let mut combined: Vec<PromptNode> = Vec::new();
+    for (_, pnodes) in &packs {
+        combined.extend(pnodes.iter().cloned());
+    }
+    combined.extend(nodes);
+
+    // Load defs referenced by pack nodes too.
+    for n in &combined {
+        if let Some(did) = &n.definition_id {
+            if !defs.contains_key(did) {
+                if let Ok(Some(d)) = storage.get_definition(did).await {
+                    defs.insert(did.clone(), d);
+                }
+            }
+        }
+    }
+
+    // First pack with an enabled char ref binds the assistant; first with an
+    // enabled persona ref binds the user.
+    let mut assistant_pack: Option<&crate::models::pack::PackIdentity> = None;
+    let mut user_pack: Option<&crate::models::pack::PackIdentity> = None;
+    for (identity, pnodes) in &packs {
+        let mut has_char = false;
+        let mut has_persona = false;
+        for n in pnodes.iter().filter(|n| n.kind == NodeKind::Ref && n.enabled) {
+            match n.definition_id.as_ref().and_then(|d| defs.get(d)).map(|d| d.def_type.as_str()) {
+                Some("char") => has_char = true,
+                Some("persona") => has_persona = true,
+                _ => {}
+            }
+        }
+        if has_char && assistant_pack.is_none() {
+            assistant_pack = Some(identity);
+        }
+        if has_persona && user_pack.is_none() {
+            user_pack = Some(identity);
+        }
+    }
+
+    let template_name = match &session.template_id {
+        Some(tid) => storage.get_template(tid).await.ok().flatten().map(|t| t.name),
+        None => None,
+    };
+
+    resolve_identity_with_packs(
+        &combined,
+        &defs,
+        template_name.as_deref(),
+        session.avatar.as_deref(),
+        assistant_pack,
+        user_pack,
+    )
+}
+
+/// Inject resolved identity fields into a state Value so they are carried
+/// alongside user variables in the message's `snapshot_state`.
+fn inject_identity(state: &mut serde_json::Value, identity: &Identity) {
+    let obj = match state.as_object_mut() {
+        Some(o) => o,
+        None => return,
+    };
+    if let Some(ref name) = identity.assistant.name {
+        obj.insert("$assistant_name".into(), serde_json::Value::String(name.clone()));
+    }
+    if let Some(ref avatar) = identity.assistant.avatar {
+        obj.insert("$assistant_avatar".into(), serde_json::Value::String(avatar.clone()));
+    }
+    if let Some(ref name) = identity.user.name {
+        obj.insert("$user_name".into(), serde_json::Value::String(name.clone()));
+    }
+    if let Some(ref avatar) = identity.user.avatar {
+        obj.insert("$user_avatar".into(), serde_json::Value::String(avatar.clone()));
+    }
 }
 
 /// Read the context window (settings `context.window`, default 200000).
@@ -438,7 +537,12 @@ pub fn send_message(
         // Valid branch state: schema initial value < seed < current leaf snapshot (read and write sides share the same fallback).
         let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
-        let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+        let mut branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+
+        // Inject per-message identity so old messages keep the identity that was
+        // active when they were created, even if the template/pack changes later.
+        let identity = resolve_session_identity(storage.as_ref(), &session).await;
+        inject_identity(&mut branch_state, &identity);
 
         let mut user_msg = Message::new(&session_id, parent_id, Role::User, &user_text);
         user_msg.snapshot_state = branch_state.clone();
@@ -568,7 +672,11 @@ pub fn regenerate(
         // Valid state of the parent branch: The folding reference point is the same as `send_message` (schema fallback + seed + parent leaf snapshot).
         let schema = resolve_session_schema(storage.as_ref(), &session).await;
         let leaf_snapshot = path.last().map(|m| m.snapshot_state.clone()).unwrap_or_else(|| serde_json::json!({}));
-        let branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+        let mut branch_state = effective_state(&schema, &session.current_state, &leaf_snapshot);
+
+        // Inject per-message identity (same as send_message).
+        let identity = resolve_session_identity(storage.as_ref(), &session).await;
+        inject_identity(&mut branch_state, &identity);
 
         let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, &schema, summary_text.clone()).await {
             Ok(r) => r,

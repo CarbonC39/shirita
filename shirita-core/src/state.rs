@@ -52,6 +52,24 @@ pub fn system_variables() -> Vec<VarDecl> {
             initial: Value::String(String::new()),
             scope: Some("system".into()),
         },
+        VarDecl {
+            name: "$assistant_avatar".into(),
+            var_type: VarType::String,
+            initial: Value::String(String::new()),
+            scope: Some("system".into()),
+        },
+        VarDecl {
+            name: "$user_name".into(),
+            var_type: VarType::String,
+            initial: Value::String(String::new()),
+            scope: Some("system".into()),
+        },
+        VarDecl {
+            name: "$user_avatar".into(),
+            var_type: VarType::String,
+            initial: Value::String(String::new()),
+            scope: Some("system".into()),
+        },
     ]
 }
 
@@ -280,6 +298,11 @@ const MAX_LIST_LEN: usize = 1000;
 pub fn apply_updates(state: &Value, schema: &[VarDecl], updates: &[Update]) -> Value {
     let mut obj = state.as_object().cloned().unwrap_or_default();
     for u in updates {
+        // Block system-reserved keys ($-prefixed) from LLM/prompt-injection
+        // so identity fields ($assistant_name, etc.) can't be tampered with.
+        if u.key.starts_with('$') {
+            continue;
+        }
         let Some(vt) = schema.iter().find(|d| d.name == u.key).map(|d| d.var_type) else {
             continue; // undeclared
         };
@@ -494,6 +517,22 @@ mod tests {
         let decls = variables_from_nodes(&nodes, &defs);
         let names: Vec<&str> = decls.iter().map(|d| d.name.as_str()).collect();
         assert_eq!(names, vec!["hp", "mood"], "sort_order, only enabled variables bricks");
+    }
+
+    #[test]
+    fn apply_updates_blocks_dollar_prefixed_keys() {
+        // system-reserved $-keys must be immune to LLM/prompt-injection state updates
+        let s = full_schema();
+        let st = json!({ "hp": 100, "$assistant_name": "Alice" });
+        let ups = vec![
+            Update { action: Action::Set, key: "$assistant_name".into(), value: Some("Evil".into()) },
+            Update { action: Action::Set, key: "$assistant_avatar".into(), value: Some("hacked.png".into()) },
+            Update { action: Action::Set, key: "hp".into(), value: Some("50".into()) },
+        ];
+        let out = apply_updates(&st, &s, &ups);
+        assert_eq!(out["$assistant_name"], "Alice", "$-prefixed key must not be overwritten");
+        assert!(!out.as_object().unwrap().contains_key("$assistant_avatar"), "undeclared $-key must not be inserted");
+        assert_eq!(out["hp"], 50, "non-$ key must still apply normally");
     }
 
     #[test]

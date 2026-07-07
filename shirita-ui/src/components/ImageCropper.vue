@@ -44,7 +44,15 @@ function onMove(e: PointerEvent) {
 }
 function onUp() { dragging = false }
 function confirmCrop() {
-  canvas.value!.toBlob((b) => { if (b) emit('cropped', b) }, 'image/png')
+  // Use toDataURL → Blob instead of toBlob for better compatibility
+  // (WebKitGTK in Tauri doesn't reliably support canvas.toBlob).
+  const dataUrl = canvas.value!.toDataURL('image/png')
+  const byteString = atob(dataUrl.split(',')[1])
+  const ab = new ArrayBuffer(byteString.length)
+  const ia = new Uint8Array(ab)
+  for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i)
+  const blob = new Blob([ab], { type: 'image/png' })
+  emit('cropped', blob)
 }
 </script>
 

@@ -149,6 +149,15 @@ const userAvatar = computed({
     get: () => (get("user.avatar") as string) || "",
     set: (v: string) => set("user.avatar", v),
 });
+// Default assistant identity — used when the template has no character definition.
+const assistantName = computed({
+    get: () => (get("assistant.name") as string) || "",
+    set: (v: string) => set("assistant.name", v),
+});
+const assistantAvatar = computed({
+    get: () => (get("assistant.avatar") as string) || "",
+    set: (v: string) => set("assistant.avatar", v),
+});
 const genTemp = computed({
     get: () => (get("gen_temperature") as number) ?? 1,
     set: (v: number) => set("gen_temperature", v),
@@ -342,6 +351,8 @@ watch(
         customCss.value,
         userName.value,
         userAvatar.value,
+        assistantName.value,
+        assistantAvatar.value,
     ],
     () => {
         if (!loaded.value) return;
@@ -357,6 +368,8 @@ watch(
                     provider_stream: providerStream.value,
                     "user.name": userName.value,
                     "user.avatar": userAvatar.value,
+                    "assistant.name": assistantName.value,
+                    "assistant.avatar": assistantAvatar.value,
                     gen_temperature: genTemp.value,
                     gen_top_p: genTopP.value,
                     gen_frequency_penalty: genFreqPenalty.value,
@@ -486,6 +499,48 @@ async function handleTestConnection() {
                     </div>
                     <p class="text-[12px] text-muted/80 leading-relaxed">
                         {{ $t("settings.identityHint") }}
+                    </p>
+                </div>
+            </section>
+
+            <!-- Assistant identity (default name + avatar for when no char definition exists) -->
+            <section class="mb-8">
+                <h3
+                    class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4"
+                >
+                    {{ $t("settings.assistantIdentity") }}
+                </h3>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[13px] text-ink block mb-1.5"
+                            >{{ $t("settings.assistantName") }}</label
+                        ><input
+                            :value="assistantName"
+                            type="text"
+                            class="field w-full"
+                            :placeholder="$t('settings.assistantNamePlaceholder')"
+                            @input="
+                                assistantName = (
+                                    $event.target as HTMLInputElement
+                                ).value
+                            "
+                        />
+                    </div>
+                    <div>
+                        <label class="text-[13px] text-ink block mb-1.5"
+                            >{{ $t("settings.assistantAvatar") }}</label
+                        >
+                        <div class="border border-line rounded-xl p-3 bg-card">
+                            <AssetPicker
+                                :model-value="assistantAvatar"
+                                shape="circle"
+                                kind="avatar"
+                                @update:model-value="assistantAvatar = $event"
+                            />
+                        </div>
+                    </div>
+                    <p class="text-[12px] text-muted/80 leading-relaxed">
+                        {{ $t("settings.assistantIdentityHint") }}
                     </p>
                 </div>
             </section>
@@ -713,7 +768,7 @@ async function handleTestConnection() {
                     :max="2"
                     :step="0.01"
                 />
-                <div data-test="max-unlimited" class="flex items-center justify-between">
+                <div data-test="max-unlimited" class="flex items-center justify-between mb-4">
                     <span class="text-[14px] text-ink"
                         >{{ $t("settings.maxTokensUnlimited") }}</span
                     >

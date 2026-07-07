@@ -135,11 +135,35 @@ pub async fn fork_session(
         .list_messages(&session_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let slice = active_path(&all, Some(&body.message_id));
-    if slice.is_empty() {
+    let path = active_path(&all, Some(&body.message_id));
+    if path.is_empty() {
         return Err(StatusCode::NOT_FOUND);
     }
-    let node = slice.last().unwrap();
+    // Preserve all historical turns, not just the active path: include
+    // sibling messages (swipes) for every message on the path so the fork
+    // captures the full branching history.
+    let path_ids: std::collections::HashSet<&str> = path.iter().map(|m| m.id.as_str()).collect();
+    let mut slice: Vec<Message> = path.iter().map(|m| (*m).clone()).collect();
+    for m in &all {
+        if !path_ids.contains(m.id.as_str()) {
+            // Include if its parent is on the path (sibling of a path message)
+            if let Some(ref pid) = m.parent_id {
+                if path_ids.contains(pid.as_str()) {
+                    slice.push(m.clone());
+                }
+            }
+        }
+    }
+    // Sort into a stable order: path messages first, then siblings, both
+    // ordered by created_at so parent_id remapping is deterministic.
+    slice.sort_by(|a, b| {
+        let a_on_path = path_ids.contains(a.id.as_str());
+        let b_on_path = path_ids.contains(b.id.as_str());
+        if a_on_path == b_on_path {
+            a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id))
+        } else if a_on_path { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater }
+    });
+    let node = (*path.last().unwrap()).clone();
 
     let mut dup = Session::new(format!("{} (fork)", src.name));
     dup.avatar = src.avatar.clone();

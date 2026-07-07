@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { GripVertical, X } from 'lucide-vue-next'
 import { useLibraryStore } from '../stores/library'
 import { createSession } from '../api/client'
@@ -35,7 +35,18 @@ const mountedPacks = computed(() =>
 )
 
 function selectTemplate(id: string) { selectedTemplateId.value = id || null }
-function goAuthor() { router.push('/book') }
+const leaving = ref(false) // set after a successful create so the guard won't prompt
+function goAuthor(name = '') { router.push('/book' + (name ? `?create=${encodeURIComponent(name)}` : '')) }
+
+// Warn before navigating away if the user has entered any data.
+const hasData = computed(() =>
+  name.value.trim() !== '' || avatar.value !== null || mountedPackIds.value.length > 0 || selectedTemplateId.value !== null,
+)
+onBeforeRouteLeave((_to, _from) => {
+  if (leaving.value || !hasData.value) return true
+  if (window.confirm('Leave without saving? Your new chat edits will be lost.')) return true
+  return false
+})
 
 function addPack(id: string) {
   if (id && !mountedPackIds.value.includes(id)) mountedPackIds.value = [...mountedPackIds.value, id]
@@ -80,6 +91,7 @@ async function createChat() {
       avatar.value,
       mountedPackIds.value,
     )
+    leaving.value = true
     router.push(`/chat/${session.id}`)
   } catch (e) {
     error.value = (e as Error).message
@@ -110,10 +122,10 @@ async function createChat() {
         :items="library.templates.map((t) => ({ id: t.id, name: t.name }))"
         :placeholder="$t('newChat.templatePlaceholder')"
         :create-label="$t('newChat.newTemplate')"
+        :selected-label="selectedTemplateName"
         @select="selectTemplate"
         @create="goAuthor"
       />
-      <p v-if="selectedTemplateName" class="text-[12.5px] text-muted mt-1.5">{{ selectedTemplateName }}</p>
     </div>
 
     <!-- mount packs -->

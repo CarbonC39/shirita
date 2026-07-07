@@ -18,7 +18,7 @@ function fmt(v: unknown): string {
 </script>
 
 <template>
-  <div v-if="schema.length" data-test="variables-panel" class="border-t border-line/70 px-5 py-2 text-[13px]">
+  <div v-if="schema.length" data-test="variables-panel" class="border-t border-line/70 px-3 sm:px-5 py-2 text-[13px]">
     <button data-test="variables-toggle" class="flex items-center gap-1 text-muted hover:text-ink" @click="open = !open">
       <component :is="open ? ChevronDown : ChevronRight" :size="14" />
       <span>{{ $t('variables.heading') }}</span>

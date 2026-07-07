@@ -9,6 +9,7 @@ use shirita_web::{app_with_cors, AppState, Generations};
 use sqlx::SqlitePool;
 use tauri::{Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
+use tauri_plugin_notification;
 use tokio_util::sync::CancellationToken;
 
 fn data_paths(base: &Path) -> (PathBuf, PathBuf) {
@@ -106,6 +107,7 @@ fn main() {
 
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let handle = app.handle().clone();
             let base = handle

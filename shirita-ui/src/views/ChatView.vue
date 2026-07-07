@@ -13,7 +13,7 @@ import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
 import PanelView from '../components/PanelView.vue'
-import { ArrowLeft } from 'lucide-vue-next'
+import { ArrowLeft, X } from 'lucide-vue-next'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -23,6 +23,7 @@ const ui = useUiStore()
 const settings = useSettingsStore()
 
 const sessionId = route.params.id as string
+const showForkNotice = ref(route.query.forked === '1')
 
 // Rough running total of the active branch, for context budgeting.
 const convoTokens = computed(() =>
@@ -42,17 +43,22 @@ const identity = ref<Identity>({ assistant: { name: null, avatar: null }, user: 
 async function loadIdentity() {
   try {
     const resolved = await getSessionIdentity(sessionId)
-    // Merge the configured default user identity as a fallback so messages
-    // without a user-definition still show the user's chosen name/avatar
-    // instead of the generic "You". Settings win only when the per-session
-    // side has no value of its own (a user-definition overrides defaults).
-    const defaultName = (settings.data['user.name'] as string) || null
-    const defaultAvatar = (settings.data['user.avatar'] as string) || null
+    // Merge the configured default identity as a fallback so messages
+    // without a char/persona definition still show the user's chosen name/avatar
+    // instead of the generic "You"/"Assistant". Settings win only when the per-session
+    // side has no value of its own (a definition or pack overrides defaults).
+    const defUserName = (settings.data['user.name'] as string) || null
+    const defUserAvatar = (settings.data['user.avatar'] as string) || null
+    const defAssistantName = (settings.data['assistant.name'] as string) || null
+    const defAssistantAvatar = (settings.data['assistant.avatar'] as string) || null
     identity.value = {
-      assistant: resolved.assistant,
+      assistant: {
+        name: resolved.assistant.name ?? defAssistantName,
+        avatar: resolved.assistant.avatar ?? defAssistantAvatar,
+      },
       user: {
-        name: resolved.user.name ?? defaultName,
-        avatar: resolved.user.avatar ?? defaultAvatar,
+        name: resolved.user.name ?? defUserName,
+        avatar: resolved.user.avatar ?? defUserAvatar,
       },
     }
   } catch {
@@ -132,10 +138,10 @@ watch(
   },
 )
 
-// React to default-user-identity changes in settings so a name/avatar edit
-// is reflected without a reload. Per-session user-definition still wins.
+// React to default-identity changes in settings so a name/avatar edit
+// is reflected without a reload. Per-session definitions still win.
 watch(
-  () => [settings.data['user.name'], settings.data['user.avatar']],
+  () => [settings.data['user.name'], settings.data['user.avatar'], settings.data['assistant.name'], settings.data['assistant.avatar']],
   () => {
     if (sessionId) loadIdentity()
   },
@@ -197,7 +203,7 @@ async function handleSwipe(id: string, delta: -1 | 1) {
 }
 async function handleFork(id: string) {
   const newId = await chat.fork(id)
-  if (newId) router.push(`/chat/${newId}`)
+  if (newId) router.push(`/chat/${newId}?forked=1`)
 }
 async function handleDelete(id: string) {
   if (!window.confirm(t('chat.deleteConfirm'))) return
@@ -214,6 +220,11 @@ async function handleDelete(id: string) {
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
+    </div>
+
+    <div v-if="showForkNotice" class="flex items-center justify-between bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5 text-[13px] text-ink">
+      <span>{{ $t('chat.forkNotice') }}</span>
+      <button class="text-muted hover:text-ink" @click="showForkNotice = false"><X :size="14" /></button>
     </div>
 
     <div v-if="visiblePanels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">

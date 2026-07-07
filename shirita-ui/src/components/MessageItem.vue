@@ -33,9 +33,27 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
-const side = computed(() => (isAssistant.value ? props.identity?.assistant : props.identity?.user))
-const displayName = computed(() => side.value?.name || (isAssistant.value ? t('chat.assistant') : t('chat.you')))
-const avatarUrl = computed(() => (side.value?.avatar ? assetUrl(side.value.avatar) : ''))
+
+// Read a string value from snapshot_state, guarding type.
+function stateStr(key: string): string | undefined {
+  const v = (props.message?.snapshot_state as Record<string, unknown>)?.[key]
+  return typeof v === 'string' ? v : undefined
+}
+
+// Per-message identity with fallback chain:
+//   snapshot_state → props.identity → hardcoded default
+const displayName = computed(() => {
+  if (isAssistant.value) {
+    return stateStr('$assistant_name') || props.identity?.assistant?.name || t('chat.assistant')
+  }
+  return stateStr('$user_name') || props.identity?.user?.name || t('chat.you')
+})
+const avatarUrl = computed(() => {
+  const a = isAssistant.value
+    ? (stateStr('$assistant_avatar') || props.identity?.assistant?.avatar)
+    : (stateStr('$user_avatar') || props.identity?.user?.avatar)
+  return a ? assetUrl(a) : ''
+})
 const label = displayName
 const hasSwipes = computed(() => isAssistant.value && (props.siblingCount ?? 1) > 1)
 const displayText = computed(() => props.message.display_content ?? props.message.raw_content)

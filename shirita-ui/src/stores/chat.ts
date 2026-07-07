@@ -18,13 +18,18 @@ export const useChatStore = defineStore('chat', () => {
   const streamingText = ref('')
   const streamingError = ref<string | null>(null)
   const activeSessionId = ref<string | null>(null)
+  // Track which message is being regenerated so we can hide it from the
+  // active path while the new sibling streams in (cf. SillyTavern behaviour).
+  const regeneratingMsgId = ref<string | null>(null)
 
   // Abort handle for the in-flight SSE stream. Set by send/regenerate, cleared
   // on settle. `stop()` asks the backend to persist partial text then aborts;
   // `abortActive()` (navigate-away) hard-aborts without surfacing an error.
   let activeAbort: AbortController | null = null
 
-  const displayed = computed(() => activePath(messages.value, activeLeafId.value))
+  const displayed = computed(() =>
+    activePath(messages.value.filter((m) => m.id !== regeneratingMsgId.value), activeLeafId.value),
+  )
 
   async function loadMessages(sessionId: string) {
     loading.value = true
@@ -125,7 +130,12 @@ export const useChatStore = defineStore('chat', () => {
   }
   async function regenerate(sessionId: string, msgId: string) {
     activeAbort = new AbortController()
-    await consume(regenerateMessage(sessionId, msgId, activeAbort.signal), sessionId)
+    regeneratingMsgId.value = msgId
+    try {
+      await consume(regenerateMessage(sessionId, msgId, activeAbort.signal), sessionId)
+    } finally {
+      regeneratingMsgId.value = null
+    }
   }
 
   // User-initiated Stop: ask the backend to end the stream and persist whatever

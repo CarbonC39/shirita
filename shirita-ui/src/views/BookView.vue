@@ -1173,7 +1173,7 @@ async function duplicateDef() {
             </div>
 
             <!-- PACK section (teal accent) -->
-            <div class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-4">
+            <div class="rounded-2xl bg-teal/5 border border-line/60 p-4 mb-4">
             <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-teal border-l-2 border-teal pl-2 mb-3">{{ $t('book.packHeading') }}</h2>
             <div data-test="book-pack" class="mb-2">
                 <div class="flex items-center gap-2 flex-wrap">

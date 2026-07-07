@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
 import type { Definition, DefType, VarDecl, VariablesMeta } from '../api/types'
 import { triggerFromMeta } from '../api/types'
@@ -140,6 +140,16 @@ function startNew() {
   open.value = false
   search.value = ''
 }
+
+// Ctrl+S / Cmd+S to save while the editor body is active
+function onKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's' && props.active) {
+    e.preventDefault()
+    emit('save')
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
