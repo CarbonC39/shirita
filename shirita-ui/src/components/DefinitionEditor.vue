@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { Maximize2, Pencil, Trash2, Upload, Download, Copy, Search, ChevronDown, X } from 'lucide-vue-next'
+import { Maximize2, X } from 'lucide-vue-next'
 import type { Definition, DefType, VarDecl, VariablesMeta } from '../api/types'
 import { triggerFromMeta } from '../api/types'
 import { estimateTokens, formatTokens } from '../utils/tokens'
@@ -12,26 +12,27 @@ import PanelView from './PanelView.vue'
 import VariablesEditor from './VariablesEditor.vue'
 
 const props = withDefaults(
-  defineProps<{ definition: Definition; allDefinitions: Definition[]; types?: DefType[]; active?: boolean; headerActions?: boolean; hideHeading?: boolean; savedTick?: number }>(),
-  { types: () => [], active: false, headerActions: true, hideHeading: false, savedTick: 0 },
+  defineProps<{
+    definition: Definition
+    types?: DefType[]
+    active?: boolean
+    hideHeading?: boolean
+    savedTick?: number
+  }>(),
+  { types: () => [], active: false, hideHeading: false, savedTick: 0 },
 )
+
 const emit = defineEmits<{
-  'select-definition': [id: string, seedName?: string]
   'update:content': [content: string]
   'update:name': [name: string]
   'update:type': [type: string]
   'update:meta': [meta: Record<string, unknown>]
   save: []
-  delete: []
-  duplicate: []
-  import: []
-  export: []
   'create-type': [name: string]
   'delete-type': [id: string]
 }>()
 
-// Transient "Saved" indicator: parent bumps `savedTick` after a successful
-// save; we flash the label for ~1.5s then hide it.
+// ── saved indicator ──
 const showSaved = ref(false)
 let savedTimer: ReturnType<typeof setTimeout> | undefined
 function flashSaved() {
@@ -42,43 +43,53 @@ function flashSaved() {
 watch(() => props.savedTick, (t) => { if (t) flashSaved() })
 
 const fullscreenOpen = ref(false)
-const open = ref(false)
+
 const contentTokens = computed(() => estimateTokens(props.definition.content))
 
-// Per-definition world-info scan settings (live on meta.scan now, not in global
-// Settings). Defaults mirror the backend: depth 4, recursive on.
-const scan = computed(() => {
-  const s = (props.definition.meta as Record<string, unknown>).scan as { depth?: number; recursive?: boolean } | undefined
-  return { depth: s?.depth ?? 4, recursive: s?.recursive ?? true }
+// ── type chips ──
+const typeChips = computed<DefType[]>(() => {
+  const builtins: DefType[] = [
+    { id: 'char', label: 'Character', sort: 0, builtin: true, created_at: '' },
+    { id: 'persona', label: 'Persona', sort: 1, builtin: true, created_at: '' },
+    { id: 'world', label: 'World', sort: 2, builtin: true, created_at: '' },
+    { id: 'prompt', label: 'Prompt', sort: 3, builtin: true, created_at: '' },
+    { id: 'first_message', label: 'Message', sort: 4, builtin: true, created_at: '' },
+    { id: 'html', label: 'HTML', sort: 5, builtin: true, created_at: '' },
+    { id: 'css', label: 'CSS', sort: 6, builtin: true, created_at: '' },
+    { id: 'variables', label: 'Variables', sort: 7, builtin: true, created_at: '' },
+  ]
+  const custom = (props.types ?? []).filter((t) => !builtins.some((b) => b.id === t.id))
+  return [...builtins, ...custom]
 })
-function updateScan(patch: { depth?: number; recursive?: boolean }) {
-  emit('update:meta', { ...props.definition.meta, scan: { ...scan.value, ...patch } })
+
+const isContainerType = computed(() =>
+  !['prompt', 'regex_rule', 'tool', 'first_message', 'html', 'css', 'variables'].includes(props.definition.type),
+)
+
+const triggerMode = computed(() => {
+  const t = triggerFromMeta(props.definition.meta)
+  return t.mode === 'keyword' ? 'keyword' : 'always'
+})
+
+function scan(): { depth: number; recursive: boolean } {
+  const m = props.definition.meta as Record<string, unknown> | undefined
+  const s = m?.scan as Record<string, unknown> | undefined
+  return {
+    depth: typeof s?.depth === 'number' ? s.depth : 4,
+    recursive: s?.recursive !== false,
+  }
+}
+function updateScan(s: { depth?: number; recursive?: boolean }) {
+  const cur = scan()
+  const next: Record<string, unknown> = { depth: s.depth ?? cur.depth, recursive: s.recursive ?? cur.recursive }
+  emit('update:meta', { ...props.definition.meta, scan: next })
 }
 
-// Scan depth/recursion only matter for keyword (world-info scan) triggers; a
-// constant ("always on") or random insert never scans, so hide those controls.
-const triggerMode = computed(() => triggerFromMeta(props.definition.meta).mode)
+const showWrapInTag = computed(() =>
+  ['char', 'persona', 'world', 'variables'].includes(props.definition.type),
+)
 
-// World-info trigger + scan settings only make sense for container (lore) types,
-// not for prompt/regex_rule/tool/first_message refs, nor for the reserved
-// non-rendering leaf bricks html/css (kept in sync with the backend RESERVED set).
-const isContainerType = computed(() => !['prompt', 'regex_rule', 'tool', 'first_message', 'html', 'css', 'variables'].includes(props.definition.type))
-// wrap_in_tag affects rendering, so it applies to anything that renders into the
-// prompt (i.e. everything except regex_rule and first_message, neither of which
-// render as a plain prompt fragment, and the non-rendering html/css/variables bricks).
-const showWrapInTag = computed(() => !['regex_rule', 'first_message', 'html', 'css', 'variables'].includes(props.definition.type))
-
-// Registered container types + the reserved `prompt`/`first_message`, tinted
-// per the palette. Builtin types can't be deleted; custom ones can.
-const typeChips = computed(() => [
-  ...props.types.map((t) => ({ id: t.id, label: t.label, builtin: t.builtin })),
-  { id: 'prompt', label: 'Prompt', builtin: true },
-  { id: 'first_message', label: 'Message', builtin: true },
-])
-
-// `meta.depth` unset = a session-start greeting (seeded once when the chat is
-// created, with alternates as swipes). Set = a depth_prompt-style insert,
-// spliced into chat history every turn at that distance from the end.
+// ── depth (first_message) ──
 function updateDepth(raw: string) {
   const meta = { ...(props.definition.meta as Record<string, unknown>) }
   if (raw === '') {
@@ -90,6 +101,7 @@ function updateDepth(raw: string) {
   emit('update:meta', meta)
 }
 
+// ── custom type creation ──
 const addingType = ref(false)
 const newTypeName = ref('')
 function confirmNewType() {
@@ -99,49 +111,20 @@ function confirmNewType() {
   newTypeName.value = ''
   addingType.value = false
 }
+
 const chipTint: Record<string, string> = {
   char: 'bg-sky/30 border-sky/40', persona: 'bg-coral/30 border-coral/40',
   world: 'bg-mauve/25 border-mauve/40', prompt: 'bg-line/60 border-line',
   first_message: 'bg-line/60 border-line',
 }
 
-// variables brick: declarations live in meta.decls (not the free-text content field)
+// ── variables brick ──
 const decls = computed<VarDecl[]>(() => (props.definition.meta as unknown as VariablesMeta).decls ?? [])
 function saveDecls(next: VarDecl[]) {
   emit('update:meta', { ...props.definition.meta, decls: next })
 }
 
-const search = ref('')
-const renaming = ref(false)
-
-const matches = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  const list = q ? props.allDefinitions.filter((d) => d.name.toLowerCase().includes(q)) : props.allDefinitions
-  // Exclude the currently selected definition so it doesn't appear as a duplicate
-  // (it's already shown in the editor body).
-  return list.filter((d) => d.id !== props.definition.id).slice(0, 6)
-})
-
-function pick(id: string) {
-  emit('select-definition', id)
-  open.value = false
-}
-// Sync the search box to the selected definition's name and close any open
-// rename input when the definition changes (e.g. after deletion selects blank).
-watch(() => props.definition, (def) => {
-  if (def.name) search.value = def.name
-  else search.value = ''
-  renaming.value = false
-})
-function startNew() {
-  // Seed the new definition's name from whatever the user typed in the search
-  // box, so an unmatched query becomes the name instead of being discarded.
-  emit('select-definition', '', search.value.trim())
-  open.value = false
-  search.value = ''
-}
-
-// Ctrl+S / Cmd+S to save while the editor body is active
+// ── Ctrl+S ──
 function onKeydown(e: KeyboardEvent) {
   if ((e.ctrlKey || e.metaKey) && e.key === 's' && props.active) {
     e.preventDefault()
@@ -156,221 +139,178 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   <div>
     <h3 v-if="!hideHeading" class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5 px-0.5">{{ $t('definition.heading') }}</h3>
 
-    <!-- search + definition picker + action buttons -->
-    <div class="flex items-center gap-2 mb-3 flex-wrap">
-      <div class="flex-1 relative min-w-[200px]" @focusout="open = false">
-        <div class="flex items-center gap-2.5 border border-line rounded-[10px] bg-card px-3 py-2.5 focus-within:border-primary/50">
-          <Search :size="16" class="text-muted shrink-0" />
-          <input
-            v-model="search"
-            type="text"
-            data-test="def-search"
-            :placeholder="$t('definition.searchPlaceholder')"
-            class="flex-1 bg-transparent outline-none text-[14px] text-ink placeholder:text-muted/60"
-            @focus="open = true"
-          />
-          <button class="text-muted shrink-0" tabindex="-1" @mousedown.prevent="open = !open"><ChevronDown :size="16" /></button>
-        </div>
-        <transition name="expand">
-        <div v-if="open" class="absolute left-0 right-0 top-full mt-1 bg-card border border-line rounded-[10px] shadow-lg overflow-hidden z-20">
-          <button class="w-full text-left px-3 py-2 text-[13.5px] text-primary hover:bg-surface" @click.prevent="startNew">{{ $t('definition.newDefinition') }}</button>
-          <button
-            v-for="d in matches"
-            :key="d.id"
-            class="w-full flex items-center gap-2 px-3 py-2 text-left text-[13.5px] hover:bg-surface border-t border-line"
-            @mousedown.prevent="pick(d.id)"
-          >
-            <span class="flex-1 truncate text-ink">{{ d.name }}</span>
-            <span class="text-[11px] text-muted uppercase">{{ d.type }}</span>
-          </button>
-        </div>
-        </transition>
-      </div>
-      <div v-if="headerActions" class="flex items-center flex-wrap">
-        <button data-test="rename-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.rename')" @click="renaming = !renaming"><Pencil :size="15" /></button>
-        <button data-test="import-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg" :title="$t('common.import')" @click="emit('import')"><Upload :size="16" /></button>
-        <button data-test="export-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.export')" @click="emit('export')"><Download :size="16" /></button>
-        <button data-test="duplicate-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.duplicate')" @click="emit('duplicate')"><Copy :size="16" /></button>
-        <button data-test="delete-btn" class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-30 disabled:pointer-events-none" :disabled="!active" :title="$t('common.delete')" @click="emit('delete')"><Trash2 :size="16" /></button>
-      </div>
-    </div>
-
-    <!-- rename inline input: appears below the search bar when the rename
-         button is clicked, matching the Template and Pack sections. -->
-    <div v-if="renaming" class="flex items-center gap-2 mb-2.5 px-0.5">
-      <input
-        :value="definition.name"
-        type="text"
-        data-test="def-name-input"
-        class="field flex-1"
-        placeholder="Name"
-        @input="emit('update:name', ($event.target as HTMLInputElement).value)"
-        @blur="renaming = false"
-        @keydown.enter="renaming = false"
-      />
-      <button class="text-muted hover:text-ink text-[12px] shrink-0" @click="renaming = false">{{ $t('common.done') }}</button>
-    </div>
-
     <!-- editor body: revealed only once a definition is picked or a new one started -->
     <template v-if="active">
-    <!-- type chips (with create / delete custom types) -->
-    <div class="flex items-center gap-2 flex-wrap mb-3">
-      <span class="text-[12px] text-muted">{{ $t('definition.typeLabel') }}</span>
-      <span v-for="t in typeChips" :key="t.id" class="inline-flex items-center">
-        <button
-          data-test="type-chip"
-          :class="['text-[12px] rounded-full px-3 py-1 border transition-colors',
-                   definition.type === t.id ? (chipTint[t.id] || 'bg-line/60 border-line') + ' text-ink'
-                                            : 'text-muted border-line hover:text-ink']"
-          @click="emit('update:type', t.id)"
-        >{{ t.label }}</button>
-        <button
-          v-if="!t.builtin"
-          data-test="type-delete"
-          class="ml-0.5 text-muted/60 hover:text-coral transition-colors"
-          :title="$t('definition.deleteTypeTitle')"
-          @click.stop="emit('delete-type', t.id)"
-        ><X :size="13" /></button>
-      </span>
-
-      <button
-        v-if="!addingType"
-        data-test="type-new"
-        class="text-[12px] rounded-full px-2.5 py-1 border border-dashed border-line text-muted hover:text-primary hover:border-primary/40 transition-colors"
-        @click="addingType = true"
-      >{{ $t('definition.addType') }}</button>
-      <span v-else class="inline-flex items-center gap-1">
+      <!-- Name -->
+      <div class="mb-3">
         <input
-          v-model="newTypeName"
-          data-test="type-new-input"
+          :value="definition.name"
           type="text"
-          :placeholder="$t('definition.newTypePlaceholder')"
-          class="field w-[120px] !py-1 text-[12px]"
-          @keyup.enter="confirmNewType"
+          data-test="def-name-input"
+          :placeholder="$t('definition.namePlaceholder')"
+          class="field w-full"
+          @input="emit('update:name', ($event.target as HTMLInputElement).value)"
         />
-        <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">{{ $t('common.add') }}</button>
-        <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
-      </span>
-    </div>
-
-    <!-- persona avatar (user identity) -->
-    <div v-if="definition.type === 'persona'" data-test="persona-avatar" class="mb-3">
-      <label class="text-[12px] text-muted block mb-1.5">{{ $t('definition.avatar') }}</label>
-      <AssetPicker
-        shape="circle"
-        kind="avatar"
-        :model-value="(definition.meta as any).avatar || ''"
-        @update:model-value="emit('update:meta', { ...definition.meta, avatar: $event })"
-      />
-    </div>
-
-    <!-- message type: greeting (no depth) vs. depth-inserted note -->
-    <div v-if="definition.type === 'first_message'" data-test="message-type-fields" class="mb-3 space-y-2">
-      <p class="text-[12px] text-muted">{{ $t('definition.messageTypeHint') }}</p>
-      <div class="flex items-center gap-4 flex-wrap">
-        <label class="flex items-center gap-2 text-[13px] text-ink">
-          {{ $t('definition.depth') }}
-          <input
-            data-test="message-depth"
-            :value="(definition.meta as Record<string, unknown>).depth ?? ''"
-            type="number" min="0"
-            class="field !py-1 w-[64px] text-right tabular-nums"
-            :placeholder="$t('definition.depthPlaceholder')"
-            @input="updateDepth(($event.target as HTMLInputElement).value)"
-          />
-        </label>
-        <label class="flex items-center gap-2 text-[13px] text-ink">
-          {{ $t('definition.role') }}
-          <select
-            data-test="message-role"
-            :value="(definition.meta as Record<string, unknown>).role || 'system'"
-            class="field !py-1 text-[12px]"
-            @change="emit('update:meta', { ...definition.meta, role: ($event.target as HTMLSelectElement).value })"
-          >
-            <option value="system">{{ $t('definition.roleSystem') }}</option>
-            <option value="user">{{ $t('definition.roleUser') }}</option>
-            <option value="assistant">{{ $t('definition.roleAssistant') }}</option>
-          </select>
-        </label>
       </div>
-    </div>
 
-    <!-- world-book trigger + scan settings (container types only) -->
-    <div v-if="isContainerType" class="mb-3 space-y-2.5">
-      <TriggerEditor
-        :model-value="triggerFromMeta(definition.meta)"
-        @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
-      />
-      <div class="flex items-center gap-4 flex-wrap">
-        <template v-if="triggerMode === 'keyword'">
+      <!-- type chips (with create / delete custom types) -->
+      <div class="flex items-center gap-2 flex-wrap mb-3">
+        <span class="text-[12px] text-muted">{{ $t('definition.typeLabel') }}</span>
+        <span v-for="t in typeChips" :key="t.id" class="inline-flex items-center">
+          <button
+            data-test="type-chip"
+            :class="['text-[12px] rounded-full px-3 py-1 border transition-colors',
+                     definition.type === t.id ? (chipTint[t.id] || 'bg-line/60 border-line') + ' text-ink'
+                                              : 'text-muted border-line hover:text-ink']"
+            @click="emit('update:type', t.id)"
+          >{{ t.label }}</button>
+          <button
+            v-if="!t.builtin"
+            data-test="type-delete"
+            class="ml-0.5 text-muted/60 hover:text-coral transition-colors"
+            :title="$t('definition.deleteTypeTitle')"
+            @click.stop="emit('delete-type', t.id)"
+          ><X :size="13" /></button>
+        </span>
+
+        <button
+          v-if="!addingType"
+          data-test="type-new"
+          class="text-[12px] rounded-full px-2.5 py-1 border border-dashed border-line text-muted hover:text-primary hover:border-primary/40 transition-colors"
+          @click="addingType = true"
+        >{{ $t('definition.addType') }}</button>
+        <span v-else class="inline-flex items-center gap-1">
+          <input
+            v-model="newTypeName"
+            data-test="type-new-input"
+            type="text"
+            :placeholder="$t('definition.newTypePlaceholder')"
+            class="field w-[120px] !py-1 text-[12px]"
+            @keyup.enter="confirmNewType"
+          />
+          <button class="btn btn-primary !px-2.5 !py-1 text-[12px]" @click="confirmNewType">{{ $t('common.add') }}</button>
+          <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="addingType = false; newTypeName = ''"><X :size="14" /></button>
+        </span>
+      </div>
+
+      <!-- persona avatar -->
+      <div v-if="definition.type === 'persona'" data-test="persona-avatar" class="mb-3">
+        <label class="text-[12px] text-muted block mb-1.5">{{ $t('definition.avatar') }}</label>
+        <AssetPicker
+          shape="circle"
+          kind="avatar"
+          :model-value="(definition.meta as any).avatar || ''"
+          @update:model-value="emit('update:meta', { ...definition.meta, avatar: $event })"
+        />
+      </div>
+
+      <!-- first_message depth + role -->
+      <div v-if="definition.type === 'first_message'" data-test="message-type-fields" class="mb-3 space-y-2">
+        <p class="text-[12px] text-muted">{{ $t('definition.messageTypeHint') }}</p>
+        <div class="flex items-center gap-4 flex-wrap">
           <label class="flex items-center gap-2 text-[13px] text-ink">
-            {{ $t('definition.scanDepth') }}
+            {{ $t('definition.depth') }}
             <input
-              data-test="scan-depth"
-              :value="scan.depth"
-              type="number" min="1" max="20"
+              data-test="message-depth"
+              :value="(definition.meta as Record<string, unknown>).depth ?? ''"
+              type="number" min="0"
               class="field !py-1 w-[64px] text-right tabular-nums"
-              @input="updateScan({ depth: parseInt(($event.target as HTMLInputElement).value) || 1 })"
+              :placeholder="$t('definition.depthPlaceholder')"
+              @input="updateDepth(($event.target as HTMLInputElement).value)"
             />
           </label>
           <label class="flex items-center gap-2 text-[13px] text-ink">
-            {{ $t('definition.recursive') }}
-            <ToggleSwitch :model-value="scan.recursive" @update:model-value="updateScan({ recursive: $event })" />
+            {{ $t('definition.role') }}
+            <select
+              data-test="message-role"
+              :value="(definition.meta as Record<string, unknown>).role || 'system'"
+              class="field !py-1 text-[12px]"
+              @change="emit('update:meta', { ...definition.meta, role: ($event.target as HTMLSelectElement).value })"
+            >
+              <option value="system">{{ $t('definition.roleSystem') }}</option>
+              <option value="user">{{ $t('definition.roleUser') }}</option>
+              <option value="assistant">{{ $t('definition.roleAssistant') }}</option>
+            </select>
           </label>
-        </template>
-        <label v-if="showWrapInTag" class="flex items-center gap-2 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
-          {{ $t('definition.wrapInTag') }}
-          <ToggleSwitch
-            data-test="wrap-in-tag"
-            :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
-            @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
-          />
-        </label>
+        </div>
       </div>
-    </div>
 
-    <!-- content (free-text payload); variables bricks declare in meta.decls instead -->
-    <div v-if="definition.type !== 'variables'" class="relative">
-      <textarea
-        :value="definition.content"
-        rows="5"
-        class="w-full border border-line rounded-[9px] bg-card px-3 py-2.5 pr-9 text-[13px] leading-relaxed text-ink/75 resize-y outline-none focus:border-primary/50 font-mono"
-        :placeholder="$t('definition.contentPlaceholder')"
-        @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
-      />
-      <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
-    </div>
-
-    <!-- variables brick: declarations live in meta.decls -->
-    <div v-if="definition.type === 'variables'" data-test="variables-editor" class="mt-1">
-      <span class="text-[12px] text-muted block mb-1">{{ $t('definition.variablesDecls') }}</span>
-      <VariablesEditor :model-value="decls" @update:model-value="saveDecls" />
-    </div>
-
-    <!-- live preview for html bricks: renders the content as a PanelView would -->
-    <div v-if="definition.type === 'html'" data-test="html-preview" class="mt-3">
-      <span class="text-[12px] text-muted block mb-1">{{ $t('definition.htmlPreview') }}</span>
-      <PanelView :html="definition.content" :css="''" :values="{}" />
-    </div>
-
-    <label v-if="!isContainerType && showWrapInTag" class="flex items-center gap-2 mt-3 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
-      {{ $t('definition.wrapInTag') }}
-      <ToggleSwitch
-        data-test="wrap-in-tag"
-        :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
-        @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
-      />
-    </label>
-
-    <div class="flex items-center justify-between mt-3">
-      <span class="text-[11.5px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(contentTokens) }, contentTokens) }}</span>
-      <div class="flex items-center gap-2">
-        <span v-if="showSaved" class="text-[11.5px] text-emerald">{{ $t('common.saved') }}</span>
-        <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">{{ $t('common.save') }}</button>
+      <!-- world-book trigger + scan settings -->
+      <div v-if="isContainerType" class="mb-3 space-y-2.5">
+        <TriggerEditor
+          :model-value="triggerFromMeta(definition.meta)"
+          @update:model-value="emit('update:meta', { ...definition.meta, trigger: $event })"
+        />
+        <div class="flex items-center gap-4 flex-wrap">
+          <template v-if="triggerMode === 'keyword'">
+            <label class="flex items-center gap-2 text-[13px] text-ink">
+              {{ $t('definition.scanDepth') }}
+              <input
+                data-test="scan-depth"
+                :value="scan().depth"
+                type="number" min="1" max="20"
+                class="field !py-1 w-[64px] text-right tabular-nums"
+                @input="updateScan({ depth: parseInt(($event.target as HTMLInputElement).value) || 1 })"
+              />
+            </label>
+            <label class="flex items-center gap-2 text-[13px] text-ink">
+              {{ $t('definition.recursive') }}
+              <ToggleSwitch :model-value="scan().recursive" @update:model-value="updateScan({ recursive: $event })" />
+            </label>
+          </template>
+          <label v-if="showWrapInTag" class="flex items-center gap-2 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
+            {{ $t('definition.wrapInTag') }}
+            <ToggleSwitch
+              data-test="wrap-in-tag"
+              :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
+              @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
+            />
+          </label>
+        </div>
       </div>
-    </div>
 
-    <FullscreenEditor :model-value="definition.content" :open="fullscreenOpen" @close="fullscreenOpen = false" @update:model-value="emit('update:content', $event)" />
+      <!-- content -->
+      <div v-if="definition.type !== 'variables'" class="relative">
+        <textarea
+          :value="definition.content"
+          rows="5"
+          class="w-full border border-line rounded-[9px] bg-card px-3 py-2.5 pr-9 text-[13px] leading-relaxed text-ink/75 resize-y outline-none focus:border-primary/50 font-mono"
+          :placeholder="$t('definition.contentPlaceholder')"
+          @input="emit('update:content', ($event.target as HTMLTextAreaElement).value)"
+        />
+        <button data-test="fullscreen-btn" class="absolute top-2 right-2 p-1 text-muted/70 hover:text-ink" :title="$t('settings.fullscreen')" @click="fullscreenOpen = true"><Maximize2 :size="15" /></button>
+      </div>
+
+      <!-- variables brick -->
+      <div v-if="definition.type === 'variables'" data-test="variables-editor" class="mt-1">
+        <span class="text-[12px] text-muted block mb-1">{{ $t('definition.variablesDecls') }}</span>
+        <VariablesEditor :model-value="decls" @update:model-value="saveDecls" />
+      </div>
+
+      <!-- html preview -->
+      <div v-if="definition.type === 'html'" data-test="html-preview" class="mt-3">
+        <span class="text-[12px] text-muted block mb-1">{{ $t('definition.htmlPreview') }}</span>
+        <PanelView :html="definition.content" :css="''" :values="{}" />
+      </div>
+
+      <label v-if="!isContainerType && showWrapInTag" class="flex items-center gap-2 mt-3 text-[13px] text-ink" :title="$t('definition.wrapInTagHint')">
+        {{ $t('definition.wrapInTag') }}
+        <ToggleSwitch
+          data-test="wrap-in-tag"
+          :model-value="(definition.meta as Record<string, unknown>).wrap_in_tag === true"
+          @update:model-value="emit('update:meta', { ...definition.meta, wrap_in_tag: $event })"
+        />
+      </label>
+
+      <div class="flex items-center justify-between mt-3">
+        <span class="text-[11.5px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(contentTokens) }, contentTokens) }}</span>
+        <div class="flex items-center gap-2">
+          <span v-if="showSaved" class="text-[11.5px] text-emerald">{{ $t('common.saved') }}</span>
+          <button data-test="save-btn" class="px-5 py-2 text-[13px] font-medium bg-primary text-white rounded-[9px] hover:bg-primary-strong transition-colors" @click="emit('save')">{{ $t('common.save') }}</button>
+        </div>
+      </div>
+
+      <FullscreenEditor :model-value="definition.content" :open="fullscreenOpen" @close="fullscreenOpen = false" @update:model-value="emit('update:content', $event)" />
     </template>
   </div>
 </template>

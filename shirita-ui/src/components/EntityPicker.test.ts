@@ -28,22 +28,16 @@ describe('EntityPicker', () => {
     expect(itemBtns[0].text()).toContain('Assistant')
   })
 
-  it('enters create mode and emits the entered name', async () => {
+  it('emits intent-create with the search draft when "+ New X" is clicked', async () => {
     const w = mount(EntityPicker, { props: { items: [], placeholder: 'pick…', createLabel: 'New Template' } })
     await w.find('button').trigger('click')
-    // With empty items, the "create" option appears
+    await w.find('input').setValue('Villain')
     const createBtn = w.findAll('button').find(b => b.text().includes('New Template'))
     expect(createBtn).toBeTruthy()
     await createBtn!.trigger('click')
-    // Now in create mode: name input + X + Check icons
-    const input = w.find('input')
-    expect(input.exists()).toBe(true)
-    await input.setValue('Villain')
-    // Click the Check (Confirm) button
-    const confirmBtn = w.findAll('button').find(b => b.attributes('title') === 'Confirm')
-    expect(confirmBtn).toBeTruthy()
-    await confirmBtn!.trigger('click')
-    expect(w.emitted('create')![0]).toEqual(['Villain'])
+    expect(w.emitted('intent-create')![0]).toEqual(['Villain'])
+    // dropdown closes after handing creation off to the parent
+    expect(w.find('input').exists()).toBe(false)
   })
 
   it('shows selectedLabel in the toggle button', () => {

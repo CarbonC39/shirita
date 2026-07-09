@@ -186,6 +186,7 @@ const ja: MessageSchema = {
   },
   definition: {
     heading: '定義',
+    namePlaceholder: '定義名を入力…',
     avatar: 'アバター',
     searchPlaceholder: '定義を検索、または新しい名前を入力…',
     newDefinition: '+ 新規定義',

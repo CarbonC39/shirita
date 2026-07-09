@@ -68,15 +68,4 @@ describe('DefinitionView (local override)', () => {
     await flushPromises()
     expect(w.find('[data-test="def-revert"]').exists()).toBe(false)
   })
-
-  it('drills to a different definition when the editor search picks one', async () => {
-    const api = blankDefHolder()
-    const w = mount(DefinitionView, {
-      props: { definitionId: 'd1' },
-      global: { provide: { [LOCAL_BOOK_KEY as symbol]: api } },
-    })
-    await flushPromises()
-    await w.findComponent({ name: 'DefinitionEditor' }).vm.$emit('select-definition', 'd2')
-    expect(w.emitted('drill')).toEqual([[{ kind: 'definition', definitionId: 'd2' }]])
-  })
 })

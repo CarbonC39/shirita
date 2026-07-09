@@ -43,6 +43,8 @@ vi.mock('../stores/library', () => ({ useLibraryStore: () => libraryMock }))
 import BookView from './BookView.vue'
 import * as api from '../api/client'
 import VariablesEditor from '../components/VariablesEditor.vue'
+import PackSection from '../components/book/PackSection.vue'
+import TemplateSection from '../components/book/TemplateSection.vue'
 
 describe('BookView scopes', () => {
   beforeEach(() => {
@@ -141,22 +143,22 @@ describe('BookView scopes', () => {
     const ui = useUiStore(); ui.setActiveChatId(null)
     const w = mount(BookView)
     await flushPromises()
-    expect(w.find('[data-test="book-pack"]').exists()).toBe(true)
+    expect(w.findComponent(PackSection).exists()).toBe(true)
     expect(w.find('[data-test="section-pack"]').exists()).toBe(true)
-    expect(w.find('[data-test="pack-picker"]').exists()).toBe(true)
   })
 
   it('renders a pack Import button that triggers the shared file input', async () => {
     const ui = useUiStore(); ui.setActiveChatId(null)
     const w = mount(BookView)
     await flushPromises()
-    // Import lives in the Pack section even with no pack selected (it creates one).
-    const btn = w.find('[data-test="pack-import"]')
+    // Import lives in the Pack section's toolbar even with no pack selected.
+    const btn = w.findComponent(PackSection).find('[title="Import"]')
     expect(btn.exists()).toBe(true)
     // Clicking it opens the shared hidden file input.
     const input = w.find('input[type="file"]').element as HTMLInputElement
     const clickSpy = vi.spyOn(input, 'click').mockImplementation(() => {})
     await btn.trigger('click')
+    await flushPromises() // onImport defers the click to nextTick
     expect(clickSpy).toHaveBeenCalled()
   })
 
@@ -203,8 +205,13 @@ describe('BookView scopes', () => {
   })
 
   it('still renders the per-chat local variables editor', async () => {
+    // The local section reveals its variables editor after "customize locally"
+    // materializes the session tree (needs a template_id so materializeAll runs).
+    ;(api.getSession as any).mockResolvedValue({ id: 'c1', template_id: 't1', override_config: {} })
     const ui = useUiStore(); ui.setActiveChatId('c1')
     const w = mount(BookView)
+    await flushPromises()
+    await w.find('[data-test="customize-locally"]').trigger('click')
     await flushPromises()
     expect(w.find('[data-test="local-variables"]').exists()).toBe(true)
   })
@@ -249,7 +256,8 @@ describe('BookView default template', () => {
     const ui = useUiStore(); ui.setActiveChatId(null)
     const w = mount(BookView)
     await flushPromises()
-    await w.get('[data-test="template-default"]').trigger('click')
+    // The default star lives in the Template section's toolbar.
+    await w.findComponent(TemplateSection).find('[title="Default template"]').trigger('click')
     await flushPromises()
     expect(api.updateTemplate).toHaveBeenCalledWith('t1', 'One', { default: true })
   })

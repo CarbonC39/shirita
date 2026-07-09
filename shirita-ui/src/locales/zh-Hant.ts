@@ -186,6 +186,7 @@ const zhHant: MessageSchema = {
   },
   definition: {
     heading: '定義',
+    namePlaceholder: '定義名稱…',
     avatar: '頭像',
     searchPlaceholder: '搜尋定義，或輸入新名稱…',
     newDefinition: '+ 新增定義',

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import PromptTree from './PromptTree.vue'
+import EntityPicker from './EntityPicker.vue'
 import type { Definition, DefType, PromptNode } from '../api/types'
 
 const types: DefType[] = [
@@ -17,53 +18,57 @@ function n(p: Partial<PromptNode>): PromptNode {
 }
 
 describe('PromptTree omnibox add flow', () => {
+  // The root omnibox is an EntityPicker whose items carry composite ids
+  // ("container:<type>" | "prompt:<defId>" | "brick:<type>"); selecting one
+  // dispatches to the matching tree mutation.
+  async function openOmni(w: ReturnType<typeof mount>) {
+    await w.find('[data-test="root-add"]').trigger('click') // rootOpen
+    await w.find('[data-test="root-omnibox"] button').trigger('click') // open EntityPicker
+  }
+  async function pickOmni(w: ReturnType<typeof mount>, name: string) {
+    await openOmni(w)
+    const btn = w.findAll('[data-test="root-omnibox"] button').find((b) => b.text() === name)
+    expect(btn, `omni item "${name}" missing`).toBeTruthy()
+    await btn!.trigger('click')
+  }
+
   it('lists container types and prompt defs together, excluding added containers', async () => {
     const nodes = [n({ id: 'f-char', kind: 'folder', tag: 'char', definition_id: null })]
     const w = mount(PromptTree, { props: { nodes, definitions: defs, types } })
-    await w.find('[data-test="root-add"]').trigger('click')
-    // char container already exists → world (container) + Main (prompt)
-    const items = w.findAll('[data-test="omni-item"]').map((b) => b.text())
+    await openOmni(w)
+    const items = w.findAll('[data-test="root-omnibox"] button').map((b) => b.text())
     expect(items.some((t) => t.includes('World'))).toBe(true)
     expect(items.some((t) => t.includes('Main'))).toBe(true)
-    expect(items.some((t) => t.includes('Character'))).toBe(false)
+    expect(items.some((t) => t.includes('Character'))).toBe(false) // char folder already exists
   })
 
   it('emits addContainer when a container item is chosen', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
-    await w.find('[data-test="root-add"]').trigger('click')
-    // containers come first: [Character, World], then prompt [Main]
-    await w.findAll('[data-test="omni-item"]')[0].trigger('click')
+    await pickOmni(w, 'Character')
     expect(w.emitted('addContainer')![0]).toEqual(['char'])
   })
 
   it('emits addPrompt when a prompt item is chosen', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
-    await w.find('[data-test="root-add"]').trigger('click')
-    const main = w.findAll('[data-test="omni-item"]').find((b) => b.text().includes('Main'))!
-    await main.trigger('click')
+    await pickOmni(w, 'Main')
     expect(w.emitted('addPrompt')![0]).toEqual(['p1'])
   })
 
-  it('typing offers create rows that carry the query', async () => {
+  it('carries a typed query into createNewPrompt via the create box', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
     await w.find('[data-test="root-add"]').trigger('click')
-    await w.find('[data-test="omni-input"]').setValue('wor')
-    await w.find('[data-test="omni-new-prompt"]').trigger('click')
+    // intent-create (a query with no match) hands off to the inline name input.
+    w.findComponent(EntityPicker).vm.$emit('intent-create', 'wor')
+    await w.vm.$nextTick()
+    const input = w.find('[data-test="omni-create-input"]')
+    expect(input.exists()).toBe(true)
+    await input.trigger('keydown', { key: 'Enter' })
     expect(w.emitted('createNewPrompt')![0]).toEqual(['wor'])
-
-    const w2 = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
-    await w2.find('[data-test="root-add"]').trigger('click')
-    await w2.find('[data-test="omni-input"]').setValue('Lore')
-    await w2.find('[data-test="omni-new-type"]').trigger('click')
-    expect(w2.emitted('createType')![0]).toEqual(['Lore'])
   })
 
   it('offers a Variables brick at the root and emits createNewInContainer(null, "variables")', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: defs, types } })
-    await w.find('[data-test="root-add"]').trigger('click')
-    const btn = w.find('[data-test="create-variables"]')
-    expect(btn.exists()).toBe(true)
-    await btn.trigger('click')
+    await pickOmni(w, 'Variables')
     expect(w.emitted('createNewInContainer')![0]).toEqual([null, 'variables'])
   })
 })
@@ -128,9 +133,10 @@ describe('PromptTree regex brick', () => {
   it('offers a Regex brick that creates a regex_rule at root', async () => {
     const w = mount(PromptTree, { props: { nodes: [], definitions: [], types: [] } })
     await w.find('[data-test="root-add"]').trigger('click')
-    const btn = w.find('[data-test="create-regex_rule"]')
-    expect(btn.exists()).toBe(true)
-    await btn.trigger('click')
+    await w.find('[data-test="root-omnibox"] button').trigger('click')
+    const btn = w.findAll('[data-test="root-omnibox"] button').find((b) => b.text() === 'Regex')
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
     expect(w.emitted('createNewInContainer')![0]).toEqual([null, 'regex_rule'])
   })
 })

@@ -186,6 +186,7 @@ const zhHans: MessageSchema = {
   },
   definition: {
     heading: '定义',
+    namePlaceholder: '定义名称…',
     avatar: '头像',
     searchPlaceholder: '搜索定义，或输入新名称…',
     newDefinition: '+ 新建定义',

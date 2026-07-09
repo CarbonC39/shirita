@@ -58,25 +58,6 @@ describe('DefinitionEditor variables brick', () => {
   })
 })
 
-describe('DefinitionEditor header actions', () => {
-  const d = { id: 'd1', type: 'char', name: 'Alice', content: '', meta: {} }
-
-  it('emits import and export when the header icons are clicked', async () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
-    await w.get('[data-test="import-btn"]').trigger('click')
-    await w.get('[data-test="export-btn"]').trigger('click')
-    expect(w.emitted('import')).toBeTruthy()
-    expect(w.emitted('export')).toBeTruthy()
-  })
-
-  it('hides the header action row when headerActions is false', () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], headerActions: false } })
-    expect(w.find('[data-test="import-btn"]').exists()).toBe(false)
-    expect(w.find('[data-test="export-btn"]').exists()).toBe(false)
-    expect(w.find('[data-test="delete-btn"]').exists()).toBe(false)
-  })
-})
-
 describe('DefinitionEditor persona avatar', () => {
   it('shows an avatar picker for persona and emits update:meta on pick', async () => {
     const d = { id: 'p1', type: 'persona', name: 'Me', content: '', meta: {} }
@@ -107,37 +88,6 @@ describe('DefinitionEditor reveal', () => {
   })
 })
 
-describe('DefinitionEditor disabled state with no selection', () => {
-  const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
-
-  it('disables rename/export/duplicate/delete and keeps import enabled when nothing is selected', () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: false } })
-    expect((w.get('[data-test="rename-btn"]').element as HTMLButtonElement).disabled).toBe(true)
-    expect((w.get('[data-test="export-btn"]').element as HTMLButtonElement).disabled).toBe(true)
-    expect((w.get('[data-test="duplicate-btn"]').element as HTMLButtonElement).disabled).toBe(true)
-    expect((w.get('[data-test="delete-btn"]').element as HTMLButtonElement).disabled).toBe(true)
-    expect((w.get('[data-test="import-btn"]').element as HTMLButtonElement).disabled).toBe(false)
-  })
-
-  it('does not emit delete/export/duplicate when clicked while disabled', async () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: false } })
-    await w.get('[data-test="delete-btn"]').trigger('click')
-    await w.get('[data-test="export-btn"]').trigger('click')
-    await w.get('[data-test="duplicate-btn"]').trigger('click')
-    expect(w.emitted('delete')).toBeFalsy()
-    expect(w.emitted('export')).toBeFalsy()
-    expect(w.emitted('duplicate')).toBeFalsy()
-  })
-
-  it('enables all action buttons once a definition is active', () => {
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
-    expect((w.get('[data-test="rename-btn"]').element as HTMLButtonElement).disabled).toBe(false)
-    expect((w.get('[data-test="export-btn"]').element as HTMLButtonElement).disabled).toBe(false)
-    expect((w.get('[data-test="duplicate-btn"]').element as HTMLButtonElement).disabled).toBe(false)
-    expect((w.get('[data-test="delete-btn"]').element as HTMLButtonElement).disabled).toBe(false)
-  })
-})
-
 describe('DefinitionEditor type chips', () => {
   it('renders type chips from the provided types plus prompt', () => {
     const types = [
@@ -147,7 +97,7 @@ describe('DefinitionEditor type chips', () => {
     const d = { id: 'd', type: 'char', name: 'Neo', content: '', meta: {} }
     const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], types, active: true } })
     const chips = w.findAll('[data-test="type-chip"]').map((b) => b.text())
-    expect(chips).toEqual(['Character', 'World', 'Prompt', 'Message'])
+    expect(chips).toEqual(['Character', 'Persona', 'World', 'Prompt', 'Message', 'HTML', 'CSS', 'Variables'])
   })
 
   it('only offers delete on custom (non-builtin) types', () => {

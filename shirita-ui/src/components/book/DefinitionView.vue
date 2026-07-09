@@ -8,11 +8,8 @@ const emit = defineEmits<{ drill: [target: Target] }>()
 
 const book = inject(LOCAL_BOOK_KEY)!
 
-// Has this definition been overridden in this session?
 const isOverridden = computed(() => Object.keys(book.localDefs.value).includes(props.definitionId))
 
-// Load the definition into the local editor buffer on mount / when target changes.
-// The host's editLocal builds the buffer via deepClone (see BookView wiring, Task 6).
 watch(
   () => props.definitionId,
   (id) => { if (id) book.editLocal(id) },
@@ -29,17 +26,15 @@ function onRevert() {
     <DefinitionEditor
       v-if="book.localDefActive.value"
       :definition="book.localEditDef"
-      :all-definitions="book.definitions"
       :types="book.types"
       :active="true"
-      :header-actions="false"
+      :hide-heading="true"
       :saved-tick="book.localSavedTick.value"
       @update:name="book.localEditDef.name = $event"
       @update:type="book.localEditDef.type = $event"
       @update:content="book.localEditDef.content = $event"
       @update:meta="book.localEditDef.meta = $event"
       @save="book.saveLocal"
-      @select-definition="(id: string) => emit('drill', { kind: 'definition', definitionId: id })"
     />
     <button
       v-if="isOverridden"

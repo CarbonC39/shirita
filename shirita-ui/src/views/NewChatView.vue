@@ -124,7 +124,7 @@ async function createChat() {
         :create-label="$t('newChat.newTemplate')"
         :selected-label="selectedTemplateName"
         @select="selectTemplate"
-        @create="goAuthor"
+        @intent-create="goAuthor"
       />
     </div>
 
@@ -137,7 +137,7 @@ async function createChat() {
         :placeholder="$t('newChat.mountPlaceholder')"
         :create-label="$t('newChat.newPack')"
         @select="addPack"
-        @create="goAuthor"
+        @intent-create="goAuthor"
       />
       <div
         v-if="mountedPacks.length"

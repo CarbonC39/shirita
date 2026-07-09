@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { Plus, FileText, Folder, Search } from 'lucide-vue-next'
+import { Plus, Folder, FileText } from 'lucide-vue-next'
 import type { Definition, DefType, PromptNode, Trigger } from '../api/types'
 import NodeRow from './NodeRow.vue'
 import NodePicker from './NodePicker.vue'
+import EntityPicker from './EntityPicker.vue'
 
 const props = defineProps<{ nodes: PromptNode[]; definitions: Definition[]; types: DefType[]; allowPanel?: boolean }>()
 const emit = defineEmits<{
@@ -28,10 +29,6 @@ const emit = defineEmits<{
 const expanded = ref<Set<string>>(new Set())
 const activePickerParent = ref<string | undefined>(undefined)
 
-// Root add: a single search-first omnibox over prompts + container types.
-const rootOpen = ref(false)
-const omniQuery = ref('')
-
 const defMap = computed<Record<string, Definition>>(() => {
   const m: Record<string, Definition> = {}
   for (const d of props.definitions) m[d.id] = d
@@ -44,59 +41,74 @@ function getChildren(parentId: string | null): PromptNode[] {
 
 const rootNodes = computed(() => getChildren(null))
 
-// placement rules: one container per type; prompt-refs at root; typed refs inside containers.
-const existingContainerTags = computed(() =>
-  new Set(props.nodes.filter((nd) => nd.kind === 'folder' && nd.parent_id === null).map((nd) => nd.tag)))
-const availableTypes = computed(() => props.types.filter((t) => !existingContainerTags.value.has(t.id)))
-const promptDefs = computed(() => props.definitions.filter((d) => d.type === 'prompt'))
-// A panel folder's children are html/css bricks (two types, not one container
-// type), so it needs its own definitions/creatable-type list instead of the
-// single-tag filter every other container tag uses.
-const panelBrickTypes = ['html', 'css', 'variables']
-function containerDefs(tag: string | null) {
-  if (tag === 'panel') return props.definitions.filter((d) => panelBrickTypes.includes(d.type))
+// ── container def filtering ──
+function containerDefs(tag: string): Definition[] {
   return props.definitions.filter((d) => d.type === tag)
 }
-// Lets NodePicker's "other type" selector switch between html/css when adding
-// to a panel folder, instead of the regular container-type list.
+
+const panelBrickTypes = ['html', 'css']
 const panelPickerTypes = computed<DefType[]>(() =>
   panelBrickTypes.map((id) => ({ id, label: id.toUpperCase(), sort: 0, builtin: true, created_at: '' })),
 )
 
-// Combined, ranked omnibox list: container types first, then bricks, then prompt definitions.
-type OmniItem = { kind: 'container' | 'prompt' | 'brick'; id: string; name: string }
-const omniItems = computed<OmniItem[]>(() => {
-  const containers: OmniItem[] = availableTypes.value.map((t) => ({ kind: 'container', id: t.id, name: t.label }))
-  const bricks: OmniItem[] = [
-    { kind: 'brick', id: 'variables', name: 'Variables' },
-    { kind: 'brick', id: 'regex_rule', name: 'Regex' },
-  ]
-  const prompts: OmniItem[] = promptDefs.value.map((d) => ({ kind: 'prompt', id: d.id, name: d.name }))
-  let items = [...containers, ...bricks, ...prompts]
-  const q = omniQuery.value.trim().toLowerCase()
-  if (q) {
-    items = items
-      .filter((i) => i.name.toLowerCase().includes(q))
-      .sort((a, b) => Number(b.name.toLowerCase().startsWith(q)) - Number(a.name.toLowerCase().startsWith(q)))
+// ── available container types (exclude ones already used) ──
+const availableTypes = computed<DefType[]>(() => {
+  const used = new Set(rootNodes.value.filter((n) => n.kind === 'folder').map((n) => n.tag))
+  return props.types.filter((t) => !used.has(t.id))
+})
+
+const promptDefs = computed(() =>
+  props.definitions.filter((d) => ['char', 'persona', 'world', 'prompt', 'first_message'].includes(d.type)),
+)
+
+// ── root omni-search via EntityPicker ──
+// Composite id: "container:<typeId>" | "prompt:<defId>" | "brick:<typeId>"
+type OmniKind = 'container' | 'prompt' | 'brick'
+const omniItems = computed(() => {
+  const items: { id: string; name: string }[] = []
+  for (const t of availableTypes.value) {
+    items.push({ id: `container:${t.id}`, name: t.label })
+  }
+  items.push(
+    { id: 'brick:variables', name: 'Variables' },
+    { id: 'brick:regex_rule', name: 'Regex' },
+  )
+  for (const d of promptDefs.value) {
+    items.push({ id: `prompt:${d.id}`, name: d.name })
   }
   return items
 })
-const trimmedQuery = computed(() => omniQuery.value.trim())
 
-function openRoot() {
-  rootOpen.value = !rootOpen.value
-  if (!rootOpen.value) omniQuery.value = ''
-}
-function closeRoot() { rootOpen.value = false; omniQuery.value = '' }
-function pickOmni(item: OmniItem) {
-  if (item.kind === 'prompt') emit('addPrompt', item.id)
-  else if (item.kind === 'brick') emit('createNewInContainer', null, item.id)
-  else emit('addContainer', item.id)
-  closeRoot()
-}
-function newPrompt() { emit('createNewPrompt', trimmedQuery.value); closeRoot() }
-function newType() { emit('createType', trimmedQuery.value); closeRoot() }
+const rootOpen = ref(false)
+const creating = ref(false)
+const createName = ref('')
 
+function openRoot() { rootOpen.value = !rootOpen.value }
+function closeRootAndCreate() { rootOpen.value = false; creating.value = false; createName.value = '' }
+
+function onOmniSelect(compositeId: string) {
+  const [kind, id] = compositeId.split(':')
+  if (kind === 'prompt') emit('addPrompt', id)
+  else if (kind === 'brick') emit('createNewInContainer', null, id)
+  else emit('addContainer', id)
+  rootOpen.value = false
+}
+
+function onIntentCreate(draft: string) {
+  createName.value = draft
+  creating.value = true
+}
+
+function confirmCreate() {
+  const name = createName.value.trim()
+  if (!name) return
+  emit('createNewPrompt', name)
+  closeRootAndCreate()
+}
+
+function cancelCreate() { closeRootAndCreate() }
+
+// ── folder expand / folder-add picker ──
 function isExpanded(id: string) { return expanded.value.has(id) }
 function toggleExpand(id: string) {
   if (expanded.value.has(id)) expanded.value.delete(id)
@@ -107,14 +119,9 @@ function onFolderAdd(id: string) {
   activePickerParent.value = activePickerParent.value === id ? undefined : id
 }
 
-// native HTML5 drag-reorder, restricted to siblings of the same parent. A drag
-// only counts if it began on a row's grip handle, so clicks/selection on the
-// rest of the row don't accidentally start a drag.
+// ── drag-reorder within same parent ──
 const dragId = ref<string | null>(null)
 const grabbedHandle = ref(false)
-// Where the dragged row would land if dropped right now: the id of the row
-// being hovered plus whether the cursor is in its top or bottom half. Cleared
-// on drop / drag end. Null when not over a valid same-parent sibling.
 const dropTarget = ref<{ id: string; position: 'before' | 'after' } | null>(null)
 function onMouseDown(e: MouseEvent) {
   grabbedHandle.value = !!(e.target as HTMLElement).closest('[data-test="drag-handle"]')
@@ -122,10 +129,6 @@ function onMouseDown(e: MouseEvent) {
 function onDragStart(id: string, e: DragEvent) {
   if (!grabbedHandle.value) { e.preventDefault(); return }
   dragId.value = id
-  // Required for native HTML5 DnD to actually continue past the source
-  // element: without calling setData, Firefox (and some Chromium paths)
-  // never deliver dragover/drop to other elements, so the row looks
-  // draggable but nothing ever drops.
   e.dataTransfer?.setData('text/plain', id)
   if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'
 }
@@ -133,43 +136,32 @@ function siblingsOf(parentId: string | null) { return getChildren(parentId).map(
 function parentOf(id: string): string | null {
   return props.nodes.find((nd) => nd.id === id)?.parent_id ?? null
 }
-// Compute the drop zone (before/after) from the cursor's vertical position
-// within the hovered row, but only for same-parent siblings. Different-parent
-// rows get no indicator and can't receive a drop (reorder is within-level only).
 function onDragOver(id: string, e: DragEvent) {
   const src = dragId.value
   if (!src || src === id || parentOf(src) !== parentOf(id)) {
-    dropTarget.value = null
-    return
+    dropTarget.value = null; return
   }
-  e.preventDefault() // allow the drop
+  e.preventDefault()
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const position: 'before' | 'after' = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
-  dropTarget.value = { id, position }
+  dropTarget.value = { id, position: (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after' }
 }
 function onDrop(targetId: string) {
   const src = dragId.value
   const target = dropTarget.value
-  dragId.value = null
-  grabbedHandle.value = false
-  dropTarget.value = null
+  dragId.value = null; grabbedHandle.value = false; dropTarget.value = null
   if (!src || src === targetId) return
-  if (parentOf(src) !== parentOf(targetId)) return // only reorder within a level
+  if (parentOf(src) !== parentOf(targetId)) return
   const without = siblingsOf(parentOf(targetId)).filter((x) => x !== src)
   const targetIdx = without.indexOf(targetId)
   if (targetIdx === -1) return
   const insertAt = target?.id === targetId
     ? (target.position === 'before' ? targetIdx : targetIdx + 1)
-    : targetIdx + 1 // fallback: after target (old behavior)
+    : targetIdx + 1
   without.splice(insertAt, 0, src)
   emit('reorder', without)
 }
-function onDragEnd() {
-  dragId.value = null
-  grabbedHandle.value = false
-  dropTarget.value = null
-}
+function onDragEnd() { dragId.value = null; grabbedHandle.value = false; dropTarget.value = null }
 </script>
 
 <template>
@@ -186,7 +178,6 @@ function onDragEnd() {
       @drop="onDrop(node.id)"
       @dragend="onDragEnd"
     >
-      <!-- drop-zone indicator: a 2px primary line at the hovered edge -->
       <span
         v-if="dropTarget?.id === node.id"
         data-test="drop-indicator"
@@ -210,7 +201,6 @@ function onDragEnd() {
         @open-definition="(id) => emit('openDefinition', id)"
       />
 
-      <!-- folder children + contextual picker (opened from the row's + button) -->
       <template v-if="node.kind === 'folder' && isExpanded(node.id)">
         <div
           v-for="child in getChildren(node.id)"
@@ -250,8 +240,8 @@ function onDragEnd() {
         <transition name="expand">
           <div v-if="activePickerParent === node.id" class="pl-[34px] pr-2 pb-2 pt-1">
             <NodePicker
-              :definitions="containerDefs(node.tag)"
-              :filter-type="node.tag === 'panel' ? 'html' : node.tag"
+              :definitions="containerDefs(node.tag ?? '')"
+              :filter-type="(node.tag ?? '') === 'panel' ? 'html' : (node.tag ?? '')"
               :types="node.tag === 'panel' ? panelPickerTypes : types"
               @select="(id) => { emit('addRefToContainer', node.id, id); activePickerParent = undefined }"
               @create-new="(typeId) => { emit('createNewInContainer', node.id, typeId); activePickerParent = undefined }"
@@ -261,12 +251,16 @@ function onDragEnd() {
       </template>
     </div>
 
-    <!-- root add: one omnibox for prompts + containers -->
-    <button data-test="root-add" class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary transition-colors" @click="openRoot">
+    <!-- root add: omnibox via EntityPicker -->
+    <button
+      data-test="root-add"
+      class="flex items-center gap-2 py-1.5 pl-2 mt-0.5 text-[13.5px] text-muted hover:text-primary transition-colors"
+      @click="openRoot"
+    >
       <Plus :size="16" /> {{ $t('prompt.addNode') }}
     </button>
 
-    <!-- add-panel: scaffolds a panel folder + blank html/css bricks in one click -->
+    <!-- add-panel (pack only) -->
     <button
       v-if="allowPanel"
       data-test="add-panel"
@@ -276,41 +270,34 @@ function onDragEnd() {
       <Plus :size="16" /> {{ $t('pack.addPanel') }}
     </button>
 
+    <!-- root omni-search (expanded) -->
     <transition name="expand">
       <div v-if="rootOpen" data-test="root-omnibox" class="px-2 pb-2">
-        <div class="border border-line rounded-[10px] bg-surface/60 overflow-hidden">
-          <div class="flex items-center gap-2 px-3 py-2 border-b border-line">
-            <Search :size="15" class="text-muted shrink-0" />
-            <input
-              v-model="omniQuery"
-              data-test="omni-input"
-              type="text"
-              :placeholder="$t('prompt.omniPlaceholder')"
-              class="flex-1 text-[13px] bg-transparent outline-none placeholder:text-muted/60"
-            />
-          </div>
+        <template v-if="!creating">
+          <EntityPicker
+            :items="omniItems"
+            :placeholder="$t('prompt.omniPlaceholder')"
+            :create-label="$t('prompt.omniNewPrompt', { name: '' })"
+            @select="onOmniSelect"
+            @intent-create="onIntentCreate"
+          />
+        </template>
+        <div v-else class="flex items-center gap-2 mt-1">
+          <input
+            v-model="createName"
+            type="text"
+            data-test="omni-create-input"
+            :placeholder="$t('prompt.omniNewPrompt', { name: '' })"
+            class="flex-1 bg-transparent border border-line rounded-lg px-3 py-2 text-[13px] text-ink placeholder:text-muted/60 outline-none focus:border-primary/50"
+            @keydown.enter="confirmCreate"
+            @keydown.escape="cancelCreate"
+          />
+          <button class="text-muted hover:text-ink" @click="cancelCreate">&#x2715;</button>
           <button
-            v-for="item in omniItems"
-            :key="item.kind + ':' + item.id"
-            :data-test="item.kind === 'brick' ? 'create-' + item.id : 'omni-item'"
-            class="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-card transition-colors"
-            @click="pickOmni(item)"
-          >
-            <Folder v-if="item.kind === 'container'" :size="15" class="text-mauve shrink-0" :stroke-width="1.8" />
-            <FileText v-else :size="15" class="text-muted shrink-0" :stroke-width="1.8" />
-            <span class="flex-1 text-[13.5px] text-ink truncate">{{ item.name }}</span>
-            <span class="text-[11px] text-muted/70 lowercase">{{ item.kind }}</span>
-          </button>
-          <p v-if="omniItems.length === 0 && !trimmedQuery" class="px-3 py-2 text-[12px] text-muted/70">{{ $t('prompt.omniEmpty') }}</p>
-
-          <template v-if="trimmedQuery">
-            <button data-test="omni-new-prompt" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newPrompt">
-              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">{{ $t('prompt.omniNewPrompt', { name: trimmedQuery }) }}</span>
-            </button>
-            <button data-test="omni-new-type" class="w-full flex items-center gap-2.5 px-3 py-2 text-left border-t border-line hover:bg-card transition-colors text-ink" @click="newType">
-              <Plus :size="15" class="shrink-0" /><span class="text-[13.5px]">{{ $t('prompt.omniNewType', { name: trimmedQuery }) }}</span>
-            </button>
-          </template>
+            class="text-emerald-400 hover:text-emerald-300"
+            :class="createName.trim() ? '' : 'opacity-30 pointer-events-none'"
+            @click="confirmCreate"
+          >&#x2713;</button>
         </div>
       </div>
     </transition>

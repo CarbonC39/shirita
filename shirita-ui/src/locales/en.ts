@@ -196,6 +196,7 @@ const en = {
   },
   definition: {
     heading: 'Definition',
+    namePlaceholder: 'Definition name\u2026',
     avatar: 'Avatar',
     searchPlaceholder: 'Search a definition, or type a new name…',
     newDefinition: '+ New definition',
