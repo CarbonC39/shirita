@@ -281,6 +281,16 @@ function persistRule(rule: Definition) {
     );
 }
 
+// Regex rules are real user data, so confirm before destroying (matches every
+// other delete in the app). The editor only emits `delete`; the guard lives
+// here next to the destructive call.
+async function deleteRegexRule(rule: Definition) {
+    if (!window.confirm(t("settings.regexDeleteConfirm"))) return;
+    await deleteDefinition(rule.id);
+    regexRules.value = regexRules.value.filter((r) => r.id !== rule.id);
+    delete regexScopes.value[rule.id];
+}
+
 onMounted(async () => {
     try {
         await settings.load();
@@ -1001,7 +1011,7 @@ async function handleTestConnection() {
                     @update:pattern="(p: string) => { (rule.meta as any).pattern = p; persistRule(rule) }"
                     @update:replacement="(r: string) => { (rule.meta as any).replacement = r; persistRule(rule) }"
                     @update:scope="(s: any) => { const m = scopeFlagsToMeta(s); (rule.meta as any).scope = m.scope; (rule.meta as any).targets = m.targets; persistRule(rule) }"
-                    @delete="async () => { await deleteDefinition(rule.id); regexRules = regexRules.filter((r) => r.id !== rule.id); delete regexScopes[rule.id] }"
+                    @delete="deleteRegexRule(rule)"
                 />
                 <button
                     class="w-full py-2 border-2 border-dashed border-line rounded-xl text-muted text-[13px] hover:text-primary hover:border-primary/30 transition-colors mt-2"
@@ -1076,17 +1086,6 @@ async function handleTestConnection() {
                 </h3>
                 <div class="text-[14px] text-muted space-y-2">
                     <p>{{ $t("settings.aboutText") }}</p>
-                    <p class="flex items-center gap-3">
-                        <button
-                            class="hover:text-ink underline underline-offset-2"
-                        >
-                            {{ $t("settings.exportAll") }}</button
-                        ><button
-                            class="hover:text-ink underline underline-offset-2"
-                        >
-                            {{ $t("settings.importAll") }}
-                        </button>
-                    </p>
                 </div>
             </section>
 

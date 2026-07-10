@@ -291,8 +291,6 @@ const en = {
     addRule: '+ Add rule',
     about: 'About',
     aboutText: 'Shirita — a SillyTavern alternative.',
-    exportAll: 'Export all data',
-    importAll: 'Import all data',
     regexUnnamed: 'Unnamed rule',
     regexRenameHint: 'Double-click to rename',
     regexFind: 'Find',
@@ -313,6 +311,7 @@ const en = {
     regexSearch: 'Search rules',
     regexHideDisabled: 'Hide disabled',
     regexDelete: 'Delete rule',
+    regexDeleteConfirm: 'Delete this regex rule? This cannot be undone.',
   },
 }
 

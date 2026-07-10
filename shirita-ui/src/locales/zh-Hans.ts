@@ -280,8 +280,6 @@ const zhHans: MessageSchema = {
     addRule: '+ 添加规则',
     about: '关于',
     aboutText: 'Shirita —— 一个 SillyTavern 替代品。',
-    exportAll: '导出全部数据',
-    importAll: '导入全部数据',
     regexUnnamed: '未命名规则',
     regexRenameHint: '双击改名',
     regexFind: '查找',
@@ -302,6 +300,7 @@ const zhHans: MessageSchema = {
     regexSearch: '搜索规则',
     regexHideDisabled: '隐藏已禁用',
     regexDelete: '删除规则',
+    regexDeleteConfirm: '删除这条正则规则？此操作无法撤销。',
   },
 }
 

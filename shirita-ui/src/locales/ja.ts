@@ -281,8 +281,6 @@ const ja: MessageSchema = {
     addRule: '+ ルールを追加',
     about: '情報',
     aboutText: 'Shirita —— SillyTavern の代替アプリ。',
-    exportAll: 'すべてのデータをエクスポート',
-    importAll: 'すべてのデータをインポート',
     regexUnnamed: '無名のルール',
     regexRenameHint: 'ダブルクリックで名前を変更',
     regexFind: '検索',
@@ -303,6 +301,7 @@ const ja: MessageSchema = {
     regexSearch: 'ルールを検索',
     regexHideDisabled: '無効を隠す',
     regexDelete: 'ルールを削除',
+    regexDeleteConfirm: 'この正則ルールを削除しますか？この操作は元に戻せません。',
   },
 }
 
