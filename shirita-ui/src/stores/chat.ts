@@ -197,15 +197,9 @@ export const useChatStore = defineStore('chat', () => {
     await loadMessages(activeSessionId.value)
   }
 
-  function clearStreaming() {
-    isStreaming.value = false
-    streamingText.value = ''
-    streamingError.value = null
-  }
-
   return {
     messages, activeLeafId, displayed, loading, error,
     isStreaming, streamingText, streamingError, activeSessionId,
-    loadMessages, send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, clearStreaming, stop, abortActive,
+    loadMessages, send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
   }
 })

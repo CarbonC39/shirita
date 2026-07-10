@@ -593,15 +593,6 @@ export async function duplicatePack(id: string): Promise<Pack> {
   return res.json()
 }
 
-export async function setSessionPacks(sessionId: string, packIds: string[]): Promise<void> {
-  const res = await fetch(`${BASE}/api/sessions/${sessionId}/packs`, {
-    method: 'PUT',
-    headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pack_ids: packIds }),
-  })
-  if (!res.ok) throw new Error(`Set session packs failed: ${res.status}`)
-}
-
 // --- Panels ---
 export function getSessionPanels(sessionId: string): Promise<SessionPanel[]> {
   return apiGet<SessionPanel[]>(`/sessions/${sessionId}/panels`)

@@ -124,14 +124,6 @@ describe('chat store', () => {
     expect(client.listMessages).toHaveBeenCalledTimes(2)
   })
 
-  it('clearStreaming resets streaming state', () => {
-    const store = useChatStore()
-    store.$patch({ isStreaming: true, streamingText: 'partial', streamingError: 'x' })
-    store.clearStreaming()
-    expect(store.isStreaming).toBe(false)
-    expect(store.streamingText).toBe('')
-    expect(store.streamingError).toBeNull()
-  })
 
   it('displays only the active branch and seeds the leaf from the session', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([

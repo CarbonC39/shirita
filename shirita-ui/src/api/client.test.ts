@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, setSessionPacks, createSession, applyStateUpdates, getSessionPanels } from './client'
+import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, createSession, applyStateUpdates, getSessionPanels } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -227,16 +227,6 @@ describe('packs client', () => {
     expect(url).toContain('/api/packs')
     expect(opts.method).toBe('POST')
     expect(JSON.parse(opts.body)).toEqual({ name: 'Alice', identity: { display_name: 'Alice', avatar: 'a.png' } })
-  })
-
-  it('setSessionPacks PUTs the pack id list', async () => {
-    const fm = mockFetch(200, {})
-    vi.stubGlobal('fetch', fm)
-    await setSessionPacks('s1', ['p1', 'p2'])
-    const [url, opts] = fm.mock.calls[0]
-    expect(url).toContain('/api/sessions/s1/packs')
-    expect(opts.method).toBe('PUT')
-    expect(JSON.parse(opts.body)).toEqual({ pack_ids: ['p1', 'p2'] })
   })
 
   it('createSession includes pack_ids in the body', async () => {

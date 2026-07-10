@@ -434,11 +434,16 @@ async function handleNotifyToggle(enabled: boolean) {
 }
 
 async function handleTestConnection() {
+    // Persist under the same namespaced `provider.<source>.<field>` keys every
+    // other write uses (autosave, /models fetch). The flat keys would be
+    // ignored by the backend's flat->namespace migration whenever the
+    // namespaced key is already set, so Test could validate stale credentials
+    // instead of the form values the user just typed.
     await settings.save({
         provider_source: providerSource.value,
-        provider_base_url: providerBaseUrl.value,
-        provider_api_key: providerApiKey.value,
-        provider_model: providerModel.value,
+        [providerKey(providerSource.value, "base_url")]: providerBaseUrl.value,
+        [providerKey(providerSource.value, "api_key")]: providerApiKey.value,
+        [providerKey(providerSource.value, "model")]: providerModel.value,
     });
     await settings.testConnection();
 }
