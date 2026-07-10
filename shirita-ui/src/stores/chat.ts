@@ -145,6 +145,11 @@ export const useChatStore = defineStore('chat', () => {
     const sid = activeSessionId.value
     await abortSession(sid)
     activeAbort?.abort()
+    // The backend persists the partial reply when it honors the stop, but the
+    // hard abort above discards the in-flight `stopped` event that would have
+    // reloaded the transcript. Reload explicitly so the user sees what was
+    // saved instead of a reply that silently disappears until next navigation.
+    await loadMessages(sid)
   }
 
   // Unmount / navigate-away: hard-abort the fetch so a stale stream can't fire a

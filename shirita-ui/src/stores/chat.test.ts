@@ -109,6 +109,21 @@ describe('chat store', () => {
     expect(store.isStreaming).toBe(false)
   })
 
+  it('stop() reloads the transcript so a backend-persisted partial reply is shown', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([msg()])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as any)
+    const abortSpy = vi.spyOn(client, 'abortSession').mockResolvedValue()
+    const store = useChatStore()
+    await store.loadMessages('s1') // initial load (call #1) + sets activeSessionId
+    expect(client.listMessages).toHaveBeenCalledTimes(1)
+    await store.stop()
+    expect(abortSpy).toHaveBeenCalledWith('s1')
+    // The hard abort discards the `stopped` SSE event, so stop() must reload
+    // itself — otherwise the persisted partial reply is invisible until the
+    // user navigates away and back.
+    expect(client.listMessages).toHaveBeenCalledTimes(2)
+  })
+
   it('clearStreaming resets streaming state', () => {
     const store = useChatStore()
     store.$patch({ isStreaming: true, streamingText: 'partial', streamingError: 'x' })
