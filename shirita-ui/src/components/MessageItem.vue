@@ -125,7 +125,7 @@ function cancelEdit() { editing.value = false }
       <div
         v-if="!editing"
         data-test="message-actions"
-        :class="['flex items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
+        :class="['flex flex-wrap items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
       >
         <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
           <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
@@ -188,7 +188,7 @@ function cancelEdit() { editing.value = false }
         />
       </template>
     </div>
-    <div v-if="!editing" data-test="message-actions" class="flex items-center gap-1.5 mt-2 pl-[34px] text-muted">
+    <div v-if="!editing" data-test="message-actions" class="flex flex-wrap items-center gap-1.5 mt-2 pl-[34px] text-muted">
       <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
         <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
         <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>

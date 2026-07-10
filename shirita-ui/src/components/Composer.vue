@@ -74,18 +74,18 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="app-composer border-t border-line bg-card px-2 sm:px-4 py-2.5">
+  <div class="app-composer border-t border-line bg-card px-2 sm:px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.625rem)]">
     <div v-if="pending.length" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pb-2 flex flex-wrap gap-2">
       <div v-for="a in pending" :key="a.id" class="relative w-14 h-14 rounded-lg overflow-hidden border border-line">
         <img :src="a.url" class="w-full h-full object-cover" alt="" />
         <button
           type="button"
-          class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center"
+          class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center"
           :aria-label="$t('composer.removeAttachment')"
           :title="$t('composer.removeAttachment')"
           @click="removePending(a.id)"
         >
-          <X :size="10" />
+          <X :size="12" />
         </button>
       </div>
     </div>

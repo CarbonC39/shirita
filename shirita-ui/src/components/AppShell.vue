@@ -36,15 +36,15 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
 </script>
 
 <template>
-  <div data-app="shell" class="h-full">
+  <div data-app="shell" class="h-dvh">
     <!-- app-wide background image + scrim (full viewport, fixed) -->
     <div class="fixed inset-0 -z-10 bg-cover bg-center" :style="bgStyle" />
     <div class="fixed inset-0 -z-10 bg-surface/30" />
 
     <!-- centered app panel: header + content together over the background -->
-    <div class="mx-auto h-full flex flex-col bg-surface/85" :style="{ maxWidth: ui.contentWidth + 'px' }">
+    <div class="mx-auto h-dvh flex flex-col bg-surface/85" :style="{ maxWidth: ui.contentWidth + 'px' }">
       <header>
-        <div class="grid grid-cols-[1fr_auto_1fr] items-center px-6 pt-4 pb-1.5">
+        <div class="grid grid-cols-[1fr_auto_1fr] items-center px-6 pt-[calc(env(safe-area-inset-top)+1rem)] pb-1.5">
           <div class="flex items-center gap-2 min-w-0">
             <router-link
               to="/"
@@ -63,13 +63,13 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
             </span>
           </div>
           <nav class="flex items-center gap-8" aria-label="Primary">
-            <router-link :to="chatTo" :aria-label="$t('shell.chats')" :aria-current="section === 'chat' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
+            <router-link :to="chatTo" :aria-label="$t('shell.chats')" :aria-current="section === 'chat' ? 'page' : undefined" :class="['transition-colors duration-200 inline-flex items-center p-1.5 -m-1.5', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
               <MessageCircle :size="22" :stroke-width="1.8" />
             </router-link>
-            <router-link to="/book" :aria-label="$t('shell.book')" :aria-current="section === 'book' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
+            <router-link to="/book" :aria-label="$t('shell.book')" :aria-current="section === 'book' ? 'page' : undefined" :class="['transition-colors duration-200 inline-flex items-center p-1.5 -m-1.5', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
               <BookOpen :size="22" :stroke-width="1.8" />
             </router-link>
-            <router-link to="/settings" :aria-label="$t('shell.settings')" :aria-current="section === 'settings' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
+            <router-link to="/settings" :aria-label="$t('shell.settings')" :aria-current="section === 'settings' ? 'page' : undefined" :class="['transition-colors duration-200 inline-flex items-center p-1.5 -m-1.5', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
               <Settings :size="22" :stroke-width="1.8" />
             </router-link>
           </nav>

@@ -91,11 +91,12 @@ async function onDelete(id: string, path: string) {
           </button>
           <button
             type="button"
-            class="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"
+            class="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center opacity-0 group-hover:opacity-100 max-sm:opacity-100 transition-opacity"
+            :aria-label="$t('common.imageDelete')"
             :title="$t('common.imageDelete')"
             @click.stop="onDelete(a.id, a.path)"
           >
-            <X :size="12" />
+            <X :size="13" />
           </button>
         </div>
         <input
