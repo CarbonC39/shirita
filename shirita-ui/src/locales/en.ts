@@ -112,6 +112,8 @@ const en = {
     edit: 'Edit',
     hide: 'Hide',
     unhide: 'Unhide',
+    previousVariation: 'Previous variation',
+    nextVariation: 'Next variation',
     delete: 'Delete',
     deleteConfirm: 'Delete this message and all its replies? This cannot be undone.',
     empty: 'No messages yet.',
@@ -123,6 +125,7 @@ const en = {
   },
   composer: {
     attach: 'Attach',
+    send: 'Send',
     removeAttachment: 'Remove attachment',
     placeholder: 'Type a message…',
     stop: 'Stop generating',

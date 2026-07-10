@@ -58,7 +58,7 @@ function onRename() {
 
     <!-- edit mode: drag handle + delete float on the card -->
     <template v-if="editMode">
-      <button data-test="chat-delete" class="text-muted hover:text-coral p-1 shrink-0 transition-colors" :title="$t('common.delete')" @click.stop.prevent="emit('delete', session.id)">
+      <button data-test="chat-delete" class="text-muted hover:text-coral p-1 shrink-0 transition-colors" :aria-label="$t('common.delete')" :title="$t('common.delete')" @click.stop.prevent="emit('delete', session.id)">
         <Trash2 :size="17" />
       </button>
       <span class="text-muted shrink-0" :title="$t('chat.dragReorder')"><GripVertical :size="18" /></span>
@@ -66,7 +66,7 @@ function onRename() {
 
     <!-- normal mode: three-dot menu -->
     <template v-else>
-      <button data-test="chat-menu" class="text-muted/50 hover:text-ink p-1 -mr-1 shrink-0 transition-colors" :title="$t('chat.options')" @click.stop.prevent="menuOpen = !menuOpen">
+      <button data-test="chat-menu" class="text-muted/50 hover:text-ink p-1 -mr-1 shrink-0 transition-colors" :aria-label="$t('chat.options')" :aria-expanded="menuOpen" :title="$t('chat.options')" @click.stop.prevent="menuOpen = !menuOpen">
         <MoreVertical :size="18" />
       </button>
 

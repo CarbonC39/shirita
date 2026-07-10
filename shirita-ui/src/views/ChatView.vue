@@ -224,7 +224,7 @@ async function handleDelete(id: string) {
 
     <div v-if="showForkNotice" class="flex items-center justify-between bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5 text-[13px] text-ink">
       <span>{{ $t('chat.forkNotice') }}</span>
-      <button class="text-muted hover:text-ink" @click="showForkNotice = false"><X :size="14" /></button>
+      <button class="text-muted hover:text-ink" :aria-label="$t('common.close')" @click="showForkNotice = false"><X :size="14" /></button>
     </div>
 
     <div v-if="visiblePanels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">

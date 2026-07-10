@@ -105,6 +105,8 @@ const ja: MessageSchema = {
     edit: '編集',
     hide: '非表示',
     unhide: '表示',
+    previousVariation: '前のバリエーション',
+    nextVariation: '次のバリエーション',
     delete: '削除',
     deleteConfirm: 'このメッセージとすべての返信を削除しますか？この操作は元に戻せません。',
     empty: 'まだメッセージがありません。',
@@ -116,6 +118,7 @@ const ja: MessageSchema = {
   },
   composer: {
     attach: '添付',
+    send: '送信',
     removeAttachment: '添付を削除',
     placeholder: 'メッセージを入力…',
     stop: '生成を停止',

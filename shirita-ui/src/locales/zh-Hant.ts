@@ -105,6 +105,8 @@ const zhHant: MessageSchema = {
     edit: '編輯',
     hide: '隱藏',
     unhide: '取消隱藏',
+    previousVariation: '上一個變體',
+    nextVariation: '下一個變體',
     delete: '刪除',
     deleteConfirm: '刪除這則訊息及其所有回覆？此操作無法復原。',
     empty: '尚無訊息。',
@@ -116,6 +118,7 @@ const zhHant: MessageSchema = {
   },
   composer: {
     attach: '附件',
+    send: '傳送',
     removeAttachment: '移除附件',
     placeholder: '輸入訊息…',
     stop: '停止生成',

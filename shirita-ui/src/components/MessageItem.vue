@@ -106,8 +106,8 @@ function cancelEdit() { editing.value = false }
             class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
           />
           <div class="flex gap-2 mt-1.5">
-            <button data-test="edit-save" class="text-primary hover:text-primary-strong" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
-            <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
+            <button data-test="edit-save" class="text-primary hover:text-primary-strong" :aria-label="$t('common.save')" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
+            <button class="text-muted hover:text-ink" :aria-label="$t('common.cancel')" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
           </div>
         </template>
         <template v-else>
@@ -128,27 +128,27 @@ function cancelEdit() { editing.value = false }
         :class="['flex items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
       >
         <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
-          <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
+          <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
           <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>
-          <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
+          <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" :aria-label="$t('chat.nextVariation')" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
         </span>
         <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :title="$t('chat.regenerate')" @click="emit('regenerate')">
+        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :aria-label="$t('chat.regenerate')" :title="$t('chat.regenerate')" @click="emit('regenerate')">
           <RefreshCw :size="15" :stroke-width="1.8" />
         </button>
-        <button v-if="isAssistant" class="hover:text-ink" :title="$t('chat.fork')" @click="emit('fork')">
+        <button v-if="isAssistant" class="hover:text-ink" :aria-label="$t('chat.fork')" :title="$t('chat.fork')" @click="emit('fork')">
           <GitFork :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="copy-btn" class="hover:text-ink" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
+        <button data-test="copy-btn" class="hover:text-ink" :aria-label="$t('chat.copy')" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
           <Copy :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="edit-btn" class="hover:text-ink" :title="$t('chat.edit')" @click="startEdit">
+        <button data-test="edit-btn" class="hover:text-ink" :aria-label="$t('chat.edit')" :title="$t('chat.edit')" @click="startEdit">
           <Pencil :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
+        <button data-test="hide-btn" class="hover:text-ink" :aria-label="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
           <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
         </button>
-        <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
+        <button data-test="delete-btn" class="hover:text-coral" :aria-label="$t('chat.delete')" :title="$t('chat.delete')" @click="emit('delete')">
           <Trash2 :size="15" :stroke-width="1.8" />
         </button>
         <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
@@ -173,8 +173,8 @@ function cancelEdit() { editing.value = false }
           class="w-full bg-card text-ink border border-line rounded-[10px] px-3 py-2 text-[15px] outline-none focus:border-primary/50"
         />
         <div class="flex gap-2 mt-1.5">
-          <button data-test="edit-save" class="text-primary hover:text-primary-strong" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
-          <button class="text-muted hover:text-ink" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
+          <button data-test="edit-save" class="text-primary hover:text-primary-strong" :aria-label="$t('common.save')" :title="$t('common.save')" @click="saveEdit"><Check :size="16" /></button>
+          <button class="text-muted hover:text-ink" :aria-label="$t('common.cancel')" :title="$t('common.cancel')" @click="cancelEdit"><X :size="16" /></button>
         </div>
       </template>
       <template v-else>
@@ -190,27 +190,27 @@ function cancelEdit() { editing.value = false }
     </div>
     <div v-if="!editing" data-test="message-actions" class="flex items-center gap-1.5 mt-2 pl-[34px] text-muted">
       <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
-        <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
+        <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
         <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>
-        <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
+        <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" :aria-label="$t('chat.nextVariation')" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
       </span>
       <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :title="$t('chat.regenerate')" @click="emit('regenerate')">
+      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :aria-label="$t('chat.regenerate')" :title="$t('chat.regenerate')" @click="emit('regenerate')">
         <RefreshCw :size="15" :stroke-width="1.8" />
       </button>
-      <button v-if="isAssistant" class="hover:text-ink" :title="$t('chat.fork')" @click="emit('fork')">
+      <button v-if="isAssistant" class="hover:text-ink" :aria-label="$t('chat.fork')" :title="$t('chat.fork')" @click="emit('fork')">
         <GitFork :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="copy-btn" class="hover:text-ink" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
+      <button data-test="copy-btn" class="hover:text-ink" :aria-label="$t('chat.copy')" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
         <Copy :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="edit-btn" class="hover:text-ink" :title="$t('chat.edit')" @click="startEdit">
+      <button data-test="edit-btn" class="hover:text-ink" :aria-label="$t('chat.edit')" :title="$t('chat.edit')" @click="startEdit">
         <Pencil :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="hide-btn" class="hover:text-ink" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
+      <button data-test="hide-btn" class="hover:text-ink" :aria-label="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
         <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
       </button>
-      <button data-test="delete-btn" class="hover:text-coral" :title="$t('chat.delete')" @click="emit('delete')">
+      <button data-test="delete-btn" class="hover:text-coral" :aria-label="$t('chat.delete')" :title="$t('chat.delete')" @click="emit('delete')">
         <Trash2 :size="15" :stroke-width="1.8" />
       </button>
       <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>

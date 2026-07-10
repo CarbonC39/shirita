@@ -84,7 +84,7 @@ function commitRename() {
         class="flex items-center gap-0.5 text-[11px] text-coral shrink-0"
         :title="patternError"
       ><AlertTriangle :size="12" /> {{ $t('settings.regexInvalid') }}</span>
-      <button class="text-muted hover:text-ink shrink-0" @click="emit('toggleOpen')">
+      <button class="text-muted hover:text-ink shrink-0" :aria-expanded="open" :aria-label="rule.name || $t('settings.regexUnnamed')" @click="emit('toggleOpen')">
         <ChevronDown :size="16" :class="open ? '' : '-rotate-90'" class="transition-transform" />
       </button>
     </div>

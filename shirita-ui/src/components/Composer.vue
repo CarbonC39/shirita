@@ -81,6 +81,7 @@ function onKeydown(e: KeyboardEvent) {
         <button
           type="button"
           class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-card border border-line text-muted hover:text-coral grid place-items-center"
+          :aria-label="$t('composer.removeAttachment')"
           :title="$t('composer.removeAttachment')"
           @click="removePending(a.id)"
         >
@@ -93,6 +94,7 @@ function onKeydown(e: KeyboardEvent) {
         type="button"
         class="text-muted hover:text-ink p-1.5 shrink-0 mb-0.5 disabled:opacity-50"
         :disabled="uploading"
+        :aria-label="$t('composer.attach')"
         :title="$t('composer.attach')"
         @click="pickFile"
       >
@@ -114,6 +116,7 @@ function onKeydown(e: KeyboardEvent) {
       <button
         v-if="streaming"
         data-test="stop-btn"
+        :aria-label="$t('composer.stop')"
         :title="$t('composer.stop')"
         class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-coral text-white hover:brightness-110 transition"
         @click="emit('stop')"
@@ -124,6 +127,7 @@ function onKeydown(e: KeyboardEvent) {
         v-else
         data-test="send-btn"
         :disabled="disabled || !canSend"
+        :aria-label="$t('composer.send')"
         :class="[
           'w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition-colors',
           canSend && !disabled ? 'bg-primary text-white' : 'bg-line text-muted',

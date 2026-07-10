@@ -13,7 +13,7 @@
   --color-sky: #8ed2eb;
   --color-mauve: #9f8391;
   --color-ink: #1b1b1b;
-  --color-muted: #9aa0a6;
+  --color-muted: #6b7280;
   --color-line: #e7e6e4;
 }
 
@@ -51,6 +51,15 @@ body {
   a {
     color: inherit;
     text-decoration: none;
+  }
+  /* Visible keyboard focus for every interactive element. Text fields already
+     get a ring via .field:focus; this covers icon-only buttons, links, summary,
+     and ARIA controls so keyboard users can see where they are. :where() keeps
+     specificity at zero so component styles can still override. */
+  :where(button, a, summary, [role="button"], [role="switch"], [role="radio"], [tabindex]):focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 6px;
   }
 }
 
@@ -132,7 +141,7 @@ input[type='number'] {
     box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 14%, transparent);
   }
   .field::placeholder {
-    @apply text-muted/70;
+    @apply text-muted;
   }
 
   .btn {

@@ -62,14 +62,14 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
               </template>
             </span>
           </div>
-          <nav class="flex items-center gap-8">
-            <router-link :to="chatTo" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
+          <nav class="flex items-center gap-8" aria-label="Primary">
+            <router-link :to="chatTo" :aria-label="$t('shell.chats')" :aria-current="section === 'chat' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'chat' ? 'text-ink' : 'text-muted hover:text-ink']">
               <MessageCircle :size="22" :stroke-width="1.8" />
             </router-link>
-            <router-link to="/book" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
+            <router-link to="/book" :aria-label="$t('shell.book')" :aria-current="section === 'book' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'book' ? 'text-ink' : 'text-muted hover:text-ink']">
               <BookOpen :size="22" :stroke-width="1.8" />
             </router-link>
-            <router-link to="/settings" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
+            <router-link to="/settings" :aria-label="$t('shell.settings')" :aria-current="section === 'settings' ? 'page' : undefined" :class="['transition-colors duration-200', section === 'settings' ? 'text-ink' : 'text-muted hover:text-ink']">
               <Settings :size="22" :stroke-width="1.8" />
             </router-link>
           </nav>

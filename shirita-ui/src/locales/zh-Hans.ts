@@ -105,6 +105,8 @@ const zhHans: MessageSchema = {
     edit: '编辑',
     hide: '隐藏',
     unhide: '取消隐藏',
+    previousVariation: '上一个变体',
+    nextVariation: '下一个变体',
     delete: '删除',
     deleteConfirm: '删除这条消息及其所有回复？此操作无法撤销。',
     empty: '还没有消息。',
@@ -116,6 +118,7 @@ const zhHans: MessageSchema = {
   },
   composer: {
     attach: '附件',
+    send: '发送',
     removeAttachment: '移除附件',
     placeholder: '输入消息…',
     stop: '停止生成',

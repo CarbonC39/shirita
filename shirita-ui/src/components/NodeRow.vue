@@ -151,6 +151,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-if="enableAsRadio"
         data-test="enable-radio"
         :aria-pressed="node.enabled"
+        :aria-label="label"
         :class="['w-[18px] h-[18px] rounded-full grid place-items-center shrink-0 border transition-colors',
                  node.enabled ? 'border-primary' : 'border-[#d4d6da] bg-card']"
         @click.stop="emit('toggleEnabled')"
@@ -161,6 +162,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-else
         data-test="enable-checkbox"
         :aria-pressed="node.enabled"
+        :aria-label="label"
         :class="['w-[18px] h-[18px] rounded-[5px] grid place-items-center shrink-0 transition-colors',
                  node.enabled ? 'bg-primary' : 'bg-card border border-[#d4d6da]']"
         @click.stop="emit('toggleEnabled')"
@@ -190,6 +192,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-if="isFolder"
         data-test="node-add"
         class="text-muted/70 hover:text-primary shrink-0 p-0.5 transition-colors"
+        :aria-label="$t('prompt.addToContainer')"
         :title="$t('prompt.addToContainer')"
         @click.stop="emit('add')"
       ><Plus :size="15" /></button>
@@ -199,12 +202,13 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
         v-if="!isHistory && !isContent"
         data-test="node-delete"
         class="text-muted/40 group-hover:text-muted/70 hover:!text-coral shrink-0 p-0.5 transition-colors"
+        :aria-label="$t('common.delete')"
         :title="$t('common.delete')"
         @click.stop="emit('delete')"
       ><Trash2 :size="15" /></button>
 
       <!-- trailing expand chevron: folders expand children, refs expand content -->
-      <button v-if="!isHistory && !isContent" data-test="expand-btn" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click.stop="emit('toggleExpand')">
+      <button v-if="!isHistory && !isContent" data-test="expand-btn" :aria-expanded="isExpanded" class="text-muted/70 hover:text-ink shrink-0 p-0.5" @click.stop="emit('toggleExpand')">
         <ChevronRight :size="16" :class="isExpanded ? 'rotate-90' : ''" class="transition-transform" />
       </button>
     </div>
@@ -305,6 +309,7 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
           <button
             data-test="node-fullscreen"
             class="absolute right-2 top-2 text-muted/70 hover:text-ink"
+            :aria-label="$t('settings.fullscreen')"
             :title="$t('settings.fullscreen')"
             @click="fullscreenOpen = true"
           >

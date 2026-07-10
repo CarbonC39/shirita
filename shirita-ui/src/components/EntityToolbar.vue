@@ -110,7 +110,7 @@ function cancelRename() {
         class="px-3 py-1.5 text-[13px] bg-primary text-white rounded-lg hover:bg-primary-strong"
         @click="confirmRename"
       >{{ $t('common.done') }}</button>
-      <button class="text-muted hover:text-ink" @click="cancelRename"><X :size="18" /></button>
+      <button class="text-muted hover:text-ink" :aria-label="t('common.cancel')" @click="cancelRename"><X :size="18" /></button>
     </div>
 
     <!-- Normal mode -->
@@ -131,6 +131,7 @@ function cancelRename() {
             v-if="showDefault"
             class="w-[33px] h-[33px] grid place-items-center rounded-lg disabled:opacity-40"
             :class="isDefault ? 'text-amber-500' : 'text-muted hover:text-ink'"
+            :aria-label="t('book.defaultTemplate')"
             :title="t('book.defaultTemplate')"
             :disabled="!selectedId"
             @click="emit('toggle-default')"
@@ -140,6 +141,7 @@ function cancelRename() {
           <button
             v-if="showRename"
             class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="t('common.rename')"
             :title="t('common.rename')"
             :disabled="!selectedId"
             @click="startRename"
@@ -149,6 +151,7 @@ function cancelRename() {
           <button
             v-if="showImport"
             class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg"
+            :aria-label="t('common.import')"
             :title="t('common.import')"
             @click="emit('import')"
           >
@@ -157,6 +160,7 @@ function cancelRename() {
           <button
             v-if="showExport"
             class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="t('common.export')"
             :title="t('common.export')"
             :disabled="!selectedId"
             @click="emit('export')"
@@ -166,6 +170,7 @@ function cancelRename() {
           <button
             v-if="showDuplicate"
             class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="t('common.duplicate')"
             :title="t('common.duplicate')"
             :disabled="!selectedId"
             @click="emit('duplicate')"
@@ -175,6 +180,7 @@ function cancelRename() {
           <button
             v-if="showDelete"
             class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-coral rounded-lg disabled:opacity-30 disabled:pointer-events-none"
+            :aria-label="t('common.delete')"
             :title="t('common.delete')"
             :disabled="!selectedId"
             @click="emit('delete')"
@@ -200,6 +206,7 @@ function cancelRename() {
       <button
         data-test="create-cancel"
         class="w-[33px] h-[33px] grid place-items-center text-muted hover:text-ink rounded-lg"
+        :aria-label="t('common.cancel')"
         :title="t('common.cancel')"
         @click="cancelCreate"
       >
@@ -209,6 +216,7 @@ function cancelRename() {
         data-test="create-confirm"
         class="w-[33px] h-[33px] grid place-items-center rounded-lg"
         :class="createName.trim() ? 'text-primary hover:text-emerald-400' : 'text-muted opacity-30 pointer-events-none'"
+        :aria-label="t('common.save')"
         :title="t('common.save')"
         @click="confirmCreate"
       >
