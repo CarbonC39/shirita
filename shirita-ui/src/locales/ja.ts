@@ -253,7 +253,7 @@ const ja: MessageSchema = {
     about: '情報',
     aboutText: 'Shirita —— SillyTavern の代替アプリ。',
     regexUnnamed: '無名のルール',
-    regexRenameHint: 'ダブルクリックで名前を変更',
+    regexRenameHint: 'ダブルクリックまたは Enter で名前を変更',
     regexFind: '検索',
     regexPatternPlaceholder: '正規表現パターン',
     regexReplace: '置換',

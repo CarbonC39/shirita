@@ -262,7 +262,7 @@ const en = {
     about: 'About',
     aboutText: 'Shirita — a SillyTavern alternative.',
     regexUnnamed: 'Unnamed rule',
-    regexRenameHint: 'Double-click to rename',
+    regexRenameHint: 'Double-click or press Enter to rename',
     regexFind: 'Find',
     regexPatternPlaceholder: 'regex pattern',
     regexReplace: 'Replace',

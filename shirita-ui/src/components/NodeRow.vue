@@ -36,6 +36,16 @@ const emit = defineEmits<{
 function onRowClick() {
   if (props.node.definition_id) emit('openDefinition', props.node.definition_id)
 }
+// Keyboard-open the referenced definition. Only fires when the row itself has
+// focus (not when a nested control does — those handle their own Enter/Space).
+function onRowKeydown(e: KeyboardEvent) {
+  if (!props.node.definition_id) return
+  if (e.target !== e.currentTarget) return
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault()
+    onRowClick()
+  }
+}
 
 const { t } = useI18n()
 const isFolder = computed(() => props.node.kind === 'folder')
@@ -135,8 +145,12 @@ function closeFullscreen() { fullscreenOpen.value = false; commit() }
     <div
       :data-test="`node-row-${node.id}`"
       :style="{ paddingLeft: `${8 + depth * 26}px` }"
+      :role="node.definition_id ? 'button' : undefined"
+      :tabindex="node.definition_id ? 0 : undefined"
+      :aria-label="node.definition_id ? label : undefined"
       class="flex items-center gap-2.5 py-2 pr-2 rounded-lg hover:bg-surface/70 group text-[14px]"
       @click="onRowClick"
+      @keydown="onRowKeydown"
     >
       <!-- drag handle: the row is only draggable when grabbed here (PromptTree
            gates dragstart on this element), so the rest of the row stays clickable -->

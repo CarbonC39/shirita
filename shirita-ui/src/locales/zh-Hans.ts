@@ -252,7 +252,7 @@ const zhHans: MessageSchema = {
     about: '关于',
     aboutText: 'Shirita —— 一个 SillyTavern 替代品。',
     regexUnnamed: '未命名规则',
-    regexRenameHint: '双击改名',
+    regexRenameHint: '双击或按回车键重命名',
     regexFind: '查找',
     regexPatternPlaceholder: '正则表达式',
     regexReplace: '替换',

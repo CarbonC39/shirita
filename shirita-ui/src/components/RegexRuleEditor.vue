@@ -63,9 +63,13 @@ function commitRename() {
       <span
         v-else
         data-test="regex-name-label"
+        role="button"
+        tabindex="0"
         class="text-[14px] truncate cursor-text shrink-0 max-w-[40%]"
         :title="$t('settings.regexRenameHint')"
         @dblclick="startRename"
+        @keydown.enter="startRename"
+        @keydown.space.prevent="startRename"
       >{{ rule.name || $t('settings.regexUnnamed') }}</span>
       <span
         v-if="scope === 'template' && sourceNames.length"
