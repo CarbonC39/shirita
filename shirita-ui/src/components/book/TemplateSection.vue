@@ -43,8 +43,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="rounded-2xl bg-mauve/5 border border-line/60 p-4 mb-4">
-    <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-mauve border-l-2 border-mauve pl-2 mb-3">
+  <div class="rounded-2xl bg-primary/15 border border-line/60 p-4 mb-4">
+    <h2 data-test="section-template" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/80 border-l-[3px] border-primary pl-2 mb-3">
       {{ $t('book.templateHeading') }}
     </h2>
     <EntityToolbar

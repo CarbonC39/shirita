@@ -36,8 +36,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="rounded-2xl bg-line/5 border border-line/60 p-4 mb-4">
-    <h2 data-test="section-definition" class="flex items-center text-[12px] font-semibold uppercase tracking-wide border-l-2 pl-2 mb-3 border-line text-ink/65">
+  <div class="rounded-2xl bg-sky/20 border border-line/60 p-4 mb-4">
+    <h2 data-test="section-definition" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/80 border-l-[3px] border-sky pl-2 mb-3">
       {{ $t('definition.heading') }}
     </h2>
     <EntityToolbar

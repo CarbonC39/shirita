@@ -25,8 +25,8 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div class="rounded-2xl bg-teal/5 border border-line/60 p-4 mb-4">
-    <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-teal border-l-2 border-teal pl-2 mb-3">
+  <div class="rounded-2xl bg-coral/20 border border-line/60 p-4 mb-4">
+    <h2 data-test="section-pack" class="flex items-center text-[12px] font-semibold uppercase tracking-wide text-ink/80 border-l-[3px] border-coral pl-2 mb-3">
       {{ $t('book.packHeading') }}
     </h2>
     <EntityToolbar
