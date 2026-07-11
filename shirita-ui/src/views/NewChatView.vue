@@ -4,11 +4,13 @@ import { useRouter, onBeforeRouteLeave } from 'vue-router'
 import { GripVertical, X } from 'lucide-vue-next'
 import { useLibraryStore } from '../stores/library'
 import { createSession } from '../api/client'
+import { useI18n } from 'vue-i18n'
 import EntityPicker from '../components/EntityPicker.vue'
 import AvatarPicker from '../components/AvatarPicker.vue'
 
 const router = useRouter()
 const library = useLibraryStore()
+const { t } = useI18n()
 
 const name = ref('')
 const avatar = ref<string | null>(null)
@@ -38,13 +40,16 @@ function selectTemplate(id: string) { selectedTemplateId.value = id || null }
 const leaving = ref(false) // set after a successful create so the guard won't prompt
 function goAuthor(name = '') { router.push('/book' + (name ? `?create=${encodeURIComponent(name)}` : '')) }
 
-// Warn before navigating away if the user has entered any data.
+// Warn before navigating away if the user has entered data they'd lose.
+// The template is intentionally excluded: it's auto-selected on mount (a
+// prefilled default, not user input), so counting it made the guard fire the
+// moment you opened the page and hit back.
 const hasData = computed(() =>
-  name.value.trim() !== '' || avatar.value !== null || mountedPackIds.value.length > 0 || selectedTemplateId.value !== null,
+  name.value.trim() !== '' || avatar.value !== null || mountedPackIds.value.length > 0,
 )
 onBeforeRouteLeave((_to, _from) => {
   if (leaving.value || !hasData.value) return true
-  if (window.confirm('Leave without saving? Your new chat edits will be lost.')) return true
+  if (window.confirm(t('newChat.leaveConfirm'))) return true
   return false
 })
 

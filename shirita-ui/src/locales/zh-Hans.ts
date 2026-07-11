@@ -34,7 +34,7 @@ const zhHans: MessageSchema = {
     settings: '设置',
   },
   home: {
-    empty: '还没有对话。',
+    empty: '还没有对话。点 + 新建一个开始。',
     importTitle: '导入对话',
     newChatAria: '新建对话',
     done: '完成',
@@ -55,6 +55,7 @@ const zhHans: MessageSchema = {
     creating: '创建中…',
     removePack: '移除',
     reorderPack: '拖动以排序',
+    leaveConfirm: '放弃未保存的内容？本次新建对话的编辑将丢失。',
   },
   prompt: {
     deleteContainerConfirm: '删除此容器及其中的 {count} 个条目？',
@@ -99,7 +100,7 @@ const zhHans: MessageSchema = {
     nextVariation: '下一个变体',
     delete: '删除',
     deleteConfirm: '删除这条消息及其所有回复？此操作无法撤销。',
-    empty: '还没有消息。',
+    empty: '还没有消息。在下方输入开始对话。',
     noMessages: '还没有消息',
     dragReorder: '拖动以重排',
     options: '选项',

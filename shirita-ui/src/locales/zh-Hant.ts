@@ -34,7 +34,7 @@ const zhHant: MessageSchema = {
     settings: '設定',
   },
   home: {
-    empty: '尚無對話。',
+    empty: '尚無對話。點 + 新增一個開始。',
     importTitle: '匯入對話',
     newChatAria: '新增對話',
     done: '完成',
@@ -55,6 +55,7 @@ const zhHant: MessageSchema = {
     creating: '建立中…',
     removePack: '移除',
     reorderPack: '拖曳以排序',
+    leaveConfirm: '放棄未儲存的內容？本次新增對話的編輯將遺失。',
   },
   prompt: {
     deleteContainerConfirm: '刪除此容器及其中的 {count} 個項目？',
@@ -99,7 +100,7 @@ const zhHant: MessageSchema = {
     nextVariation: '下一個變體',
     delete: '刪除',
     deleteConfirm: '刪除這則訊息及其所有回覆？此操作無法復原。',
-    empty: '尚無訊息。',
+    empty: '尚無訊息。在下方輸入開始對話。',
     noMessages: '尚無訊息',
     dragReorder: '拖曳以重新排序',
     options: '選項',

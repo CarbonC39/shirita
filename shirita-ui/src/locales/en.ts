@@ -40,7 +40,7 @@ const en = {
     settings: 'Settings',
   },
   home: {
-    empty: 'No conversations yet.',
+    empty: 'No conversations yet. Tap + to start a new one.',
     importTitle: 'Import a conversation',
     newChatAria: 'New chat',
     done: 'Done',
@@ -61,6 +61,7 @@ const en = {
     creating: 'Creating…',
     removePack: 'Remove',
     reorderPack: 'Drag to reorder',
+    leaveConfirm: 'Leave without saving? Your new chat edits will be lost.',
   },
   prompt: {
     deleteContainerConfirm:
@@ -106,7 +107,7 @@ const en = {
     nextVariation: 'Next variation',
     delete: 'Delete',
     deleteConfirm: 'Delete this message and all its replies? This cannot be undone.',
-    empty: 'No messages yet.',
+    empty: 'No messages yet. Type below to begin.',
     noMessages: 'No messages yet',
     dragReorder: 'Drag to reorder',
     options: 'Options',

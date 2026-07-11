@@ -34,7 +34,7 @@ const ja: MessageSchema = {
     settings: '設定',
   },
   home: {
-    empty: 'まだ会話がありません。',
+    empty: 'まだ会話がありません。+ をタップして新規作成しましょう。',
     importTitle: '会話をインポート',
     newChatAria: '新規チャット',
     done: '完了',
@@ -55,6 +55,7 @@ const ja: MessageSchema = {
     creating: '作成中…',
     removePack: '削除',
     reorderPack: 'ドラッグして並べ替え',
+    leaveConfirm: '保存せずに離れますか？新規チャットの編集内容は失われます。',
   },
   prompt: {
     deleteContainerConfirm: 'このコンテナと中の {count} 件の項目を削除しますか？',
@@ -99,7 +100,7 @@ const ja: MessageSchema = {
     nextVariation: '次のバリエーション',
     delete: '削除',
     deleteConfirm: 'このメッセージとすべての返信を削除しますか？この操作は元に戻せません。',
-    empty: 'まだメッセージがありません。',
+    empty: 'まだメッセージがありません。下に入力して会話を始めましょう。',
     noMessages: 'まだメッセージがありません',
     dragReorder: 'ドラッグして並べ替え',
     options: 'オプション',
