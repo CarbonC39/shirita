@@ -14,12 +14,13 @@
 
 </div>
 
-A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrite. Many features work (prompt trees, variables, import/export, branching), but the project is pre-1.0 — expect rough edges, breaking changes, and incomplete documentation. Not yet a daily driver.
+A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrite. Many features work (prompt trees, variables, panels, import/export, branching, regex rules, HTML cards), but the project is pre-1.0 — expect rough edges, breaking changes, and incomplete documentation. Not yet a daily driver.
 
 - **Self-hosted** — Docker image or static-musl binary, SQLite storage, BYO model API key
 - **No telemetry, no cloud, no account required**
 - **Development stage** — works for tinkering; not production-ready
 - **Dual build target** — web (standalone Axum server, `--features embed-ui`) and desktop (Tauri + embedded Axum)
+- **i18n** — English, 简体中文, 繁體中文, 日本語
 
 ---
 
@@ -43,9 +44,11 @@ A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrit
 shirita/
 ├── shirita-core/       Domain models, storage (SQLite/sqlx), prompt assembly,
 │                       context engine, auto-summarization, regex rules,
-│                       provider adapters, variable/state sandbox
-├── shirita-web/        Axum REST + SSE layer (bearer auth, CORS, multipart uploads)
-├── shirita-ui/         Vue 3 + Vite + Pinia + Tailwind v4 (view layer only)
+│                       provider adapters, variable/state sandbox, HTML patching,
+│                       content hashing, identity resolution, import adapters
+├── shirita-web/        Axum REST + SSE layer (bearer auth, HTTP Basic Auth,
+│                       CORS, multipart, embedded static assets)
+├── shirita-ui/         Vue 3 + Vite + Pinia + vue-router (view layer only)
 └── shirita-tauri/      Tauri v2 desktop shell, embeds shirita-web in-process
 ```
 
@@ -53,27 +56,35 @@ shirita/
 
 | Principle | How |
 |-----------|-----|
-| **Everything is a definition** | Characters, prompts, world entries, regex rules, first messages — unified as `Definition` with a type tag |
-| **Copy-on-write** | Editing a definition in a chat doesn't touch the global library; diffs are stored per-session |
+| **Everything is a definition** | Characters, prompts, world entries, regex rules, first messages, protocols, HTML/CSS bricks, variable declarations — unified as `Definition` with a type tag |
+| **Copy-on-write** | Editing a definition in a chat doesn't touch the global library; diffs are stored per-session (materialized node trees, local definitions) |
 | **Backend owns context engineering** | The frontend never counts tokens, assembles prompts, or parses tool calls |
 | **Three trait boundaries** | `Storage`, `ModelProvider`, `TokenCounter` — core is testable without I/O |
-| **Safe rendering** | No `v-html` — dynamic HTML cards use template engines; state updates go through a sandbox |
+| **Safe rendering** | No `v-html` — dynamic HTML cards use sandboxed iframes; state updates go through a parsing engine |
+| **Panels as bricks** | Status panels are `html`/`css` definitions referenced from `panel`-tagged folders in the node tree — not standalone configuration |
+| **Variables as bricks** | Variable schemas are declared on `variables` type definitions via `meta.decls`, resolved from the effective node tree — not a god-object on packs/templates |
 
 ---
 
 ## Features
 
-- **Prompt tree** — hierarchical system prompt builder with folders, containers, and triggers (keyword / random / constant). Each node can reference any definition type
-- **Regex rules** — scoped (global or template-level), filtered by target (`ai_output` / `user_input`) and phase (`display` / `prompt`); supports lookaround and backreferences via `fancy-regex`
-- **Variables & state** — declare variables with type and initial value on templates; update them mid-conversation via `<state_update>` tags or future native tool calls; per-message snapshots for branching
-- **HTML cards (panels)** — build live status panels from `html`/`css` definition bricks; the model updates them in place via an HTML-patch protocol (search/replace blocks) applied in the engine and rendered through a sanitizing template layer — never `v-html`
+- **Prompt tree** — hierarchical system prompt builder with folders, containers, and triggers (keyword / random / constant). Each node references any definition type. Node trees are owned by templates, sessions (copy-on-write), or packs
+- **Regex rules** — scoped via `is_global` flag (global or template/pack-scoped), filtered by target (`ai_output` / `user_input`) and phase (`display` / `prompt` / `both`); supports lookaround and backreferences via `fancy-regex`
+- **Variables & state** — declare variables with type and initial value on `variables` brick definitions; update them mid-conversation via `<state_update>` tags; per-message snapshots for branching; schema resolved from bricks across template and mounted packs
+- **HTML cards (panels)** — build live status panels from `html`/`css` definition bricks grouped under `panel`-tagged folders in the node tree; the model updates them via an HTML-patch protocol (SEARCH/REPLACE blocks) applied in the engine; rendered through sandboxed iframes — never `v-html`. Panels can be hidden until a minimum message count is reached (`min_messages`)
 - **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
-- **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation
+- **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation. Regenerate creates a sibling (swipe-style) rather than overwriting
+- **Per-message identity** — each message carries the `$assistant_name` / `$assistant_avatar` / `$user_name` / `$user_avatar` that was active when it was created, so later template/pack changes don't rewrite old messages
 - **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, and chat-completion presets (→ editable templates: prompts imported by enabled/disabled status, `setvar`/`getvar` recognized as variables, cross-node XML bundled into folders); plus Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate)
-- **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars
-- **i18n** — English, 简体中文, 繁體中文, 日本語
+- **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars; content-addressed dedup via SHA-256 hashing
+- **Composer attachments** — attach images to chat messages (resolved as data URLs in the prompt)
+- **i18n** — English, 简体中文, 繁體中文, 日本語 (vue-i18n v10, locale switcher in settings)
 - **Custom CSS** — injected from a live-editable textarea with stable hooks (`.app-chat-column`, `.app-message[data-role]`, `.app-composer`, `[data-app=shell]`); cached in localStorage to prevent FOUC
-- **Provider isolation** — each provider source (OpenAI, Anthropic, Ollama, Google, etc.) keeps its own API key, base URL, and model selection — switching never clobbers the others
+- **Provider isolation** — each provider source (OpenAI, Anthropic, Ollama, Google, OpenRouter, Mistral, DeepSeek, Groq, xAI, Cohere, Together, Perplexity) keeps its own API key, base URL, and model selection — switching never clobbers the others. Model listing endpoint normalizes vendor-specific responses
+- **Book (library) UI** — manage templates, packs, and definitions in a unified book view with stack-based drill-down navigation (BookNavigator), section components (TemplateSection, PackSection, DefinitionSection), and local-override editing
+- **Desktop notifications** — Tauri plugin sends native OS notifications
+- **HTTP Basic Auth** — optional outer auth layer for public deployments, gating the entire app (UI HTML/JS + API)
+- **PWA support** — mobile/PWA icons and manifest for install-to-homescreen
 
 ---
 
@@ -131,7 +142,7 @@ cargo tauri build --bundles deb
 
 ## Provider configuration
 
-Set the active provider source and its API key/model in **Settings → Provider**. Each source is isolated — switching from OpenAI to Anthropic preserves both configurations.
+Set the active provider source and its API key/model in **Settings → Provider**. Each source is isolated — switching from OpenAI to Anthropic preserves both configurations. Supported sources: `openai`, `anthropic`, `ollama`, `google`, `openrouter`, `mistral`, `deepseek`, `groq`, `xai`, `cohere`, `together`, `perplexity`.
 
 ### Environment fallback (desktop, when no settings are configured)
 
@@ -140,11 +151,17 @@ Set the active provider source and its API key/model in **Settings → Provider*
 | `PROVIDER` | *(empty, = OpenAI compat)* | `anthropic`, `ollama`, or empty |
 | `OPENAI_API_KEY` | — | API key (also used for Anthropic) |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Base URL |
-| `OPENAI_MODEL` | `gpt-4o` | Default model |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Default model |
 | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | Anthropic base (only when `PROVIDER=anthropic`) |
 | `OLLAMA_BASE_URL` | `http://localhost:11434/v1` | Ollama base (only when `PROVIDER=ollama`) |
+| `HTTP_AUTH_USER` | — | HTTP Basic Auth username (both user + pass required) |
+| `HTTP_AUTH_PASS` | — | HTTP Basic Auth password |
 
 When both env and UI settings are configured, the UI settings win.
+
+### HTTP Basic Auth
+
+For public deployments, set both `HTTP_AUTH_USER` and `HTTP_AUTH_PASS` to gate the entire app (UI + API) behind a browser-native login dialog. Setting only one has no effect.
 
 ---
 
@@ -152,13 +169,17 @@ When both env and UI settings are configured, the UI settings win.
 
 | Path | Purpose |
 |------|---------|
-| `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters |
+| `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters, panels, HTML patching, hashing, identity, attachments |
 | `shirita-core/migrations/` | SQLite schema migrations (0020 = current) |
-| `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, etc.) |
-| `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, NewChatPrompt) |
-| `shirita-ui/src/components/` | Vue shared components (MessageItem, Composer, AssetPicker, PromptTree, etc.) |
-| `shirita-ui/src/stores/` | Pinia stores (chat, settings, ui, media, library) |
-| `shirita-ui/src/utils/` | Frontend utilities (tree, regex, tokens, notify, providerKeys, etc.) |
+| `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, variables, local overrides, export, etc.) |
+| `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, Home) |
+| `shirita-ui/src/components/` | Vue shared components (MessageItem, Composer, AssetPicker, PromptTree, PackEditor, DefinitionEditor, BookNavigator, VariablesEditor, PanelView, etc.) |
+| `shirita-ui/src/components/book/` | Book-specific components (BookNavigator, DefinitionSection, PackSection, TemplateSection, SessionTemplateRoot) |
+| `shirita-ui/src/stores/` | Pinia stores (chat, sessions, library, media, settings, ui) |
+| `shirita-ui/src/composables/` | Vue composables (useTheme, useCustomCss, useDefinitionOps, usePackOps, useTemplateOps, useImportExport, useLocalOverrides, useTreeEditor, useToast) |
+| `shirita-ui/src/utils/` | Frontend utilities (tree, regex, tokens, notify, providerKeys, markdown, thinking, clone, panel, time) |
+| `shirita-ui/src/api/` | HTTP client, TypeScript types, model catalog |
+| `shirita-ui/src/locales/` | i18n locales (en, zh-Hans, zh-Hant, ja) |
 | `shirita-tauri/src/` | Tauri bootstrap (embedded Axum server, webview window, graceful shutdown) |
 
 ---
