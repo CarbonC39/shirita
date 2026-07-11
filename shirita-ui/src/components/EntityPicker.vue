@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, onMounted, onBeforeUnmount } from "vue";
 import { Plus } from "lucide-vue-next";
 
 const props = defineProps<{
@@ -17,6 +17,8 @@ const emit = defineEmits<{
   'intent-create': [searchDraft: string];
 }>();
 
+const root = ref<HTMLElement | null>(null);
+const triggerEl = ref<HTMLButtonElement | null>(null);
 const open = ref(false);
 const search = ref("");
 
@@ -28,29 +30,59 @@ const filter = computed(() =>
 
 function toggle() {
   if (props.disabled) return;
-  open.value = !open.value;
-  if (open.value) search.value = "";
+  open.value ? close() : openMenu();
+}
+function openMenu() {
+  if (props.disabled || open.value) return;
+  open.value = true;
+  search.value = "";
+}
+function close() {
+  if (!open.value) return;
+  open.value = false;
+  search.value = "";
+  // Return focus to the trigger so keyboard users aren't dropped.
+  triggerEl.value?.focus();
 }
 
 function pick(id: string) {
   emit("select", id);
-  open.value = false;
-  search.value = "";
+  close();
 }
 
 function startCreate() {
   emit("intent-create", search.value);
-  open.value = false;
-  search.value = "";
+  close();
 }
+
+// Close when clicking outside the picker (mousedown so it fires before the
+// toggle's own click, avoiding a double-toggle race).
+function onDocPointer(e: MouseEvent) {
+  if (open.value && root.value && !root.value.contains(e.target as Node)) close();
+}
+// Escape closes from anywhere (e.g. while typing in the search field).
+function onDocKey(e: KeyboardEvent) {
+  if (open.value && e.key === "Escape") { e.stopPropagation(); close(); }
+}
+onMounted(() => {
+  document.addEventListener("mousedown", onDocPointer);
+  document.addEventListener("keydown", onDocKey);
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("mousedown", onDocPointer);
+  document.removeEventListener("keydown", onDocKey);
+});
 </script>
 
 <template>
-  <div class="relative" :class="{ 'pointer-events-none opacity-50': disabled }">
+  <div ref="root" class="relative" :class="{ 'pointer-events-none opacity-50': disabled }">
     <!-- With left-side label -->
     <button
       v-if="label"
+      ref="triggerEl"
       class="flex items-center gap-2 text-[13px] text-ink w-full"
+      :aria-expanded="open"
+      aria-haspopup="listbox"
       @click="toggle"
     >
       <span class="w-24 text-muted shrink-0 text-right">{{ label }}</span>
@@ -62,21 +94,25 @@ function startCreate() {
     <!-- Standalone toggle -->
     <button
       v-else
+      ref="triggerEl"
       class="w-full text-left px-3 py-2 bg-card border border-line rounded-lg text-[14px]"
       :class="selectedLabel ? 'text-ink' : 'text-muted'"
+      :aria-expanded="open"
+      aria-haspopup="listbox"
       @click="toggle"
     >{{ selectedLabel || placeholder || "&nbsp;" }}</button>
 
     <div
       v-if="open"
+      role="listbox"
       class="absolute z-30 mt-1 rounded-xl border border-line bg-card shadow-xl min-w-[220px]"
     >
       <!-- Search input -->
       <input
         v-model="search"
         type="text"
-        class="w-full bg-transparent px-3 py-2 text-[14px] text-ink placeholder:text-muted/70 outline-none"
-        :placeholder="placeholder || 'Search\u2026'"
+        class="w-full bg-transparent px-3 py-2 text-[14px] text-ink placeholder:text-muted outline-none"
+        :placeholder="placeholder || 'Search…'"
         autofocus
       />
       <!-- No results: show + New X -->
@@ -94,6 +130,7 @@ function startCreate() {
         <button
           v-for="o in filter"
           :key="o.id"
+          role="option"
           class="w-full flex items-center gap-2 px-3 py-1.5 text-[14px] text-ink hover:bg-card/50 transition-colors"
           @click="pick(o.id)"
         >

@@ -123,8 +123,13 @@ async function onDelete(id: string, path: string) {
     <!-- Crop dialog for avatar upload -->
     <div
       v-if="croppingFile"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="t('common.avatarCropHint')"
+      tabindex="-1"
       class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
       @click.self="cancelCrop"
+      @keydown.escape="cancelCrop"
     >
       <div class="bg-card rounded-xl p-6 shadow-xl max-w-sm w-full">
         <p class="text-sm text-muted mb-3">{{ t('common.avatarCropHint') }}</p>
