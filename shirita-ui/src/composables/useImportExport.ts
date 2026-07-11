@@ -7,6 +7,7 @@ import {
   exportDefinitionPath, exportTemplatePath, downloadPackExport,
 } from '../api/client'
 import type { OnConflict, ImportSummary, Definition, Pack } from '../api/types'
+import { useToast } from './useToast'
 
 export function useImportExport(deps: {
   selectedTemplateId: Ref<string | null>
@@ -19,6 +20,7 @@ export function useImportExport(deps: {
   const library = useLibraryStore()
   const media = useMediaStore()
   const { t: tr } = useI18n()
+  const { show: showToast } = useToast()
 
   const importSummary = ref<ImportSummary | null>(null)
   const importBusy = ref(false)
@@ -52,7 +54,14 @@ export function useImportExport(deps: {
     const input = e.target as HTMLInputElement
     const file = input.files?.[0]
     if (!file) return
-    await runImport(file, 'skip')
+    // runImport re-throws on failure; without a catch the rejection was
+    // unhandled and the user saw nothing (the summary panel only renders on
+    // success). Surface the failure.
+    try {
+      await runImport(file, 'skip')
+    } catch {
+      showToast(tr('book.importFailed'), 'error')
+    }
     input.value = ''
   }
 

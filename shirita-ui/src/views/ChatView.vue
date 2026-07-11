@@ -14,8 +14,10 @@ import Composer from '../components/Composer.vue'
 import VariablesPanel from '../components/VariablesPanel.vue'
 import PanelView from '../components/PanelView.vue'
 import { ArrowLeft, X } from 'lucide-vue-next'
+import { useToast } from '../composables/useToast'
 
 const { t } = useI18n()
+const { show: showToast } = useToast()
 const route = useRoute()
 const router = useRouter()
 const chat = useChatStore()
@@ -180,7 +182,11 @@ async function handleStop() {
 }
 
 function handleCopy(text: string) {
-  navigator.clipboard.writeText(text).catch(() => {})
+  // Was a silent .catch(() => {}): if the browser blocked the copy (no HTTPS,
+  // permissions) the user got neither confirmation nor an error. Surface both.
+  navigator.clipboard.writeText(text)
+    .then(() => showToast(t('chat.copied')))
+    .catch(() => showToast(t('chat.copyFailed'), 'error'))
 }
 
 async function handleRegenerate(id: string) {

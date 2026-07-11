@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowUp, Plus, X, Square } from 'lucide-vue-next'
 import { estimateTokens, formatTokens } from '../utils/tokens'
 import { uploadAsset, type Asset } from '../api/client'
+import { useToast } from '../composables/useToast'
+
+const { t } = useI18n()
+const { show: showToast } = useToast()
 
 const props = defineProps<{ disabled: boolean; streaming?: boolean }>()
 
@@ -39,6 +44,10 @@ async function onFile(e: Event) {
   try {
     const asset = await uploadAsset(file)
     pending.value.push(asset)
+  } catch {
+    // Was swallowed (try/finally with no catch): a failed upload left the user
+    // with no thumbnail and no idea why. Surface it.
+    showToast(t('composer.uploadFailed'), 'error')
   } finally {
     uploading.value = false
     if (fileInput.value) fileInput.value.value = ''

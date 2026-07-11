@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppShell from './components/AppShell.vue'
+import ToastHost from './components/ToastHost.vue'
 import { useTheme } from './composables/useTheme'
 import { useCustomCss } from './composables/useCustomCss'
 
@@ -19,4 +20,5 @@ useCustomCss()
       </transition>
     </router-view>
   </AppShell>
+  <ToastHost />
 </template>

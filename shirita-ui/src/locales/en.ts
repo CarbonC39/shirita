@@ -100,6 +100,8 @@ const en = {
     regenerate: 'Regenerate',
     fork: 'Fork',
     copy: 'Copy',
+    copied: 'Copied',
+    copyFailed: "Couldn't copy — your browser may have blocked it.",
     edit: 'Edit',
     hide: 'Hide',
     unhide: 'Unhide',
@@ -120,6 +122,7 @@ const en = {
     removeAttachment: 'Remove attachment',
     placeholder: 'Type a message…',
     stop: 'Stop generating',
+    uploadFailed: "Couldn't upload that image — please try again.",
   },
   book: {
     localHeading: 'This conversation',
@@ -134,6 +137,7 @@ const en = {
     conflictDuplicate: 'Duplicate',
     importSummary:
       'Imported: {created} created, {skipped} skipped, {overwritten} overwritten.',
+    importFailed: 'Import failed — check the file and try again.',
     importPanelDetected: 'Detected a status bar — generated a native panel preview.',
     templateNamePlaceholder: 'Template name',
     deleteTemplateConfirm: 'Delete this template?',
