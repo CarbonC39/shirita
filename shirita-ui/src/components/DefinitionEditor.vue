@@ -141,18 +141,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
     <!-- editor body: revealed only once a definition is picked or a new one started -->
     <template v-if="active">
-      <!-- Name -->
-      <div class="mb-3">
-        <input
-          :value="definition.name"
-          type="text"
-          data-test="def-name-input"
-          :placeholder="$t('definition.namePlaceholder')"
-          class="field w-full"
-          @input="emit('update:name', ($event.target as HTMLInputElement).value)"
-        />
-      </div>
-
       <!-- type chips (with create / delete custom types) -->
       <div class="flex items-center gap-2 flex-wrap mb-3">
         <span class="text-[12px] text-muted">{{ $t('definition.typeLabel') }}</span>

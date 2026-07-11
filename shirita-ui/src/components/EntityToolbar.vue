@@ -102,7 +102,7 @@ function cancelRename() {
         v-model="renameName"
         type="text"
         data-test="rename-input"
-        class="flex-1 bg-transparent border border-line rounded-lg px-3 py-2 text-[14px] text-ink placeholder:text-muted/60 outline-none focus:border-primary/50"
+        class="flex-1 min-w-0 bg-transparent border border-line rounded-lg px-3 py-2 text-[14px] text-ink placeholder:text-muted/60 outline-none focus:border-primary/50"
         @keydown.enter="confirmRename"
         @keydown.escape="cancelRename"
       />
@@ -199,7 +199,7 @@ function cancelRename() {
         type="text"
         data-test="create-name-input"
         :placeholder="createLabel"
-        class="flex-1 bg-transparent border border-line rounded-lg px-3 py-2 text-[14px] text-ink placeholder:text-muted/60 outline-none focus:border-primary/50"
+        class="flex-1 min-w-0 bg-transparent border border-line rounded-lg px-3 py-2 text-[14px] text-ink placeholder:text-muted/60 outline-none focus:border-primary/50"
         @keydown.enter="confirmCreate"
         @keydown.escape="cancelCreate"
       />

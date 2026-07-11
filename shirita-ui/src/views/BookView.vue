@@ -198,7 +198,7 @@ async function onImport() {
       </div>
 
       <!-- Import file input (shared) -->
-      <input :ref="(el) => { impex.importInput.value = el as HTMLInputElement }" type="file" hidden accept=".json,application/json" @change="impex.onImportPicked" />
+      <input :ref="(el) => { impex.importInput.value = el as HTMLInputElement }" type="file" hidden accept=".json,application/json,.png,image/png,.zip,application/zip" @change="impex.onImportPicked" />
 
       <!-- ── LOCAL SECTION (session-context) ── -->
       <section v-if="ui.activeChatId" data-test="book-local" class="rounded-2xl bg-primary/5 border border-line/60 p-4 mb-6">

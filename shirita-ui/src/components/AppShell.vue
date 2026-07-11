@@ -77,7 +77,7 @@ const crumbs = computed(() => (route.meta.crumbs as Crumb[] | undefined) ?? [])
         </div>
         <div class="flex justify-center"><div class="h-px w-[170px] bg-line" /></div>
       </header>
-      <main class="flex-1 min-h-0 overflow-y-auto px-8">
+      <main class="flex-1 min-h-0 overflow-y-auto px-3 sm:px-8">
         <!-- mobile breadcrumbs: inside main content, below header -->
         <div v-if="crumbs.length" class="sm:hidden flex items-center gap-1.5 pt-3 pb-1">
           <template v-for="(c, i) in crumbs" :key="i">

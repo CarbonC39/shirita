@@ -133,7 +133,7 @@ async function updateDefName(definitionId: string, name: string) {
   <div data-test="pack-editor">
     <!-- identity -->
     <h3 class="text-[11px] font-semibold text-ink/65 uppercase tracking-[0.06em] mb-2.5">{{ $t('pack.identity') }}</h3>
-    <div class="flex items-start gap-4 mb-4">
+    <div class="flex flex-col sm:flex-row sm:items-start gap-4 mb-4">
       <AssetPicker
         shape="circle"
         kind="avatar"

@@ -74,7 +74,7 @@ function onKeydown(e: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="app-composer border-t border-line bg-card px-2 sm:px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.625rem)]">
+  <div class="app-composer border-t border-line bg-card px-1.5 sm:px-4 pt-2.5 pb-[calc(env(safe-area-inset-bottom)+0.625rem)]">
     <div v-if="pending.length" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pb-2 flex flex-wrap gap-2">
       <div v-for="a in pending" :key="a.id" class="relative w-14 h-14 rounded-lg overflow-hidden border border-line">
         <img :src="a.url" class="w-full h-full object-cover" alt="" />

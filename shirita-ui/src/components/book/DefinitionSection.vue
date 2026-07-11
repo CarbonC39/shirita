@@ -63,6 +63,7 @@ const emit = defineEmits<{
     <div class="mb-2" />
     <DefinitionEditor
       :definition="editDef"
+      hide-heading
       :types="types"
       :active="editDefActive"
       :saved-tick="editDefSavedTick"
