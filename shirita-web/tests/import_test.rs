@@ -128,3 +128,31 @@ async fn rejects_unknown_json() {
     let (st, _) = import_bytes(&state, "", "x.json", br#"{"random":"blob"}"#).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn rejects_st_card_json() {
+    // ST-shaped card JSON has no native `format` discriminator; reject it.
+    let (state, _) = test_state().await;
+    let card = r#"{"spec":"chara_card_v2","data":{"name":"Neo","description":"The One"}}"#;
+    let (st, _) = import_bytes(&state, "", "neo.json", card.as_bytes()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(state.storage.list_definitions().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rejects_st_preset_json() {
+    let (state, _) = test_state().await;
+    let preset = r#"{"prompts":[{"content":"x"}],"prompt_order":[0]}"#;
+    let (st, _) = import_bytes(&state, "", "preset.json", preset.as_bytes()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(state.storage.list_templates().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn rejects_world_info_json() {
+    let (state, _) = test_state().await;
+    let wi = r#"{"entries":{"0":{"key":["zion"],"content":"Zion","constant":false}}}"#;
+    let (st, _) = import_bytes(&state, "", "wi.json", wi.as_bytes()).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(state.storage.list_definitions().await.unwrap().is_empty());
+}

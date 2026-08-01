@@ -317,8 +317,8 @@ pub fn apply_regex_rules(text: &str, rules: &[Definition]) -> Option<String> {
 /// shown to the user, only extracts values to fold into the session's
 /// persistent variable state via the same `apply_updates` call already used
 /// for `<state_update>` tags. Only rules carrying `meta.capture_vars`
-/// (written by `adapters::charcard::try_convert_status_panel`) participate;
-/// every other regex_rule is untouched and contributes nothing here.
+/// participate; every other regex_rule is untouched and contributes nothing
+/// here.
 pub fn capture_panel_updates(text: &str, rules: &[Definition]) -> Vec<Update> {
     let mut out = Vec::new();
     for rule in rules {

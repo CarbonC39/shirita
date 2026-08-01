@@ -1,6 +1,5 @@
 //! shirita-core: Core business library
 
-pub mod adapters;
 pub mod assembly;
 pub mod auth_password;
 pub mod attachments;
@@ -15,7 +14,6 @@ pub mod keyword;
 pub mod model;
 pub mod models;
 pub mod panels;
-pub mod pngcard;
 pub mod portable;
 pub mod seed;
 pub mod state;
@@ -39,10 +37,6 @@ pub use error::{Error, Result};
 pub use model::{
     AnthropicProvider, ChatMessage, ChatRequest, EchoProvider, ModelProvider, OpenAiProvider,
 };
-pub use adapters::charcard::{charcard_to_loreset, loreset_to_pack, LoreSet};
-pub use adapters::preset::tree_to_preset;
-pub use adapters::stpreset::stpreset_to_loreset;
-pub use adapters::worldinfo::worldinfo_to_defs;
 pub use auth_password::{hash_password, iso_now_plus_days, random_token, verify_password};
 pub use models::asset::Asset;
 pub use models::auth_session::AuthSessionRecord;
@@ -57,7 +51,6 @@ pub use models::user::User;
 pub use hashing::sha256_hex;
 pub use models::pack::{Pack, PackIdentity};
 pub use panels::{collect_panels, resolve_session_panels, RenderedPanel};
-pub use pngcard::read_card_json;
 pub use portable::{
     collect_pack_assets, export_definition, export_pack, export_template, parse_portable,
     rewrite_pack_assets, PortableDef, PortableDoc, PortableNode,

@@ -183,7 +183,7 @@ describe('importFile', () => {
 
   it('posts multipart FormData with file and on_conflict query', async () => {
     vi.stubGlobal('fetch', mockFetch(200, { created: [], skipped: [], overwritten: [] }))
-    const file = new File([new Uint8Array([1, 2, 3])], 'card.png', { type: 'image/png' })
+    const file = new File([new TextEncoder().encode('{"format":"shirita.definition"}')], 'bundle.json', { type: 'application/json' })
     await importFile(file, 'overwrite')
     const fetchMock = fetch as unknown as ReturnType<typeof vi.fn>
     const [url, init] = fetchMock.mock.calls[0]

@@ -1983,8 +1983,8 @@ mod tests {
         // Mirrors import_pack_rolls_back_on_failure: a mid-transaction failure
         // (duplicate node primary key) must not leave an orphaned template or
         // definition row behind — the bug this atomic method replaced (a loop
-        // of individual non-transactional creates in import_template_bundle/
-        // persist_preset) would have left exactly that.
+        // of individual non-transactional creates in import_template_bundle)
+        // would have left exactly that.
         let s = temp_storage().await;
         let tmpl = Template::new("Atomic");
         let def = Definition::new("prompt", "D", "c");

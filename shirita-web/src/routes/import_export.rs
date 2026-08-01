@@ -5,11 +5,11 @@ use axum::extract::{Multipart, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use shirita_core::{
-    charcard_to_loreset, collect_pack_assets, loreset_to_pack, parse_portable, rewrite_pack_assets,
-    stpreset_to_loreset, Asset, Definition, LoreSet, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode,
+    collect_pack_assets, parse_portable, rewrite_pack_assets,
+    Asset, Definition, NodeKind, OwnerKind, Pack, PortableDoc, PromptNode,
     Template,
 };
 
@@ -288,173 +288,38 @@ async fn persist_defs(
     Ok(())
 }
 
-/// Saves the entire PNG file to the `assets` directory and registers it as an Asset, returning the filename (with the `meta.avatar` definition written).
-/// hash-deduped like `persist_pack_bundle`'s asset restore: re-importing the
-/// same card (e.g. a retried or repeated upload) reuses the existing row
-/// instead of writing a fresh duplicate file + Asset each time.
-async fn save_png_asset(state: &AppState, bytes: &[u8], display: &str) -> Result<String, StatusCode> {
-    use std::path::Path as FsPath;
-    let hash = shirita_core::sha256_hex(bytes);
-    if let Some(existing) =
-        state.storage.find_asset_by_hash(&hash).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
-        return Ok(existing.path);
-    }
-    let stored = format!("{}.png", uuid::Uuid::new_v4());
-    let path = FsPath::new(&state.config.assets_dir).join(&stored);
-    tokio::fs::create_dir_all(&state.config.assets_dir).await.ok();
-    tokio::fs::write(&path, bytes).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut asset = shirita_core::Asset::new(display, stored.clone());
-    asset.kind = "avatar".into(); // character-card PNGs are avatars
-    asset.hash = Some(hash);
-    state.storage.create_asset(&asset).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(stored)
-}
-
-/// Read the first multipart field's bytes plus its filename stem (no extension),
-/// if any. The stem seeds the imported preset's template name.
-async fn first_field(mut mp: Multipart) -> Result<(Vec<u8>, Option<String>), StatusCode> {
+/// Read the first multipart field's bytes.
+async fn first_field(mut mp: Multipart) -> Result<Vec<u8>, StatusCode> {
     let field = mp.next_field().await.map_err(|_| StatusCode::BAD_REQUEST)?.ok_or(StatusCode::BAD_REQUEST)?;
-    // Capture the (owned) stem before `bytes()` consumes the field.
-    let stem = field.file_name().map(|f| {
-        std::path::Path::new(f).file_stem().and_then(|s| s.to_str()).unwrap_or(f).to_string()
-    });
     let bytes = field.bytes().await.map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok((bytes.to_vec(), stem))
+    Ok(bytes.to_vec())
 }
 
-const PNG_SIG: [u8; 8] = [0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
-
-/// Inject the saved avatar filename into the loreset's main char definition.
-fn with_avatar(mut ls: LoreSet, avatar: Option<&str>) -> LoreSet {
-    if let Some(av) = avatar {
-        if let Some(ch) = ls.definitions.iter_mut().find(|d| d.def_type == "char") {
-            match ch.meta.as_object_mut() {
-                Some(obj) => {
-                    obj.insert("avatar".into(), json!(av));
-                }
-                None => ch.meta = json!({ "avatar": av }),
-            }
-        }
-    }
-    ls
-}
-
-/// Persist a charcard-derived [`LoreSet`] as a [`Pack`] — the format actually
-/// designed to hold one self-contained piece of imported character content
-/// (a node tree owned directly by the pack, plus a bound identity), instead
-/// of a bare `Template`. Definitions are always created **fresh** (no
-/// name+def_type dedup) — like `persist_preset` already does, and like
-/// `persist_pack_bundle` does for bundle defs — because a card's field names
-/// (the character's display name, an ST regex script's `scriptName`, …) are
-/// not globally unique across unrelated cards; deduping by name would let one
-/// card's content (e.g. its avatar-bearing `char` def, or a `regex_rule`)
-/// silently get skipped/overwritten in favor of an unrelated card's, instead
-/// of staying self-contained to this pack. The node tree and the new pack row
-/// are then created via the same atomic `import_pack` path the `shirita.pack`
-/// bundle importer uses (no new assets here — the avatar, if any, was already
-/// saved by the caller).
-async fn persist_loreset_as_pack(
-    state: &AppState,
-    ls: LoreSet,
-    avatar: Option<&str>,
-    oc: OnConflict,
-    summary: &mut ImportSummary,
-) -> Result<(), StatusCode> {
-    // Skip an existing same-name pack (peek before any def/node work), mirroring
-    // persist_pack_bundle's early-skip.
-    if matches!(oc, OnConflict::Skip) {
-        if let Some(ex) = state.storage.get_pack_by_name(&ls.template.name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
-            summary.skipped.push(item("pack", &ex.id, &ex.name));
-            return Ok(());
-        }
-    }
-
-    let (pack, defs, mut nodes) = loreset_to_pack(ls, avatar);
-
-    for d in &defs {
-        summary.created.push(item("definition", &d.id, &d.name));
-    }
-    // A panel is no longer a meta blob; it imports as a `panel` folder whose
-    // html/css bricks are reported above as plain `definition` items.
-    // Container nodes (folder/history) before refs — import_pack requires
-    // parent-before-child order for the self-referential FK.
-    nodes.sort_by_key(|n| if n.kind == NodeKind::Ref { 1 } else { 0 });
-
-    state
-        .storage
-        .import_pack(&pack, &defs, &nodes, &[])
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    summary.created.push(item("pack", &pack.id, &pack.name));
-    Ok(())
-}
-
-/// Persist an ST-preset loreset. The template name is the conflict unit (like
-/// `import_template_bundle`); definitions are always created **fresh** (no
-/// name dedup) because preset prompt names are generic (`main`, `nsfw`, …) and
-/// deduping across imports would reuse or clobber an earlier preset's text.
-/// Node `definition_id`s already point at the fresh def UUIDs from
-/// `stpreset_to_loreset`, so no id remap is needed.
-async fn persist_preset(
-    state: &AppState,
-    ls: LoreSet,
-    oc: OnConflict,
-    summary: &mut ImportSummary,
-) -> Result<(), StatusCode> {
-    if matches!(oc, OnConflict::Skip) {
-        if let Some(ex) = state.storage.get_template_by_name(&ls.template.name).await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)? {
-            summary.skipped.push(item("template", &ex.id, &ex.name));
-            return Ok(());
-        }
-    }
-    // Container nodes (history/content) before refs, mirroring import_pack's
-    // self-referential-FK ordering (preset refs are all roots, but keep it safe).
-    let (containers, refs): (Vec<PromptNode>, Vec<PromptNode>) =
-        ls.nodes.into_iter().partition(|n| n.kind != NodeKind::Ref);
-    let nodes: Vec<PromptNode> = containers.into_iter().chain(refs).collect();
-    state
-        .storage
-        .import_template(&ls.template, &ls.definitions, &nodes)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    summary.created.push(item("template", &ls.template.id, &ls.template.name));
-    Ok(())
-}
-
-/// POST /api/import — multipart request containing a single `file`. Sniff the source based on the content and save it to the database.
+/// POST /api/import — multipart request containing a single `file`. Accepts
+/// only the three explicit Shirita-native portable formats:
+///  1. a `shirita.pack` ZIP bundle (manifest.json + assets/), detected by ZIP
+///     signature and validated by requiring a `shirita.pack` manifest;
+///  2. otherwise the payload must parse as JSON and carry an explicit
+///     `format` of `shirita.definition`, `shirita.template`, or `shirita.pack`;
+///  3. everything else (ST card/preset/World Info JSON, arbitrary PNG bytes,
+///     unknown JSON) is rejected with `400 Bad Request`.
 pub async fn import(
     State(state): State<AppState>,
     Query(q): Query<ImportQuery>,
     mp: Multipart,
 ) -> Result<Json<ImportSummary>, StatusCode> {
     let oc = OnConflict::parse(q.on_conflict.as_deref());
-    let (bytes, filename) = first_field(mp).await?;
+    let bytes = first_field(mp).await?;
     let mut summary = ImportSummary::default();
 
-    // 1) PNG → ST character cards + avatars.
-    if bytes.len() >= 8 && bytes[..8] == PNG_SIG {
-        let card = shirita_core::read_card_json(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
-        let name = card.get("data").and_then(|d| d.get("name")).and_then(|v| v.as_str()).unwrap_or("character");
-        let avatar = save_png_asset(&state, &bytes, name).await?;
-        let ls = with_avatar(charcard_to_loreset(&card), Some(&avatar));
-        persist_loreset_as_pack(&state, ls, Some(&avatar), oc, &mut summary).await?;
-        // The pack-name skip check inside persist_loreset_as_pack runs after the
-        // avatar is already saved/hash-deduped; if the pack import ended up
-        // skipped (e.g. a same-named pack already exists), this avatar has no
-        // reference at all — clean it up instead of leaving it in the library.
-        crate::routes::assets::gc_avatar_if_orphaned(&state, &avatar).await?;
-        return Ok(Json(summary));
-    }
-
-    // 1b) Zip → shirita.pack bundle (manifest.json + assets/<file>).
+    // 1) ZIP signature → shirita.pack bundle (manifest.json + assets/<file>).
     if bytes.len() >= 4 && bytes[..4] == [0x50, 0x4B, 0x03, 0x04] {
         let (manifest, zip_assets) = unzip_pack(&bytes)?;
         persist_pack_bundle(&state, &manifest, &zip_assets, oc, &mut summary).await?;
         return Ok(Json(summary));
     }
 
-    // 2) Andernfalls als JSON erkennen.
+    // 2) Otherwise it must be JSON with an explicit native `format` value.
     let v: Value = serde_json::from_slice(&bytes).map_err(|_| StatusCode::BAD_REQUEST)?;
     match v.get("format").and_then(|f| f.as_str()) {
         Some("shirita.definition") => {
@@ -467,53 +332,11 @@ pub async fn import(
         Some("shirita.pack") => {
             persist_pack_bundle(&state, &v, &HashMap::new(), oc, &mut summary).await?;
         }
-        _ => {
-            // Structural sniff for an ST chat-completion preset (no `format`
-            // field): both `prompts` and `prompt_order` are arrays. Checked
-            // before the char-card/worldinfo heuristics.
-            let is_preset = v.get("prompts").map(|p| p.is_array()).unwrap_or(false)
-                && v.get("prompt_order").map(|o| o.is_array()).unwrap_or(false);
-            let is_card = v.get("spec").and_then(|s| s.as_str()).map(|s| s.contains("chara_card")).unwrap_or(false)
-                || v.get("data").and_then(|d| d.get("name")).is_some()
-                || (v.get("name").is_some() && v.get("description").is_some());
-            if is_preset {
-                // Filename stem -> template name; empty -> adapter's unique fallback.
-                let name = filename.as_deref().unwrap_or("");
-                let ls = stpreset_to_loreset(&v, name);
-                // Nothing usable (empty/missing enabled order) -> 400, not an empty template.
-                if ls.definitions.is_empty() && !ls.nodes.iter().any(|n| n.kind == NodeKind::Content) {
-                    return Err(StatusCode::BAD_REQUEST);
-                }
-                persist_preset(&state, ls, oc, &mut summary).await?;
-            } else if is_card {
-                persist_loreset_as_pack(&state, charcard_to_loreset(&v), None, oc, &mut summary).await?;
-            } else if v.get("entries").is_some() {
-                persist_defs(&state, shirita_core::worldinfo_to_defs(&v), oc, &mut summary).await?;
-            } else {
-                return Err(StatusCode::BAD_REQUEST);
-            }
-        }
+        // No recognized native discriminator → reject. Unknown formats are not
+        // guessed by structure; accepting them would keep compatibility logic
+        // in the main application.
+        _ => return Err(StatusCode::BAD_REQUEST),
     }
-    Ok(Json(summary))
-}
-
-/// Compatibility with thin packaging: Fix the JSON source for ST character cards and adjust the logic for unified storage (default: skip).
-pub async fn import_charcard(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<Json<ImportSummary>, StatusCode> {
-    let mut summary = ImportSummary::default();
-    persist_loreset_as_pack(&state, charcard_to_loreset(&body), None, OnConflict::Skip, &mut summary).await?;
-    Ok(Json(summary))
-}
-
-/// Compatibility with thin packaging: Fix the JSON source for ST World Book.
-pub async fn import_worldinfo(
-    State(state): State<AppState>,
-    Json(body): Json<Value>,
-) -> Result<Json<ImportSummary>, StatusCode> {
-    let mut summary = ImportSummary::default();
-    persist_defs(&state, shirita_core::worldinfo_to_defs(&body), OnConflict::Skip, &mut summary).await?;
     Ok(Json(summary))
 }
 

@@ -172,7 +172,7 @@ describe('BookView scopes', () => {
     const w = mount(BookView)
     await flushPromises()
     const input = w.find('input[type="file"]').element as HTMLInputElement
-    Object.defineProperty(input, 'files', { value: [new File(['x'], 'card.png')], configurable: true })
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'bundle.json')], configurable: true })
     await w.find('input[type="file"]').trigger('change')
     await flushPromises()
     expect(w.find('[data-test="pack-editor"]').exists()).toBe(true)
@@ -187,7 +187,7 @@ describe('BookView scopes', () => {
     const w = mount(BookView)
     await flushPromises()
     const input = w.find('input[type="file"]').element as HTMLInputElement
-    Object.defineProperty(input, 'files', { value: [new File(['x'], 'card.png')], configurable: true })
+    Object.defineProperty(input, 'files', { value: [new File(['x'], 'bundle.json')], configurable: true })
     await w.find('input[type="file"]').trigger('change')
     await flushPromises()
     expect(w.text()).toContain('Detected a status bar')
