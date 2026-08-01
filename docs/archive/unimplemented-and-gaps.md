@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-19
 
+> **Status:** historical inventory. Several entries were completed after the date above. Validate every item against the current code before acting on it; active priorities are maintained in [`current-direction.md`](current-direction.md).
+
 This document inventories what hasn't been built yet or doesn't meet expectations,
 organized by severity.
 

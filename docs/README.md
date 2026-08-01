@@ -1,29 +1,31 @@
-# Shirita — Documentation
+# Shirita documentation
 
-## Quick links
+This index separates current documentation from historical design artifacts. When documents disagree, current product and direction documents take precedence over archived milestone plans.
 
-- [README](../README.md) — Project overview, quick start, architecture
-- [Provider configuration](providers.md) — Supported models, env vars, UI settings
-- [Technical design notes](../tdd.md) — Architecture principles, data model
+## Current guidance
 
-## Milestone design documents & implementation plans
+- [Project README](../README.md) — public overview, current capabilities, setup, and development commands
+- [Product direction](../PRODUCT.md) — product identity, commitments, non-goals, and decision boundary
+- [Current development direction](current-direction.md) — active cleanup scope and sequencing
+- [Phase 1 implementation plan](plans/phase-1-chat-correctness.md) — proposed task-by-task plan for chat correctness and recovery
+- [Architecture](../ARCHITECTURE.md) — current implementation architecture; update it alongside structural code changes
 
-Per-milestone specs and plans live under `docs/superpowers/`. These are internal development artifacts produced during the design → plan → implement workflow. Earlier milestones were documented in Chinese; newer documents are in English per the project convention.
+## Reference
 
-### Key specs
+- [Provider configuration](providers.md) — supported providers, environment variables, and UI settings
+- [Deployment](deploy.md) — self-hosted deployment and operational notes
+- [Module documentation](module-docs.md) — generated implementation survey; useful for navigation but not normative
+- [Archived known gaps](archive/unimplemented-and-gaps.md) — dated inventory retained for historical context; validate every item against current code
 
-| Doc | Milestone | Date |
-|-----|-----------|------|
-| [Roadmap](superpowers/specs/2026-06-12-shirita-roadmap-design.md) | M0–M9 | 2026-06-12 |
-| [M3 Frontend](superpowers/specs/2026-06-13-m3-frontend-design.md) | M3 | 2026-06-13 |
-| [Prompt tree / worldbook](superpowers/specs/2026-06-13-prompt-tree-worldbook-design.md) | M3 | 2026-06-13 |
-| [M4 Message tree](superpowers/specs/2026-06-14-m4-message-tree-design.md) | M4 | 2026-06-14 |
-| [M5 Variables & state](superpowers/specs/2026-06-15-m5-variables-state-design.md) | M5 | 2026-06-15 |
-| [M6 Context engineering](superpowers/specs/2026-06-15-m6-context-engineering-design.md) | M6 | 2026-06-15 |
-| [M7 Import / export](superpowers/specs/2026-06-16-m7-import-export-design.md) | M7 | 2026-06-16 |
-| [M8 Tauri desktop](superpowers/specs/2026-06-16-m8-tauri-desktop-design.md) | M8 | 2026-06-16 |
-| [Chat identity](superpowers/specs/2026-06-17-chat-identity-design.md) | — | 2026-06-17 |
-| [Regex & variables](superpowers/specs/2026-06-18-regex-and-variables-design.md) | — | 2026-06-18 |
-| [UX & settings fixes](superpowers/specs/2026-06-19-ux-and-settings-fixes-design.md) | — | 2026-06-19 |
+## Historical archive
 
-Implementation plans follow the naming `docs/superpowers/plans/YYYY-MM-DD-<name>.md`.
+The former `docs/superpowers` directory is preserved at [`docs/archive/superpowers/`](archive/superpowers/). It contains milestone specs and implementation plans produced during the initial M0–M9 build-out.
+
+These files explain how the current system evolved, but they are semi-deprecated:
+
+- they are not the active roadmap;
+- completion markers are historical, not current priorities;
+- proposed behavior may have been superseded by later code or current direction;
+- new work should not be added there.
+
+Use the archive for archaeology and migration context only.

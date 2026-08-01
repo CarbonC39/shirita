@@ -1,6 +1,6 @@
 # Shirita Technical Design Notes
 
-> **Status:** Superseded by per-milestone design documents in `docs/superpowers/specs/`.
+> **Status:** Archived design context. Current guidance lives in `PRODUCT.md` and `docs/current-direction.md`; milestone documents are preserved under `docs/archive/superpowers/`.
 > This file retains broad architectural principles for quick reference.
 
 ## Architecture
@@ -55,4 +55,4 @@
 2. Legacy flat keys (`provider_api_key`, etc.) — migrated into the active source's namespace on first access
 3. Environment variables (`PROVIDER`, `OPENAI_API_KEY`, etc.) — fallback for desktop first-launch
 
-See `docs/providers.md` for the full provider matrix and `docs/superpowers/specs/` for per-milestone designs.
+See `docs/providers.md` for the provider matrix and `docs/archive/superpowers/specs/` for historical milestone designs.

@@ -4,7 +4,7 @@
 
 # Shirita
 
-**Experimental SillyTavern alternative — Rust + Vue, self-hosted, in development.**
+**A modern AI role-playing platform for desktop and self-hosted deployment.**
 
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 &nbsp;![Rust](https://img.shields.io/badge/Rust-1.80%2B-CE422B?logo=rust&logoColor=white)
@@ -14,13 +14,17 @@
 
 </div>
 
-A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrite. Many features work (prompt trees, variables, panels, import/export, branching, regex rules, HTML cards), but the project is pre-1.0 — expect rough edges, breaking changes, and incomplete documentation. Not yet a daily driver.
+Shirita is an experimental, user-controlled platform for AI role-playing. It combines a Rust runtime with a Vue interface and supports both a Tauri desktop application and a self-hosted web service. Its direction is a composable agent system for characters, knowledge, prompts, state, tools, and text transforms — not another SillyTavern implementation.
 
-- **Self-hosted** — Docker image or static-musl binary, SQLite storage, BYO model API key
-- **No telemetry, no cloud, no account required**
+Many features already work, but the project is pre-1.0 and is entering a deliberate simplification phase. Expect breaking changes while legacy SillyTavern compatibility is removed, the default UI is rebuilt, and core chat behavior is hardened. Shirita is not yet a daily driver.
+
+- **Desktop and self-hosted are equal targets** — Tauri desktop, Docker, or standalone web binary
+- **User-controlled** — SQLite storage, BYO model API key, no required hosted account
+- **No telemetry or required third-party cloud service**
 - **Development stage** — works for tinkering; not production-ready
-- **Dual build target** — web (standalone Axum server, `--features embed-ui`) and desktop (Tauri + embedded Axum)
 - **i18n** — English, 简体中文, 繁體中文, 日本語
+
+See [Product direction](PRODUCT.md) for the project boundaries and [Current development direction](docs/current-direction.md) for the active cleanup plan. Historical milestone documents are archived and are not the current roadmap.
 
 ---
 
@@ -33,7 +37,7 @@ A local-first AI chat backend with a web UI, built as a from-scratch Rust rewrit
 - [Project layout](#project-layout)
 - [Building for distribution](#building-for-distribution)
 - [Development](#development)
-- [Roadmap](#roadmap)
+- [Current direction](#current-direction)
 - [License](#license)
 
 ---
@@ -56,13 +60,12 @@ shirita/
 
 | Principle | How |
 |-----------|-----|
-| **Everything is a definition** | Characters, prompts, world entries, regex rules, first messages, protocols, HTML/CSS bricks, variable declarations — unified as `Definition` with a type tag |
+| **Composable content** | Characters, prompts, knowledge, regex rules, and other reusable content can be assembled from registered definitions |
 | **Copy-on-write** | Editing a definition in a chat doesn't touch the global library; diffs are stored per-session (materialized node trees, local definitions) |
 | **Backend owns context engineering** | The frontend never counts tokens, assembles prompts, or parses tool calls |
 | **Three trait boundaries** | `Storage`, `ModelProvider`, `TokenCounter` — core is testable without I/O |
 | **Safe rendering** | No `v-html` — dynamic HTML cards use sandboxed iframes; state updates go through a parsing engine |
-| **Panels as bricks** | Status panels are `html`/`css` definitions referenced from `panel`-tagged folders in the node tree — not standalone configuration |
-| **Variables as bricks** | Variable schemas are declared on `variables` type definitions via `meta.decls`, resolved from the effective node tree — not a god-object on packs/templates |
+| **User-controlled deployment** | Desktop and self-hosted deployments share the same core and HTTP boundary |
 
 ---
 
@@ -75,7 +78,7 @@ shirita/
 - **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
 - **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation. Regenerate creates a sibling (swipe-style) rather than overwriting
 - **Per-message identity** — each message carries the `$assistant_name` / `$assistant_avatar` / `$user_name` / `$user_avatar` that was active when it was created, so later template/pack changes don't rewrite old messages
-- **Import / export** — SillyTavern PNG character cards (v2/v3), worldinfo JSON, and chat-completion presets (→ editable templates: prompts imported by enabled/disabled status, `setvar`/`getvar` recognized as variables, cross-node XML bundled into folders); plus Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate)
+- **Import / export** — Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate). Legacy SillyTavern import exists in the current codebase but is scheduled for removal from the main application
 - **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars; content-addressed dedup via SHA-256 hashing
 - **Composer attachments** — attach images to chat messages (resolved as data URLs in the prompt)
 - **i18n** — English, 简体中文, 繁體中文, 日本語 (vue-i18n v10, locale switcher in settings)
@@ -90,7 +93,7 @@ shirita/
 
 ## Quick start
 
-### Docker (recommended)
+### Self-hosted with Docker
 
 ```bash
 export TOKEN_SECRET=$(openssl rand -hex 32)
@@ -170,7 +173,7 @@ For public deployments, set both `HTTP_AUTH_USER` and `HTTP_AUTH_PASS` to gate t
 | Path | Purpose |
 |------|---------|
 | `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters, panels, HTML patching, hashing, identity, attachments |
-| `shirita-core/migrations/` | SQLite schema migrations (0020 = current) |
+| `shirita-core/migrations/` | Numbered SQLite schema migrations |
 | `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, variables, local overrides, export, etc.) |
 | `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, Home) |
 | `shirita-ui/src/components/` | Vue shared components (MessageItem, Composer, AssetPicker, PromptTree, PackEditor, DefinitionEditor, BookNavigator, VariablesEditor, PanelView, etc.) |
@@ -228,27 +231,22 @@ npm --prefix shirita-ui run build       # vite build
 
 ---
 
-## Roadmap
+## Current direction
 
-| Milestone | Status |
-|-----------|--------|
-| M0 — Foundation (workspace, storage, auth) | ✅ Done |
-| M1 — Minimal chat (send/receive, SSE) | ✅ Done |
-| M2 — Definition system & assembly | ✅ Done |
-| M3 — Frontend (Vue 3) | ✅ Done |
-| M4 — Message tree & copy-on-write | ✅ Done |
-| M5 — Variables & state sandbox | ✅ Done |
-| M6 — Context engineering (summarize, budget) | ✅ Done |
-| M7 — Import / export (ST cards, bundles) | ✅ Done |
-| M8 — Tauri desktop shell | ✅ Done |
-| M9 — Deploy (Docker, CI, release) | ✅ Done |
+Development is now focused on reducing maintenance cost and clarifying Shirita's identity before adding more features.
 
-All milestones (M0–M9) are complete; current focus is correctness hardening and polish toward a 1.0 release.
+1. Document the product boundary and keep current documentation authoritative.
+2. Fix only the chat correctness and recovery bugs that materially affect use.
+3. Remove SillyTavern compatibility from the main application while retaining generally useful capabilities such as regex text transforms and message branching.
+4. Rebuild the default UI around a simpler, mobile-friendly layout.
+5. Normalize state changes and other agent capabilities around registered tools in a later phase.
 
-See `docs/superpowers/specs/` for milestone design documents and `docs/superpowers/plans/` for implementation plans.
+Prompt composition remains intentionally out of scope for the current cleanup. The existing composable approach is retained while its future redesign is deferred.
+
+See [Current development direction](docs/current-direction.md) for scope and sequencing. The old milestone specs and implementation plans are preserved under [`docs/archive/superpowers/`](docs/archive/superpowers/) as historical context only.
 
 ---
 
 ## License
 
-[AGPL-3.0-only](LICENSE) — the strongest copyleft license. If you modify and distribute this software, you must make your changes available under the same license, including network use (the "ASP loophole" is closed).
+[AGPL-3.0-only](LICENSE)

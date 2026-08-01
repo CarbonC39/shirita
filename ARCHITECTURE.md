@@ -1,6 +1,8 @@
 # Shirita 架构文档
 
-> Shirita 是一个本地优先的 AI 角色扮演/聊天应用，支持 Web 和桌面（Tauri）两种部署方式。
+> Shirita 是一个 AI 角色扮演与 Agent 平台，同时支持自托管 Web 和桌面（Tauri）部署。两种部署方式是同等重要的产品目标，共享 Rust core、HTTP API 与 Vue 前端。
+
+本文描述当前已经存在的实现，不代表所有实现都会长期保留。产品边界以 [`PRODUCT.md`](PRODUCT.md) 为准，近期删改范围以 [`docs/current-direction.md`](docs/current-direction.md) 为准。特别是 SillyTavern 兼容层已决定从主应用移除，但在实际删除完成前，本文仍会如实记录相关模块。
 
 ---
 
