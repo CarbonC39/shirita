@@ -1647,6 +1647,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn migration_0023_strips_st_raw_null_value() {
+        // A present `st_raw` whose value is JSON null must still be removed.
+        // `json_extract(...) IS NOT NULL` would leave it behind (it returns SQL
+        // NULL for a JSON null value too); the migration matches on
+        // `json_type(...) IS NOT NULL` instead.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("straw_null.db");
+        std::mem::forget(dir);
+        let opts = SqliteConnectOptions::new()
+            .filename(path.to_str().unwrap())
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(opts)
+            .await
+            .unwrap();
+        apply_migrations_upto(&pool, 23).await;
+        sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES ('d4','char','N','x','{\"st_raw\":null,\"custom\":1}')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        use sqlx::migrate::Migrate;
+        let migrator = sqlx::migrate!("./migrations");
+        let mut conn = pool.acquire().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version == 23) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+
+        let meta: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d4'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(meta, r#"{"custom":1}"#);
+    }
+
+    #[tokio::test]
     async fn migration_0023_leaves_meta_without_st_raw_unchanged() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("straw2.db");

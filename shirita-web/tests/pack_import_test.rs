@@ -190,9 +190,11 @@ async fn import_pack_zip_rejects_oversized_total() {
         "pack": { "name": "Big2", "identity": {}, "meta": {} },
         "nodes": [], "definitions": []
     });
-    // Two 33 MiB entries each pass the per-entry cap but total 66 MiB > 64 MiB.
-    let chunk = vec![0u8; 33 * 1024 * 1024];
-    let zip = make_zip(&manifest, &[("assets/a.png", &chunk), ("assets/b.png", &chunk)]);
+    // Three 22 MiB entries each stay under the 32 MiB per-entry cap, but the
+    // accumulated total (66 MiB) exceeds MAX_TOTAL_BYTES (64 MiB) — exercising
+    // the total-size branch rather than the per-entry limit.
+    let chunk = vec![0u8; 22 * 1024 * 1024];
+    let zip = make_zip(&manifest, &[("assets/a.png", &chunk), ("assets/b.png", &chunk), ("assets/c.png", &chunk)]);
     let (st, _) = import_bytes(&state, "", &zip).await;
     assert_eq!(st, StatusCode::BAD_REQUEST);
 }
