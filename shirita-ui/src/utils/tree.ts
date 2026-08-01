@@ -7,8 +7,10 @@ function newest(messages: Message[]): Message | null {
   )
 }
 
-/** Root→active-leaf branch, excluding hidden swiped-out branches.
- *  Falls back to the newest non-hidden message when leaf unknown. */
+/** Root→active-leaf branch, including hidden intermediate messages (they stay
+ *  addressable so the user can unhide them; the backend excludes them from
+ *  model context). Falls back to the newest non-hidden message when leaf
+ *  unknown, so a session-read hiccup never blanks the transcript. */
 export function activePath(messages: Message[], activeLeafId: string | null): Message[] {
   const byId = new Map(messages.map((m) => [m.id, m]))
   const visible = (msgs: Message[]) => msgs.filter((m) => !m.is_hidden)
@@ -18,7 +20,6 @@ export function activePath(messages: Message[], activeLeafId: string | null): Me
   while (cur) {
     path.push(cur)
     cur = cur.parent_id ? byId.get(cur.parent_id) ?? null : null
-    if (cur?.is_hidden) break // hidden ancestor orphans its children from the active path
   }
   return path.reverse()
 }

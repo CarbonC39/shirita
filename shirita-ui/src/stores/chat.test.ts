@@ -137,6 +137,24 @@ describe('chat store', () => {
     expect(store.displayed.map((x: Message) => x.id)).toEqual(['a', 'b2'])
   })
 
+  it('hiding an intermediate message keeps the full root-to-leaf chain displayed', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([
+      msg({ id: 'root', parent_id: null, role: 'user', created_at: '1' }),
+      msg({ id: 'mid', parent_id: 'root', role: 'assistant', created_at: '2' }),
+      msg({ id: 'leaf', parent_id: 'mid', role: 'user', created_at: '3' }),
+    ])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's', active_leaf_id: 'leaf' } as any)
+    // The server flips is_hidden on the middle message.
+    vi.spyOn(client, 'editMessage').mockResolvedValue(
+      msg({ id: 'mid', parent_id: 'root', role: 'assistant', created_at: '2', is_hidden: true }),
+    )
+    const store = useChatStore()
+    await store.loadMessages('s')
+    await store.toggleHidden('mid')
+    // Hiding the middle message must not orphan the root from the active path.
+    expect(store.displayed.map((x: Message) => x.id)).toEqual(['root', 'mid', 'leaf'])
+  })
+
   it('switchLeaf updates the leaf from the endpoint response', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([
       msg({ id: 'a', parent_id: null, created_at: '1' }),

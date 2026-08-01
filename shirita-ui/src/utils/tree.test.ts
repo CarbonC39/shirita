@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { activePath, siblings, selectOneSiblingsToDisable } from './tree'
 import type { Message, PromptNode } from '../api/types'
 
-function m(id: string, parent: string | null, created: string, role: Message['role'] = 'assistant'): Message {
-  return { id, session_id: 's', parent_id: parent, role, raw_content: id, display_content: null, is_hidden: false, is_anchor: false, attachments: [], snapshot_state: {}, created_at: created }
+function m(id: string, parent: string | null, created: string, role: Message['role'] = 'assistant', is_hidden = false): Message {
+  return { id, session_id: 's', parent_id: parent, role, raw_content: id, display_content: null, is_hidden, is_anchor: false, attachments: [], snapshot_state: {}, created_at: created }
 }
 
 describe('activePath', () => {
@@ -14,6 +14,27 @@ describe('activePath', () => {
   it('falls back to the newest message when leaf is null', () => {
     const ms = [m('a', null, '1', 'user'), m('b', 'a', '2')]
     expect(activePath(ms, null).map((x) => x.id)).toEqual(['a', 'b'])
+  })
+  it('keeps ancestors across a hidden intermediate message', () => {
+    // root user -> hidden assistant -> leaf user: hiding the middle message
+    // must not orphan the root from the active leaf's visible path.
+    const ms = [
+      m('root', null, '1', 'user'),
+      m('hidden', 'root', '2', 'assistant', true),
+      m('leaf', 'hidden', '3', 'user'),
+    ]
+    expect(activePath(ms, 'leaf').map((x) => x.id)).toEqual(['root', 'hidden', 'leaf'])
+  })
+  it('still falls back deterministically when the newest message is hidden', () => {
+    // No active leaf is known: the contract prefers the newest non-hidden
+    // message (mirroring the pre-hide behavior), and the walk keeps that
+    // message's ancestors even if a hidden message sits above it.
+    const ms = [
+      m('root', null, '1', 'user'),
+      m('a', 'root', '2', 'assistant'),
+      m('newestHidden', 'a', '3', 'assistant', true),
+    ]
+    expect(activePath(ms, null).map((x) => x.id)).toEqual(['root', 'a'])
   })
 })
 
