@@ -21,17 +21,17 @@ struct Shutdown {
     pool: SqlitePool,
 }
 
-async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationToken, String), String> {
+async fn boot(
+    base: PathBuf,
+) -> Result<(SqlitePool, u16, CancellationToken, Option<String>), String> {
     std::fs::create_dir_all(&base)
         .map_err(|e| format!("Failed to create data directory {}: {e}", base.display()))?;
     let (db_path, assets_dir) = data_paths(&base);
     std::fs::create_dir_all(&assets_dir).map_err(|e| format!("Failed to create assets directory: {e}"))?;
 
-    let token_secret = uuid::Uuid::new_v4().to_string();
     let mut config = Config::new(
         db_path.to_string_lossy().to_string(),
         assets_dir.to_string_lossy().to_string(),
-        &token_secret,
     )
     .map_err(|e| format!("Configuration error: {e}"))?;
     shirita_core::apply_provider_env(&mut config);
@@ -56,6 +56,66 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
     shirita_core::ensure_asset_hashes(&storage, &config.assets_dir)
         .await
         .map_err(|e| format!("Failed to backfill asset hashes: {e}"))?;
+    // Provision the single local account. Desktop → no interactive password
+    // until the user sets one in Settings; auto-authenticates meanwhile.
+    // Idempotent across launches.
+    let bootstrap = shirita_core::BootstrapCreds {
+        user: None,
+        password: None,
+        interactive: false,
+    };
+    shirita_core::ensure_bootstrap_user(&storage, &bootstrap)
+        .await
+        .map_err(|e| format!("Failed to provision the account: {e}"))?;
+
+    // "Require login on launch" is a persisted setting (off by default). Read at
+    // boot — the WebView's injected token is what actually decides whether the
+    // frontend shows a login screen, so a toggle change takes effect on restart.
+    let require_login = storage
+        .get_setting("auth.require_login")
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Resolve the token to inject. When auto-authenticating, REUSE a live
+    // session if one exists; if none (first launch, or the user logged out /
+    // it expired last run), fall through to creating one. Treating `None` as
+    // "create" — never as an error — is what keeps the desktop from
+    // white-screening on the launch after a logout.
+    let inject_token = if require_login {
+        None
+    } else {
+        let user = storage
+            .list_users()
+            .await
+            .map_err(|e| format!("Failed to read accounts: {e}"))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| "no account found after bootstrap".to_string())?;
+        match storage
+            .get_active_session_for_user(&user.id)
+            .await
+            .map_err(|e| format!("Failed to read session: {e}"))?
+        {
+            Some(session) => Some(session.token),
+            None => {
+                let token = shirita_core::random_token();
+                let expires_at = shirita_core::iso_now_plus_days(365);
+                storage
+                    .create_auth_session(&shirita_core::AuthSessionRecord::new(
+                        &token,
+                        &user.id,
+                        &expires_at,
+                    ))
+                    .await
+                    .map_err(|e| format!("Failed to create session: {e}"))?;
+                Some(token)
+            }
+        }
+    };
+
     let pool = storage.pool().clone();
 
     let http_client = shirita_web::new_http_client();
@@ -95,7 +155,7 @@ async fn boot(base: PathBuf) -> Result<(AppState, SqlitePool, u16, CancellationT
         }
     });
 
-    Ok((state, pool, port, token, token_secret))
+    Ok((pool, port, token, inject_token))
 }
 
 fn main() {
@@ -116,7 +176,7 @@ fn main() {
                 .map_err(|e| format!("Failed to locate data directory: {e}"))?;
 
             let boot_result = tauri::async_runtime::block_on(boot(base));
-            let (_state, pool, port, token, token_secret) = match boot_result {
+            let (pool, port, token, inject_token) = match boot_result {
                 Ok(v) => v,
                 Err(msg) => {
                     handle
@@ -129,10 +189,15 @@ fn main() {
                 }
             };
 
-            let runtime_cfg = serde_json::json!({
-                "base": format!("http://127.0.0.1:{port}"),
-                "token": token_secret,
-            });
+            // Inject the runtime config: base always; token only when the
+            // desktop auto-authenticated (require_login off). When token is
+            // absent the frontend shows the login screen.
+            let mut runtime = serde_json::Map::new();
+            runtime.insert("base".into(), serde_json::json!(format!("http://127.0.0.1:{port}")));
+            if let Some(t) = &inject_token {
+                runtime.insert("token".into(), serde_json::json!(t));
+            }
+            let runtime_cfg = serde_json::Value::Object(runtime).to_string();
             let init_script = format!("window.__SHIRITA_RUNTIME__ = {runtime_cfg};");
 
             WebviewWindowBuilder::new(&handle, "main", WebviewUrl::default())

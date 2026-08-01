@@ -7,6 +7,7 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 
 use crate::models::asset::Asset;
+use crate::models::auth_session::AuthSessionRecord;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
 use crate::models::pack::Pack;
@@ -15,6 +16,7 @@ use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::session::Session;
 use crate::models::summary::Summary;
 use crate::models::template::Template;
+use crate::models::user::User;
 use crate::{Result, Storage};
 
 #[derive(Clone)]
@@ -1232,6 +1234,141 @@ impl Storage for SqliteStorage {
             .await?;
         Ok(())
     }
+
+    // --- users / sessions (auth) ---
+    async fn create_user(&self, user: &User) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO users (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&user.id)
+        .bind(&user.username)
+        .bind(&user.password_hash)
+        .bind(&user.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_user_by_username(&self, username: &str) -> Result<Option<User>> {
+        let row = sqlx::query(
+            "SELECT id, username, password_hash, created_at FROM users WHERE username = ?",
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| user_from_row(&r)).transpose()
+    }
+
+    async fn get_user(&self, id: &str) -> Result<Option<User>> {
+        let row = sqlx::query(
+            "SELECT id, username, password_hash, created_at FROM users WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| user_from_row(&r)).transpose()
+    }
+
+    async fn update_user_password(&self, id: &str, password_hash: &str) -> Result<bool> {
+        let res = sqlx::query("UPDATE users SET password_hash = ? WHERE id = ?")
+            .bind(password_hash)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    async fn count_users(&self) -> Result<i64> {
+        let row = sqlx::query("SELECT COUNT(*) AS c FROM users")
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(row.try_get("c")?)
+    }
+
+    async fn list_users(&self) -> Result<Vec<User>> {
+        let rows =
+            sqlx::query("SELECT id, username, password_hash, created_at FROM users ORDER BY created_at ASC, id ASC")
+                .fetch_all(&self.pool)
+                .await?;
+        rows.iter().map(|r| user_from_row(r)).collect()
+    }
+
+    async fn create_auth_session(&self, session: &AuthSessionRecord) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO sessions (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(&session.token)
+        .bind(&session.user_id)
+        .bind(&session.created_at)
+        .bind(&session.expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn get_auth_session(&self, token: &str) -> Result<Option<AuthSessionRecord>> {
+        let row = sqlx::query(
+            "SELECT token, user_id, created_at, expires_at FROM sessions WHERE token = ?",
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| session_from_row(&r)).transpose()
+    }
+
+    async fn delete_auth_session(&self, token: &str) -> Result<()> {
+        sqlx::query("DELETE FROM sessions WHERE token = ?")
+            .bind(token)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_sessions_for_user(
+        &self,
+        user_id: &str,
+        except_token: Option<&str>,
+    ) -> Result<()> {
+        let result = match except_token {
+            Some(keep) => {
+                sqlx::query("DELETE FROM sessions WHERE user_id = ? AND token <> ?")
+                    .bind(user_id)
+                    .bind(keep)
+                    .execute(&self.pool)
+                    .await
+            }
+            None => {
+                sqlx::query("DELETE FROM sessions WHERE user_id = ?")
+                    .bind(user_id)
+                    .execute(&self.pool)
+                    .await
+            }
+        };
+        result?;
+        Ok(())
+    }
+
+    async fn delete_expired_sessions(&self) -> Result<()> {
+        let now = chrono::Utc::now().to_rfc3339();
+        sqlx::query("DELETE FROM sessions WHERE expires_at < ?")
+            .bind(now)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn get_active_session_for_user(&self, user_id: &str) -> Result<Option<AuthSessionRecord>> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let row = sqlx::query(
+            "SELECT token, user_id, created_at, expires_at FROM sessions \
+             WHERE user_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(user_id)
+        .bind(now)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|r| session_from_row(&r)).transpose()
+    }
 }
 
 // --- Row mappers ---
@@ -1268,6 +1405,24 @@ fn row_to_prompt_node(row: &SqliteRow) -> Result<PromptNode> {
         tag: row.try_get("tag")?, definition_id: row.try_get("definition_id")?,
         enabled: enabled != 0, created_at: row.try_get("created_at")?,
         meta: serde_json::from_str(&meta_str)?,
+    })
+}
+
+fn user_from_row(row: &SqliteRow) -> Result<User> {
+    Ok(User {
+        id: row.try_get("id")?,
+        username: row.try_get("username")?,
+        password_hash: row.try_get("password_hash")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn session_from_row(row: &SqliteRow) -> Result<AuthSessionRecord> {
+    Ok(AuthSessionRecord {
+        token: row.try_get("token")?,
+        user_id: row.try_get("user_id")?,
+        created_at: row.try_get("created_at")?,
+        expires_at: row.try_get("expires_at")?,
     })
 }
 

@@ -17,11 +17,12 @@ async fn state_with_session() -> (AppState, String) {
     std::mem::forget(dir);
     let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let session = Session::new("c");
     storage.create_session(&session).await.unwrap();
 
     let storage: Arc<dyn Storage> = Arc::new(storage);
-    let config = Arc::new(Config::new("ignored", "./assets", "secret-token").unwrap());
+    let config = Arc::new(Config::new("ignored", "./assets").unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     let state = AppState {

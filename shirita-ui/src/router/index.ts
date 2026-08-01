@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import ChatView from '../views/ChatView.vue'
+import { useAuthStore } from '../stores/auth'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -11,5 +12,15 @@ export const router = createRouter({
     { path: '/new', name: 'new', component: () => import('../views/NewChatView.vue'), meta: { crumbs: [{ label: 'chat.title', to: '/' }, { label: 'shell.new' }] } },
     { path: '/book', name: 'book', component: () => import('../views/BookView.vue') },
     { path: '/settings', name: 'settings', component: () => import('../views/SettingsView.vue') },
+    { path: '/login', name: 'login', component: () => import('../views/LoginView.vue'), meta: { public: true } },
   ],
+})
+
+// Gate every non-public route on a held session token. A token is restored
+// synchronously from localStorage / the Tauri injection before mount, so the
+// guard can decide immediately on first navigation.
+router.beforeEach((to) => {
+  const auth = useAuthStore()
+  if (!auth.token && !to.meta.public) return { name: 'login' }
+  if (auth.token && to.name === 'login') return { path: '/' }
 })

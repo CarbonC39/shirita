@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::models::asset::Asset;
+use crate::models::auth_session::AuthSessionRecord;
 use crate::models::def_type::DefType;
 use crate::models::definition::Definition;
 use crate::models::pack::Pack;
@@ -11,6 +12,7 @@ use crate::models::prompt_node::{OwnerKind, PromptNode};
 use crate::models::session::Session;
 use crate::models::summary::Summary;
 use crate::models::template::Template;
+use crate::models::user::User;
 use crate::Result;
 
 pub mod sqlite;
@@ -197,4 +199,35 @@ pub trait Storage: Send + Sync {
     async fn is_avatar_referenced(&self, path: &str) -> Result<bool>;
     /// Set/replace an asset's content hash (used by the startup backfill).
     async fn set_asset_hash(&self, id: &str, hash: &str) -> Result<()>;
+
+    // --- users / sessions (auth) ---
+    async fn create_user(&self, user: &User) -> Result<()>;
+    /// All users, oldest first. Used by the desktop shell to find the local
+    /// account (and, later, a user-management UI).
+    async fn list_users(&self) -> Result<Vec<User>>;
+    async fn get_user_by_username(&self, username: &str) -> Result<Option<User>>;
+    async fn get_user(&self, id: &str) -> Result<Option<User>>;
+    /// Replace a user's password hash. Returns whether a row existed.
+    async fn update_user_password(&self, id: &str, password_hash: &str) -> Result<bool>;
+    async fn count_users(&self) -> Result<i64>;
+    async fn create_auth_session(&self, session: &AuthSessionRecord) -> Result<()>;
+    /// Look up a session by token. Caller checks `expires_at` (the row is
+    /// returned even when expired so callers can distinguish "not found" from
+    /// "expired" if they want; `require_session` treats both as 401).
+    async fn get_auth_session(&self, token: &str) -> Result<Option<AuthSessionRecord>>;
+    async fn delete_auth_session(&self, token: &str) -> Result<()>;
+    /// Delete a user's sessions, optionally keeping one token alive (used by
+    /// change-password to invalidate other sessions but keep the current one).
+    async fn delete_sessions_for_user(
+        &self,
+        user_id: &str,
+        except_token: Option<&str>,
+    ) -> Result<()>;
+    /// Delete all sessions whose `expires_at` has passed (piggybacked on login).
+    async fn delete_expired_sessions(&self) -> Result<()>;
+    /// The most recent non-expired session for a user, if any. Used by the
+    /// desktop shell to reuse a live session across launches instead of minting
+    /// a new one each time (and to fall through to "create" when the user logged
+    /// out and the row is gone).
+    async fn get_active_session_for_user(&self, user_id: &str) -> Result<Option<AuthSessionRecord>>;
 }

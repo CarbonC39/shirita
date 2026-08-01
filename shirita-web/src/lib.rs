@@ -32,6 +32,27 @@ use axum::routing::{delete, post, put};
 use axum::{middleware, routing::get, Router};
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
+
+/// Test-only helper: seed a `tester` user + a long-lived session whose token is
+/// the fixed `secret-token` that the integration tests send as
+/// `Authorization: Bearer secret-token`, so the suite can exercise
+/// session-protected routes without each test logging in. `#[doc(hidden)]` —
+/// not part of the supported public API.
+#[doc(hidden)]
+pub async fn seed_test_session<S: shirita_core::Storage + ?Sized>(storage: &S) {
+    use shirita_core::{AuthSessionRecord, User};
+    if storage.get_user_by_username("tester").await.ok().flatten().is_none() {
+        let _ = storage.create_user(&User::new("tester", String::new())).await;
+    }
+    if let Some(user) = storage.get_user_by_username("tester").await.ok().flatten() {
+        let _ = storage.delete_auth_session("secret-token").await;
+        let expires_at = shirita_core::iso_now_plus_days(365);
+        let _ = storage
+            .create_auth_session(&AuthSessionRecord::new("secret-token", &user.id, &expires_at))
+            .await;
+    }
+}
 
 /// Set up application routing. `/`, `/health`, and `GET /assets/*` are publicly accessible; `/api/*` goes through the Bearer middleware.
 pub fn app(state: AppState) -> Router {
@@ -139,15 +160,26 @@ pub fn app(state: AppState) -> Router {
                 .layer(DefaultBodyLimit::max(16 * 1024 * 1024)),
         )
         .route("/assets/{id}", put(routes::assets::rename).delete(routes::assets::delete))
+        // Session-protected auth routes. The public login route is mounted
+        // outside this gate (merged below) so unauthenticated clients can log in.
+        .route("/auth/logout", post(routes::auth::logout))
+        .route("/auth/me", get(routes::auth::me))
+        .route("/auth/password", post(routes::auth::change_password))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
-            auth::require_bearer,
+            auth::require_session,
         ));
+
+    // Public login (no session gate) merged with the protected sub-router
+    // (disjoint paths — `protected` has no `/auth/login`), then nested under
+    // /api together so CORS/prefix are consistent.
+    let api = Router::new()
+        .route("/auth/login", post(routes::auth::login))
+        .merge(protected);
 
     let router = Router::new()
         .route("/health", get(routes::health::health))
-        .nest("/api", protected)
-        .nest_service("/assets", ServeDir::new(assets_dir));
+        .nest("/api", api);
 
     #[cfg(feature = "embed-ui")]
     let router = router
@@ -158,16 +190,28 @@ pub fn app(state: AppState) -> Router {
     #[cfg(not(feature = "embed-ui"))]
     let router = router.route("/", get(routes::index::index));
 
-    // Optional HTTP Basic Auth gate, applied as the outermost layer on the
-    // FULL router (UI shell + /api + /assets + /health). When
-    // HTTP_AUTH_USER/PASS are unset, `require_basic` is a no-op so desktop/local
-    // mode is unaffected. On public deployments this is what stops an anonymous
-    // visitor from pulling the embedded UI's HTML/JS — Bearer only protects
-    // /api. Layered last (axum runs layers outermost-last) so it wraps
-    // everything, including the served index and static assets.
-    router
-        .with_state(state.clone())
-        .layer(middleware::from_fn_with_state(state, auth::require_basic))
+    // Resolve state, then merge in the token-gated /assets router. ServeDir is
+    // behind `require_asset_access`, which accepts `?t=<token>` (so `<img>` can
+    // authenticate) or a Bearer header.
+    let router = router.with_state(state.clone());
+    let assets = Router::new()
+        .nest_service("/assets", ServeDir::new(assets_dir))
+        .layer(middleware::from_fn_with_state(state.clone(), auth::require_asset_access));
+    let router = router.merge(assets);
+
+    // Request logging with the session token redacted from the URI — the token
+    // rides in `/assets/<file>?t=<token>`, so the span records method + a
+    // redacted path only. Quiet at the default `info` filter; enabling debug
+    // shows method + redacted path, never the token itself.
+    router.layer(
+        TraceLayer::new_for_http().make_span_with(|req: &axum::extract::Request| {
+            tracing::info_span!(
+                "request",
+                method = %req.method(),
+                uri = %auth::redact_query(req.uri())
+            )
+        }),
+    )
 }
 
 /// Origin of the desktop WebView:

@@ -20,8 +20,9 @@ async fn test_state() -> AppState {
     std::mem::forget(dir);
     let storage = SqliteStorage::connect(path.to_str().unwrap()).await.unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let storage: Arc<dyn Storage> = Arc::new(storage);
-    let config = Arc::new(Config::new("ignored", "./assets", "secret-token").unwrap());
+    let config = Arc::new(Config::new("ignored", "./assets").unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     AppState { storage, config, provider, token_counter, model: "test-model".into(), generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client() }

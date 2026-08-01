@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, createSession, applyStateUpdates, getSessionPanels } from './client'
+import { downloadPackExport, listSessions, listMessages, sendMessage, listTypes, reorderNodes, importFile, getSessionIdentity, listPacks, createPack, createSession, applyStateUpdates, getSessionPanels, setAuthAccessor } from './client'
 import type { Session, Message } from './types'
 
 function mockFetch(status: number, json?: unknown) {
@@ -9,6 +9,15 @@ function mockFetch(status: number, json?: unknown) {
     json: async () => json,
   })
 }
+
+// The HTTP layer now reads the bearer token from a live accessor (installed by
+// main.ts at boot) rather than a module-level constant. These tests assert the
+// token is sent, so install the accessor with the historical test token. The
+// runtime-injection test overrides it via `vi.resetModules()` + a stubbed
+// `__SHIRITA_RUNTIME__`.
+beforeEach(() => {
+  setAuthAccessor(() => 'test-token', () => {})
+})
 
 describe('api client', () => {
   beforeEach(() => {

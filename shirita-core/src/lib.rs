@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod assembly;
+pub mod auth_password;
 pub mod attachments;
 pub mod budget;
 pub mod config;
@@ -29,7 +30,7 @@ pub use assembly::{
     PromptSegment, RegexPhase, RegexTarget,
 };
 pub use budget::{over_threshold, trim_history};
-pub use config::{apply_http_auth_env, apply_provider_env, Config};
+pub use config::{apply_provider_env, Config};
 pub use conversation::{
     effective_regex_rules, regenerate, resolve_session_schema, send_message, SendEvent,
     StopHandle, StopToken,
@@ -42,7 +43,9 @@ pub use adapters::charcard::{charcard_to_loreset, loreset_to_pack, LoreSet};
 pub use adapters::preset::tree_to_preset;
 pub use adapters::stpreset::stpreset_to_loreset;
 pub use adapters::worldinfo::worldinfo_to_defs;
+pub use auth_password::{hash_password, iso_now_plus_days, random_token, verify_password};
 pub use models::asset::Asset;
+pub use models::auth_session::AuthSessionRecord;
 pub use models::def_type::{is_prompt, is_reserved, DefType};
 pub use models::definition::Definition;
 pub use models::message::{Message, Role};
@@ -50,6 +53,7 @@ pub use models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 pub use models::session::Session;
 pub use models::summary::Summary;
 pub use models::template::Template;
+pub use models::user::User;
 pub use hashing::sha256_hex;
 pub use models::pack::{Pack, PackIdentity};
 pub use panels::{collect_panels, resolve_session_panels, RenderedPanel};
@@ -59,8 +63,9 @@ pub use portable::{
     rewrite_pack_assets, PortableDef, PortableDoc, PortableNode,
 };
 pub use seed::{
-    ensure_asset_hashes, ensure_builtin_definitions, ensure_default_template,
-    ensure_global_regex_flag, ensure_templates_have_content_node,
+    ensure_asset_hashes, ensure_bootstrap_user, ensure_builtin_definitions,
+    ensure_default_template, ensure_global_regex_flag, ensure_templates_have_content_node,
+    BootstrapCreds, GeneratedCreds,
 };
 pub use state::{
     apply_updates, effective_state, parse_state_updates, resolve_schema_from_bricks,

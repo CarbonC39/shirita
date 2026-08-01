@@ -16,8 +16,9 @@ use shirita_web::{app, AppState};
 async fn test_state(dir: &std::path::Path) -> AppState {
     let storage = SqliteStorage::connect(dir.join("p.db").to_str().unwrap()).await.unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let storage: Arc<dyn Storage> = Arc::new(storage);
-    let config = Arc::new(Config::new("ignored", dir.join("assets").to_str().unwrap(), "secret-token").unwrap());
+    let config = Arc::new(Config::new("ignored", dir.join("assets").to_str().unwrap()).unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     AppState {

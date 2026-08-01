@@ -3,6 +3,7 @@
 use crate::models::definition::Definition;
 use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
 use crate::models::template::Template;
+use crate::models::user::User;
 use crate::storage::Storage;
 use crate::Result;
 
@@ -145,6 +146,82 @@ pub async fn ensure_builtin_definitions<S: Storage + ?Sized>(storage: &S) -> Res
     Ok(())
 }
 
+/// How the first account should be provisioned when the `users` table is empty.
+pub struct BootstrapCreds {
+    /// `SHIRITA_BOOTSTRAP_USER` / `SHIRITA_BOOTSTRAP_PASSWORD` from the
+    /// environment (web). `None` on desktop, which always auto-provisions a
+    /// local account.
+    pub user: Option<String>,
+    pub password: Option<String>,
+    /// Whether an auto-generated account gets an interactive password.
+    /// `true` (web): hash a random password and return its plaintext for the
+    /// entry point to log once. `false` (desktop): leave `password_hash` empty —
+    /// the account can't be used to log in interactively until the user sets a
+    /// password in Settings (and until then desktop auto-authenticates).
+    pub interactive: bool,
+}
+
+/// The plaintext credentials of an auto-generated account, returned so the entry
+/// point can log them once (to stdout / `docker logs`). Only populated for the
+/// web auto-generate path; env-provided and desktop paths return `None`.
+pub struct GeneratedCreds {
+    pub username: String,
+    pub password: String,
+}
+
+/// Ensure exactly one bootstrap account exists on a fresh database. Idempotent —
+/// if any user already exists this is a no-op (it never clobbers an account,
+/// matching every other `ensure_*`). Resolution order:
+/// 1. `SHIRITA_BOOTSTRAP_USER` + `SHIRITA_BOOTSTRAP_PASSWORD` both set → create
+///    that account (password hashed). Returns `None` (the password came from
+///    the environment, not generated, so nothing to log).
+/// 2. Otherwise auto-generate. Web (`interactive`) → random password (hashed),
+///    returned for logging. Desktop (`!interactive`) → empty `password_hash`.
+///
+/// On desktop the returned `None` still means "an account was created if needed"
+/// is not signalled here — the desktop shell doesn't need to log a password
+/// because it auto-authenticates.
+pub async fn ensure_bootstrap_user<S: Storage + ?Sized>(
+    storage: &S,
+    creds: &BootstrapCreds,
+) -> Result<Option<GeneratedCreds>> {
+    if storage.count_users().await? > 0 {
+        return Ok(None);
+    }
+    // Env-provided takes priority.
+    if let (Some(user), Some(password)) = (creds.user.as_ref(), creds.password.as_ref()) {
+        let hash = crate::auth_password::hash_password(password)?;
+        storage.create_user(&User::new(user.clone(), hash)).await?;
+        return Ok(None);
+    }
+    let username = creds
+        .user
+        .clone()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "admin".to_string());
+    if creds.interactive {
+        let password = random_password();
+        let hash = crate::auth_password::hash_password(&password)?;
+        storage.create_user(&User::new(username.clone(), hash)).await?;
+        Ok(Some(GeneratedCreds { username, password }))
+    } else {
+        // Desktop: no interactive password until the user sets one in Settings.
+        storage
+            .create_user(&User::new(username.clone(), String::new()))
+            .await?;
+        Ok(Some(GeneratedCreds { username, password: String::new() }))
+    }
+}
+
+/// 16 random bytes → base64url (no pad). Used only for the one-time
+/// auto-generated bootstrap password.
+fn random_password() -> String {
+    use base64::Engine;
+    let mut bytes = [0u8; 16];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +352,87 @@ mod tests {
 
         let got_explicit_false = storage.get_definition(&explicit_false.id).await.unwrap().unwrap();
         assert_eq!(got_explicit_false.meta["is_global"], false);
+    }
+
+    fn web_env(user: &str, pass: &str) -> BootstrapCreds {
+        BootstrapCreds {
+            user: Some(user.into()),
+            password: Some(pass.into()),
+            interactive: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn bootstrap_env_creates_user_and_is_idempotent() {
+        let storage = mem_storage().await;
+        assert_eq!(storage.count_users().await.unwrap(), 0);
+
+        ensure_bootstrap_user(&storage, &web_env("alice", "s3cret")).await.unwrap();
+        let got = storage.get_user_by_username("alice").await.unwrap().unwrap();
+        assert!(got.has_password());
+        assert!(crate::verify_password("s3cret", &got.password_hash));
+
+        // Second call must not clobber (idempotent) — env path returns None and
+        // leaves the existing hash intact.
+        let second = ensure_bootstrap_user(&storage, &web_env("alice", "different"))
+            .await
+            .unwrap();
+        assert!(second.is_none());
+        let got2 = storage.get_user_by_username("alice").await.unwrap().unwrap();
+        assert!(crate::verify_password("s3cret", &got2.password_hash), "original password preserved");
+        assert_eq!(storage.count_users().await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn bootstrap_web_autogen_returns_password() {
+        let storage = mem_storage().await;
+        let creds = ensure_bootstrap_user(
+            &storage,
+            &BootstrapCreds { user: None, password: None, interactive: true },
+        )
+        .await
+        .unwrap()
+        .expect("web autogen returns generated creds");
+        assert_eq!(creds.username, "admin");
+        let got = storage.get_user_by_username("admin").await.unwrap().unwrap();
+        assert!(got.has_password());
+        assert!(crate::verify_password(&creds.password, &got.password_hash));
+    }
+
+    #[tokio::test]
+    async fn bootstrap_desktop_autogen_has_empty_password() {
+        let storage = mem_storage().await;
+        let creds = ensure_bootstrap_user(
+            &storage,
+            &BootstrapCreds { user: None, password: None, interactive: false },
+        )
+        .await
+        .unwrap()
+        .expect("desktop autogen returns generated creds");
+        assert_eq!(creds.username, "admin");
+        assert!(creds.password.is_empty(), "desktop path does not mint a password");
+        let got = storage.get_user_by_username("admin").await.unwrap().unwrap();
+        assert!(!got.has_password(), "desktop account has no interactive password yet");
+    }
+
+    #[tokio::test]
+    async fn bootstrap_partial_env_autogens_password_for_provided_username() {
+        let storage = mem_storage().await;
+        // Only the username is provided (no password). The real config flow
+        // (apply_bootstrap_env) clears both on a partial config, so this only
+        // arises from a hand-built BootstrapCreds — but it should still create
+        // the named account with an auto-generated password rather than fail.
+        let creds = ensure_bootstrap_user(
+            &storage,
+            &BootstrapCreds { user: Some("alice".to_string()), password: None, interactive: true },
+        )
+        .await
+        .unwrap()
+        .expect("autogen path returns generated creds");
+        assert_eq!(creds.username, "alice");
+        let got = storage.get_user_by_username("alice").await.unwrap().unwrap();
+        assert!(got.has_password());
+        assert!(crate::verify_password(&creds.password, &got.password_hash));
+        assert!(storage.get_user_by_username("admin").await.unwrap().is_none());
     }
 }

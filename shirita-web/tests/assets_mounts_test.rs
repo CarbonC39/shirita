@@ -20,9 +20,10 @@ async fn state_with_assets() -> (AppState, std::path::PathBuf) {
     let db = base.join("am.db");
     let storage = SqliteStorage::connect(db.to_str().unwrap()).await.unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let storage: Arc<dyn Storage> = Arc::new(storage);
     let config = Arc::new(
-        Config::new(db.to_str().unwrap(), assets.to_str().unwrap(), "secret-token").unwrap(),
+        Config::new(db.to_str().unwrap(), assets.to_str().unwrap()).unwrap(),
     );
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());

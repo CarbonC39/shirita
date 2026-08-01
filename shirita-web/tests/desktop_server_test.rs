@@ -19,10 +19,11 @@ async fn test_state() -> AppState {
         .await
         .unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let storage: Arc<dyn Storage> = Arc::new(storage);
     let assets = base.join("assets");
     std::fs::create_dir_all(&assets).unwrap();
-    let config = Arc::new(Config::new("ignored", assets.to_str().unwrap(), "secret-token").unwrap());
+    let config = Arc::new(Config::new("ignored", assets.to_str().unwrap()).unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
     AppState {
@@ -113,11 +114,12 @@ async fn embedded_server_binds_serves_and_shuts_down_gracefully() {
         .await
         .unwrap();
     storage.run_migrations().await.unwrap();
+    shirita_web::seed_test_session(&storage).await;
     let pool = storage.pool().clone();
     let storage: Arc<dyn Storage> = Arc::new(storage);
     let assets = dir.path().join("assets");
     std::fs::create_dir_all(&assets).unwrap();
-    let config = Arc::new(Config::new("ignored", assets.to_str().unwrap(), "secret-token").unwrap());
+    let config = Arc::new(Config::new("ignored", assets.to_str().unwrap()).unwrap());
     let state = AppState {
         storage,
         config,

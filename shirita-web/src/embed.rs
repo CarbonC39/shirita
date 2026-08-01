@@ -2,13 +2,20 @@
 //! they're unit-tested without the feature or a built `dist/`); the rust-embed
 //! struct + handlers are gated behind `embed-ui`.
 
-/// Splice `window.__SHIRITA_RUNTIME__ = { base, token }` into `<head>` so the
-/// same-origin browser gets the API base + token without a build-time bake.
-/// `</` is neutralized so a token containing `</script>` can't break out of the
-/// inline `<script>`.
-pub fn inject_runtime(html: &str, token: &str) -> String {
-    let rt = serde_json::json!({ "base": "", "token": token })
-        .to_string()
+/// Splice `window.__SHIRITA_RUNTIME__ = { base, token? }` into `<head>` so the
+/// same-origin browser gets the API base (and, on desktop auto-auth, the
+/// pre-provisioned token) without a build-time bake. `token = None` (web) means
+/// no token is embedded — the frontend must log in to get one. `</` is
+/// neutralized so a token containing `</script>` can't break out of the inline
+/// `<script>`.
+pub fn inject_runtime(html: &str, token: Option<&str>) -> String {
+    let mut rt = serde_json::Map::new();
+    rt.insert("base".to_string(), serde_json::json!(""));
+    if let Some(t) = token {
+        rt.insert("token".to_string(), serde_json::json!(t));
+    }
+    let rt = serde_json::to_string(&serde_json::Value::Object(rt))
+        .expect("serializing a map of strings cannot fail")
         .replace("</", "<\\/");
     let tag = format!("<script>window.__SHIRITA_RUNTIME__={rt};</script>");
     match html.rfind("</head>") {
@@ -51,7 +58,9 @@ mod serving {
         match Ui::get("index.html") {
             Some(f) => {
                 let html = String::from_utf8_lossy(&f.data);
-                Html(inject_runtime(&html, &state.config.token_secret)).into_response()
+                // Web never embeds a token — the user logs in to obtain one.
+                let _ = state;
+                Html(inject_runtime(&html, None)).into_response()
             }
             None => (StatusCode::INTERNAL_SERVER_ERROR, "embedded index.html missing").into_response(),
         }
@@ -103,7 +112,7 @@ mod tests {
 
     #[test]
     fn injects_runtime_before_head_close() {
-        let out = inject_runtime("<html><head><title>x</title></head><body></body></html>", "secret");
+        let out = inject_runtime("<html><head><title>x</title></head><body></body></html>", Some("secret"));
         let script_at = out.find("__SHIRITA_RUNTIME__").unwrap();
         let head_close = out.find("</head>").unwrap();
         assert!(script_at < head_close, "script spliced before </head>");
@@ -112,15 +121,24 @@ mod tests {
     }
 
     #[test]
+    fn injects_no_token_key_on_web() {
+        // Web path: token = None → no "token" key in the runtime, so the
+        // frontend knows it must log in.
+        let out = inject_runtime("<head></head>", None);
+        assert!(out.contains(r#""base":"""#));
+        assert!(!out.contains("token"), "no token must be embedded for web");
+    }
+
+    #[test]
     fn neutralizes_script_breakout_in_token() {
-        let out = inject_runtime("<head></head>", "a</script>b");
+        let out = inject_runtime("<head></head>", Some("a</script>b"));
         assert!(!out.contains("a</script>b"), "raw </script> must not survive");
         assert!(out.contains(r#""token":"a<\/script>b""#));
     }
 
     #[test]
     fn prepends_when_no_head() {
-        let out = inject_runtime("<body>hi</body>", "t");
+        let out = inject_runtime("<body>hi</body>", Some("t"));
         assert!(out.starts_with("<script>window.__SHIRITA_RUNTIME__="));
         assert!(out.ends_with("<body>hi</body>"));
     }

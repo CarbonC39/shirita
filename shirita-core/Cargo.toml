@@ -19,6 +19,7 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1"
 fancy-regex = "0.13"
 aho-corasick = "1"
+argon2 = { version = "0.5", features = ["password-hash"] }
 rand = "0.8"
 tracing.workspace = true
 base64 = "0.22"
