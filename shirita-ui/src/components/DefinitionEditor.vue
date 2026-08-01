@@ -89,18 +89,6 @@ const showWrapInTag = computed(() =>
   ['char', 'persona', 'world', 'variables'].includes(props.definition.type),
 )
 
-// ── depth (first_message) ──
-function updateDepth(raw: string) {
-  const meta = { ...(props.definition.meta as Record<string, unknown>) }
-  if (raw === '') {
-    delete meta.depth
-  } else {
-    const n = parseInt(raw, 10)
-    if (!Number.isNaN(n)) meta.depth = Math.max(0, n)
-  }
-  emit('update:meta', meta)
-}
-
 // ── custom type creation ──
 const addingType = ref(false)
 const newTypeName = ref('')
@@ -192,35 +180,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
         />
       </div>
 
-      <!-- first_message depth + role -->
+      <!-- first_message greeting -->
       <div v-if="definition.type === 'first_message'" data-test="message-type-fields" class="mb-3 space-y-2">
         <p class="text-[12px] text-muted">{{ $t('definition.messageTypeHint') }}</p>
-        <div class="flex items-center gap-4 flex-wrap">
-          <label class="flex items-center gap-2 text-[13px] text-ink">
-            {{ $t('definition.depth') }}
-            <input
-              data-test="message-depth"
-              :value="(definition.meta as Record<string, unknown>).depth ?? ''"
-              type="number" min="0"
-              class="field !py-1 w-[64px] text-right tabular-nums"
-              :placeholder="$t('definition.depthPlaceholder')"
-              @input="updateDepth(($event.target as HTMLInputElement).value)"
-            />
-          </label>
-          <label class="flex items-center gap-2 text-[13px] text-ink">
-            {{ $t('definition.role') }}
-            <select
-              data-test="message-role"
-              :value="(definition.meta as Record<string, unknown>).role || 'system'"
-              class="field !py-1 text-[12px]"
-              @change="emit('update:meta', { ...definition.meta, role: ($event.target as HTMLSelectElement).value })"
-            >
-              <option value="system">{{ $t('definition.roleSystem') }}</option>
-              <option value="user">{{ $t('definition.roleUser') }}</option>
-              <option value="assistant">{{ $t('definition.roleAssistant') }}</option>
-            </select>
-          </label>
-        </div>
       </div>
 
       <!-- world-book trigger + scan settings -->

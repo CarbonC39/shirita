@@ -151,32 +151,16 @@ describe('DefinitionEditor html preview', () => {
 })
 
 describe('DefinitionEditor message type', () => {
-  it('shows depth/role fields for first_message and hides world-info fields', () => {
+  it('shows the greeting hint for first_message and hides world-info/container fields', () => {
     const d = { id: 'm1', type: 'first_message', name: 'Greeting', content: 'Hi', meta: {} }
     const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
     expect(w.find('[data-test="message-type-fields"]').exists()).toBe(true)
     expect(w.find('[data-test="trigger-editor"]').exists()).toBe(false)
     expect(w.find('[data-test="scan-depth"]').exists()).toBe(false)
     expect(w.find('[data-test="wrap-in-tag"]').exists()).toBe(false)
-  })
-
-  it('clearing the depth input removes meta.depth (greeting mode)', async () => {
-    const d = { id: 'm1', type: 'first_message', name: 'Note', content: 'x', meta: { depth: 3, role: 'system' } }
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
-    await w.get('[data-test="message-depth"]').setValue('')
-    const last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
-    expect('depth' in last).toBe(false)
-  })
-
-  it('setting depth and role emits both in meta', async () => {
-    const d = { id: 'm1', type: 'first_message', name: 'Note', content: 'x', meta: {} }
-    const w = mount(DefinitionEditor, { props: { definition: d, allDefinitions: [d], active: true } })
-    await w.get('[data-test="message-depth"]').setValue('4')
-    let last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
-    expect(last.depth).toBe(4)
-    await w.get('[data-test="message-role"]').setValue('user')
-    last = w.emitted('update:meta')!.at(-1)![0] as Record<string, unknown>
-    expect(last.role).toBe('user')
+    // depth/role insertion controls are gone: first_message is a greeting only.
+    expect(w.find('[data-test="message-depth"]').exists()).toBe(false)
+    expect(w.find('[data-test="message-role"]').exists()).toBe(false)
   })
 })
 
