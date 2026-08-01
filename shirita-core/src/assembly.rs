@@ -806,14 +806,13 @@ pub fn build_chat_messages(
         out.insert(idx + offset, msg);
     }
 
-    // Re-append the held-out current turn so the request ends on the user's
-    // latest input. `trim_history` protects the last message, so the current
-    // turn stays guarded when the context is over budget.
-    if let Some(turn) = current_turn {
-        out.push(turn);
-    }
-
-    // 合并相邻同角色（多个 system 合一；Claude 要求 system/user 不连发）。
+    // 合并相邻同角色（多个 system 合一；Claude 要求 system/user 不连发）。The
+    // held-out current turn is deliberately excluded from this merge so it can
+    // be re-appended as a distinct last message below — otherwise a preceding
+    // same-role historical message (e.g. two consecutive user turns produced by
+    // a hidden intermediate assistant being filtered from the context) would be
+    // folded into it, and the final message would no longer be exactly the
+    // current input.
     let mut merged: Vec<ChatMessage> = Vec::new();
     for m in out {
         if let Some(last) = merged.last_mut() {
@@ -824,6 +823,14 @@ pub fn build_chat_messages(
             }
         }
         merged.push(m);
+    }
+
+    // Re-append the held-out current turn so the request ends on the user's
+    // latest input, never merged into a preceding same-role message.
+    // `trim_history` protects the last message, so the current turn stays
+    // guarded when the context is over budget.
+    if let Some(turn) = current_turn {
+        merged.push(turn);
     }
     merged
 }
@@ -1450,6 +1457,28 @@ mod tests {
         assert!(msgs.iter().all(|m| m.role == Role::System));
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, "A\nB");
+    }
+
+    #[test]
+    fn build_messages_keeps_current_turn_distinct_from_preceding_user() {
+        // A hidden assistant filtered from the context leaves two consecutive
+        // user turns; the current turn must not be merged into the first, so
+        // the final provider-visible message is exactly the current input.
+        let plan = AssembledPlan {
+            segments: vec![],
+            history_enabled: true,
+            regex_rules: vec![],
+            depth_inserts: vec![],
+        };
+        let history = vec![
+            ChatMessage { role: Role::User, content: "user 1".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "current".into(), ..Default::default() },
+        ];
+        let msgs = build_chat_messages(&plan, &history, true);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].content, "user 1");
+        assert_eq!(msgs[1].content, "current", "current turn must stay a distinct, exact final message");
+        assert_eq!(msgs[1].role, Role::User);
     }
 
     #[test]

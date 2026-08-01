@@ -1,16 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { setActivePinia, createPinia } from 'pinia'
 import MessageList from './MessageList.vue'
 import type { Message } from '../api/types'
 
-// jsdom has no layout engine and no `scrollTo` implementation, so the scroll
-// metrics are defined per-instance after mount and `scrollTo` is mocked on the
-// prototype so every mount (including the initial bottom scroll) records its
-// call instead of throwing.
+// jsdom has no layout engine, so the scroll metrics are defined per-instance
+// after mount. The component writes `scrollTop` directly (no `scrollTo`), which
+// jsdom supports as a plain property — no prototype mocking needed.
 beforeEach(() => {
   setActivePinia(createPinia())
-  ;(HTMLElement.prototype as unknown as { scrollTo: ReturnType<typeof vi.fn> }).scrollTo = vi.fn()
 })
 
 const SCROLL = 48 // must match the threshold in MessageList.vue
@@ -135,10 +133,8 @@ describe('MessageList', () => {
       })
       const el = scroller(wrapper)
       await flushPromises()
-      expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled()
-      // Following the bottom means the target equals the full scroll height.
-      expect((HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>).mock.calls[0][0]).toMatchObject({ top: 1000 })
-      expect(el).toBeDefined()
+      // Following the bottom means scrollTop is pinned to the full scroll height.
+      expect(el.scrollTop).toBe(1000)
     })
 
     it('keeps following the bottom while streaming text grows', async () => {
@@ -147,12 +143,12 @@ describe('MessageList', () => {
       })
       const el = scroller(wrapper)
       await flushPromises()
-      ;(HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+      el.scrollTop = 0 // reset after the mount scroll
       // User is near the bottom (within threshold), so following stays on.
       scrollTo(el, 500) // distance 1000-500-500 = 0 <= 48
       await wrapper.setProps({ isStreaming: true, streamingText: 'partial...' })
       await flushPromises()
-      expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled()
+      expect(el.scrollTop).toBe(1000)
     })
 
     it('does not scroll on streaming growth after the user scrolls upward', async () => {
@@ -161,12 +157,12 @@ describe('MessageList', () => {
       })
       const el = scroller(wrapper)
       await flushPromises()
-      ;(HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+      el.scrollTop = 0 // reset after the mount scroll
       // User scrolls far above the bottom (distance > threshold) → stop following.
       scrollTo(el, 100) // distance 1000-500-100 = 400 > 48
       await wrapper.setProps({ isStreaming: true, streamingText: 'growing...' })
       await flushPromises()
-      expect(HTMLElement.prototype.scrollTo).not.toHaveBeenCalled()
+      expect(el.scrollTop).toBe(100)
     })
 
     it('scrolls when a streaming ghost is replaced by a persisted message while following', async () => {
@@ -180,7 +176,7 @@ describe('MessageList', () => {
       })
       const el = scroller(wrapper)
       await flushPromises()
-      ;(HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+      el.scrollTop = 0
       scrollTo(el, 500) // following
       await wrapper.setProps({
         isStreaming: false,
@@ -191,7 +187,7 @@ describe('MessageList', () => {
         ],
       })
       await flushPromises()
-      expect(HTMLElement.prototype.scrollTo).toHaveBeenCalled()
+      expect(el.scrollTop).toBe(1000)
     })
 
     it('does not scroll when the same replacement happens while the user is reading above', async () => {
@@ -205,7 +201,7 @@ describe('MessageList', () => {
       })
       const el = scroller(wrapper)
       await flushPromises()
-      ;(HTMLElement.prototype.scrollTo as ReturnType<typeof vi.fn>).mockClear()
+      el.scrollTop = 0
       scrollTo(el, 100) // distance > threshold → not following
       await wrapper.setProps({
         isStreaming: false,
@@ -216,7 +212,7 @@ describe('MessageList', () => {
         ],
       })
       await flushPromises()
-      expect(HTMLElement.prototype.scrollTo).not.toHaveBeenCalled()
+      expect(el.scrollTop).toBe(100)
     })
   })
 })

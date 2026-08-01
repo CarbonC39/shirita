@@ -119,18 +119,24 @@ const bg = computed(() => {
 })
 const bgStyle = computed(() => (bg.value ? { backgroundImage: `url(${bg.value})` } : {}))
 
-onMounted(async () => {
-  // Await the transcript load so the error/retry state is set before identity
-  // and panel fetches race against it; unrelated requests stay parallel.
-  await chat.loadMessages(sessionId)
-  loadState()
-  // Ensure settings (incl. default user identity) are loaded before resolving
-  // identity; if they're already cached this is a cheap no-op re-fetch.
+onMounted(() => {
+  // Start the transcript, state, identity, and panel loads in parallel — the
+  // reactive view renders loading/error states without waiting on any of them,
+  // so a slow transcript request must not stall the other independent fetches.
+  void chat.loadMessages(sessionId)
+  void loadState()
+  // Identity resolution depends on the configured default identity in settings,
+  // so chain those two — but they must not wait on the transcript request.
+  const resolveIdentity = () => loadIdentity()
   if (Object.keys(settings.data).length === 0) {
-    try { await settings.load() } catch { /* identity falls back to defaults */ }
+    settings.load().then(resolveIdentity).catch(() => {
+      /* settings unavailable → identity falls back to defaults */
+      resolveIdentity()
+    })
+  } else {
+    resolveIdentity()
   }
-  loadIdentity()
-  loadPanels()
+  void loadPanels()
 })
 
 watch(

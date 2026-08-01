@@ -45,11 +45,14 @@ function distanceFromBottom(): number {
 /** Schedule a bottom scroll after Vue has updated the DOM for this render
  *  turn, but only if the user is still following. Coalesces per-turn: the
  *  watchers below all funnel through here, so token deltas in one update
- *  produce one scroll. */
+ *  produce one scroll. Uses a direct `scrollTop` assignment — equivalent to
+ *  `scrollTo({ behavior: 'auto' })` but works in jsdom (which has no scrollTo)
+ *  and skips smooth-scroll accumulation entirely. */
 async function scrollToBottomIfFollowing() {
   await nextTick()
   if (!isFollowingBottom.value) return
-  scroller.value?.scrollTo({ top: scroller.value.scrollHeight, behavior: 'auto' })
+  const el = scroller.value
+  if (el) el.scrollTop = el.scrollHeight
 }
 
 function onScroll() {

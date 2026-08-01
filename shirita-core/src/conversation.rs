@@ -980,6 +980,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hidden_assistant_leaves_current_user_turn_distinct_in_request() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+        crate::seed::ensure_builtin_definitions(storage.as_ref()).await.unwrap();
+
+        // user 1 -> hidden assistant -> (send) user 2. The hidden assistant is
+        // excluded from model context, so the provider-visible history has two
+        // consecutive user turns; the current turn must remain the exact final
+        // message rather than being merged into user 1.
+        let u1 = Message::new(&session.id, None, Role::User, "user 1");
+        storage.create_message(&u1).await.unwrap();
+        let mut hidden = Message::new(&session.id, Some(u1.id.clone()), Role::Assistant, "hidden");
+        hidden.is_hidden = true;
+        storage.create_message(&hidden).await.unwrap();
+        storage.set_session_active_leaf(&session.id, Some(&hidden.id)).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "user 2".into(), "".into(), Vec::new(), StopToken::never());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        let last = req.messages.last().unwrap();
+        assert_eq!(last.role, Role::User);
+        assert_eq!(last.content, "user 2", "the current turn must be the exact final message");
+        // The hidden assistant never appears; user 1 stays a separate message.
+        assert!(!req.messages.iter().any(|m| m.content == "hidden"));
+        assert!(req.messages.iter().any(|m| m.role == Role::User && m.content == "user 1"));
+    }
+
+    #[tokio::test]
     async fn send_message_respects_per_entry_recursive() {
         use crate::models::prompt_node::{NodeKind, OwnerKind, PromptNode};
         use crate::models::template::Template;
