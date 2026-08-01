@@ -90,6 +90,24 @@ mod tests {
     }
 
     #[test]
+    fn trim_protects_reordered_current_user_turn() {
+        // Mirrors the reordered request shape from build_chat_messages:
+        // system -> history -> after-history protocol (system) -> current user.
+        // The current turn is the last message and must survive trimming.
+        let msgs = vec![
+            msg(Role::System, "ss"),
+            msg(Role::User, "aaaaaaaaaa"),
+            msg(Role::Assistant, "bbbbbbbbbb"),
+            msg(Role::System, "PROTO"),
+            msg(Role::User, "zz"),
+        ];
+        let (out, dropped) = trim_history(&msgs, 20, &CharCounter);
+        assert!(dropped > 0, "context must actually be trimmed");
+        assert_eq!(out.last().unwrap().role, Role::User);
+        assert_eq!(out.last().unwrap().content, "zz", "the current user turn stays protected");
+    }
+
+    #[test]
     fn trim_noop_when_within_window() {
         let msgs = vec![msg(Role::System, "ss"), msg(Role::User, "hi")];
         let (out, dropped) = trim_history(&msgs, 100, &CharCounter);

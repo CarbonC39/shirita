@@ -1138,6 +1138,11 @@ mod tests {
         let sys = req.messages.iter().filter(|m| m.role == Role::System).map(|m| m.content.clone()).collect::<Vec<_>>().join("\n");
         assert!(sys.contains("<state_update"), "protocol text injected");
         assert!(sys.contains("- hp (number) = 100"), "live variable list appended");
+        // The state protocol is after-history material, so the provider-visible
+        // conversation must still end with the current user turn.
+        let last = req.messages.last().unwrap();
+        assert_eq!(last.role, Role::User, "conversation must end with the current user turn");
+        assert_eq!(last.content, "hi");
     }
 
     #[tokio::test]
@@ -1626,5 +1631,37 @@ mod tests {
         // parent branch state at the user turn is hp=100 (the user carries the seed); SUB 20 -> 80
         assert_eq!(sibling.snapshot_state["hp"], 80);
         assert_eq!(sibling.display_content.as_deref(), Some("retry"));
+    }
+
+    #[tokio::test]
+    async fn regenerate_request_ends_on_the_parent_user_turn() {
+        let storage = Arc::new(temp_storage().await);
+        let t = crate::models::template::Template::new("T");
+        storage.create_template(&t).await.unwrap();
+        let mut session = Session::new("s");
+        session.template_id = Some(t.id.clone());
+        storage.create_session(&session).await.unwrap();
+
+        // user "go" -> assistant "first"; regenerate the assistant.
+        let user = Message::new(&session.id, None, Role::User, "go");
+        storage.create_message(&user).await.unwrap();
+        let a1 = Message::new(&session.id, Some(user.id.clone()), Role::Assistant, "first");
+        storage.create_message(&a1).await.unwrap();
+        storage.set_session_active_leaf(&session.id, Some(&a1.id)).await.unwrap();
+
+        let seen = Arc::new(Mutex::new(None));
+        let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "retry".into() });
+        let storage_dyn: Arc<dyn Storage> = storage.clone();
+        let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), StopToken::never());
+        futures::pin_mut!(stream);
+        while stream.next().await.is_some() {}
+
+        let req = seen.lock().unwrap().clone().unwrap();
+        // Regenerate context ends at the target's parent user message; that
+        // user turn must remain the final provider-visible message.
+        let last = req.messages.last().unwrap();
+        assert_eq!(last.role, Role::User);
+        assert_eq!(last.content, "go");
     }
 }

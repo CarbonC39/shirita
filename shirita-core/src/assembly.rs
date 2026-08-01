@@ -741,6 +741,15 @@ pub fn assemble_from_nodes_with_packs(
 /// The placement of segments is encoded in the `placement` of each segment (if a `history` node is enabled, subsequent segments are moved to
 /// `after`); therefore, whether to include them in the actual history is determined solely by the caller’s intent via `history_enabled`: if there is no
 /// `history` node, all segments are `before`, and the history is naturally appended after them.
+///
+/// When the included history ends in a user turn, that last message is treated
+/// as the current turn: it is held out, the after-history/protocol material is
+/// placed after the historical turns, and the current turn is re-appended last
+/// so the provider-visible conversation always ends with the latest user input
+/// (never a system/protocol segment). Depth inserts keep their existing
+/// relative historical positions (measured from the end including the current
+/// turn). When history ends in a non-user message, or history is disabled,
+/// ordering is unchanged.
 pub fn build_chat_messages(
     plan: &AssembledPlan,
     history: &[ChatMessage],
@@ -751,30 +760,57 @@ pub fn build_chat_messages(
         out.push(ChatMessage { role: Role::System, content: c.to_string(), ..Default::default() });
     };
 
+    // If the last included history message is a user turn, hold it out and
+    // re-append it after the after-history segments below. Only when history is
+    // actually included — a disabled History node must not smuggle the current
+    // turn into the request.
+    let mut current_turn: Option<ChatMessage> = None;
+    let historical: &[ChatMessage] = if history_enabled {
+        match history.split_last() {
+            Some((last, rest)) if last.role == Role::User => {
+                current_turn = Some(last.clone());
+                rest
+            }
+            _ => history,
+        }
+    } else {
+        history
+    };
+
     for s in plan.segments.iter().filter(|s| s.placement == Placement::BeforeHistory) {
         push_sys(&mut out, &s.content);
     }
     if history_enabled {
-        out.extend(history.iter().cloned());
+        out.extend(historical.iter().cloned());
     }
     for s in plan.segments.iter().filter(|s| s.placement == Placement::AfterHistory) {
         push_sys(&mut out, &s.content);
     }
 
-    // Splice in depth inserts: each lands `depth` messages from the end of
-    // `out` as currently built. Computed against the pre-insertion length and
-    // sorted by position so multiple inserts don't shift each other's targets.
+    // Splice in depth inserts: each lands `depth` messages from the end of the
+    // assembled context. The held-out current turn is appended last, so the
+    // "end" is measured as if it were present (preserving existing relative
+    // positions). Computed against the pre-insertion length and sorted by
+    // position so multiple inserts don't shift each other's targets.
+    let anchor_len = out.len() + usize::from(current_turn.is_some());
     let mut inserts: Vec<(usize, ChatMessage)> = plan
         .depth_inserts
         .iter()
         .map(|d| {
-            let idx = out.len().saturating_sub(d.depth);
+            let idx = anchor_len.saturating_sub(d.depth).min(out.len());
             (idx, ChatMessage { role: d.role, content: d.content.clone(), ..Default::default() })
         })
         .collect();
     inserts.sort_by_key(|(idx, _)| *idx);
     for (offset, (idx, msg)) in inserts.into_iter().enumerate() {
         out.insert(idx + offset, msg);
+    }
+
+    // Re-append the held-out current turn so the request ends on the user's
+    // latest input. `trim_history` protects the last message, so the current
+    // turn stays guarded when the context is over budget.
+    if let Some(turn) = current_turn {
+        out.push(turn);
     }
 
     // 合并相邻同角色（多个 system 合一；Claude 要求 system/user 不连发）。
@@ -1342,13 +1378,97 @@ mod tests {
         };
         let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
         let msgs = build_chat_messages(&plan, &history, true);
-        // [system "A\nB", user "hi", system "JB"]
-        assert_eq!(msgs.len(), 3);
+        // The lone user turn is the current turn, so it is held out and
+        // re-appended last: [system "A\nB\nJB", user "hi"]. AfterHistory no
+        // longer lands after the current turn.
+        assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].role, Role::System);
-        assert_eq!(msgs[0].content, "A\nB");
+        assert!(msgs[0].content.contains("A"));
+        assert!(msgs[0].content.contains("B"));
+        assert!(msgs[0].content.contains("JB"), "protocol content must survive the reorder");
         assert_eq!(msgs[1].role, Role::User);
-        assert_eq!(msgs[2].role, Role::System);
-        assert_eq!(msgs[2].content, "JB");
+        assert_eq!(msgs[1].content, "hi");
+    }
+
+    #[test]
+    fn build_messages_orders_before_history_then_after_then_current_turn() {
+        let plan = AssembledPlan {
+            segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "JB")],
+            history_enabled: true,
+            regex_rules: vec![],
+            depth_inserts: vec![],
+        };
+        let history = vec![
+            ChatMessage { role: Role::User, content: "u1".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "a1".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "current".into(), ..Default::default() },
+        ];
+        let msgs = build_chat_messages(&plan, &history, true);
+        // BeforeHistory -> historical user/assistant -> AfterHistory -> current user.
+        assert_eq!(msgs.len(), 5);
+        assert_eq!(msgs[0].role, Role::System);
+        assert_eq!(msgs[0].content, "A");
+        assert_eq!(msgs[1].content, "u1");
+        assert_eq!(msgs[2].content, "a1");
+        assert_eq!(msgs[3].role, Role::System);
+        assert_eq!(msgs[3].content, "JB");
+        assert_eq!(msgs[4].role, Role::User);
+        assert_eq!(msgs[4].content, "current");
+    }
+
+    #[test]
+    fn build_messages_preserves_current_turn_images() {
+        let plan = AssembledPlan {
+            segments: vec![seg(Placement::AfterHistory, "JB")],
+            history_enabled: true,
+            regex_rules: vec![],
+            depth_inserts: vec![],
+        };
+        let history = vec![ChatMessage {
+            role: Role::User,
+            content: "what is this?".into(),
+            images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
+        }];
+        let msgs = build_chat_messages(&plan, &history, true);
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[1].content, "what is this?");
+        assert_eq!(msgs[1].images, vec!["data:image/png;base64,AAA".to_string()]);
+    }
+
+    #[test]
+    fn build_messages_history_disabled_has_only_system_segments() {
+        let plan = AssembledPlan {
+            segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "B")],
+            history_enabled: false,
+            regex_rules: vec![],
+            depth_inserts: vec![],
+        };
+        let history = vec![ChatMessage { role: Role::User, content: "hi".into(), ..Default::default() }];
+        let msgs = build_chat_messages(&plan, &history, false);
+        // History disabled: the current turn is not smuggled past the History node.
+        assert!(msgs.iter().all(|m| m.role == Role::System));
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "A\nB");
+    }
+
+    #[test]
+    fn build_messages_unchanged_when_history_ends_in_assistant() {
+        let plan = AssembledPlan {
+            segments: vec![seg(Placement::BeforeHistory, "A"), seg(Placement::AfterHistory, "JB")],
+            history_enabled: true,
+            regex_rules: vec![],
+            depth_inserts: vec![],
+        };
+        let history = vec![
+            ChatMessage { role: Role::User, content: "u1".into(), ..Default::default() },
+            ChatMessage { role: Role::Assistant, content: "a1".into(), ..Default::default() },
+        ];
+        let msgs = build_chat_messages(&plan, &history, true);
+        // No trailing user turn → no hold-out; AfterHistory stays after history.
+        assert_eq!(msgs.len(), 4);
+        assert_eq!(msgs[3].role, Role::System);
+        assert_eq!(msgs[3].content, "JB");
     }
 
     #[test]

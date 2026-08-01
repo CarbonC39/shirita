@@ -103,7 +103,7 @@
 - **实现方式**：
   - activate() 分三轮：先处理 constant/random 激活，然后按 scan_depth 分组使用 KeywordIndex 扫描最近消息，最后对 recursive 条目进行最多 3 轮的递归扫描。
   - assemble_from_nodes_with_packs 遍历 template/session 树 + pack 树，处理 History/Content/Folder/Ref 四种节点类型。
-  - build_chat_messages 按 BeforeHistory/AfterHistory 排序，depth_inserts 从距离末尾计算插入位置，合并相邻同 role 消息。
+  - build_chat_messages 按 BeforeHistory/AfterHistory 排序；当 history 末尾是用户 turn 时将其抽出，放到 AfterHistory/protocol 之后、作为最后一条消息重新追加，确保 provider 看到的对话以当前用户 turn 结尾。depth_inserts 仍从（含当前 turn 的）末尾计算插入位置，再合并相邻同 role 消息。
 - **⚠️ 需要你关注的点**：
   - **render_vars** 每次调用都创建新的 regex::Regex，未使用 LazyLock 或静态。
   - **apply_regex_rules_for** 中对编译失败的正则仅做 tracing::warn 并跳过，做得到"运行时宽容"。

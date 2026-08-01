@@ -205,6 +205,24 @@ mod tests {
     }
 
     #[test]
+    fn final_serialized_message_is_the_current_user_turn_when_system_protocol_exists() {
+        // AfterHistory/protocol material ends up as a system message before the
+        // re-appended current turn; the final provider message must be that turn.
+        let r = req(vec![
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "history".into(), ..Default::default() },
+            ChatMessage { role: Role::System, content: "PROTO".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "current".into(), ..Default::default() },
+        ], None);
+        let msgs = openai_messages(&r);
+        let last = msgs.last().unwrap();
+        assert_eq!(last["role"], "user");
+        assert_eq!(last["content"], "current");
+        // The protocol is still present, not dropped by the reorder.
+        assert!(msgs.iter().any(|m| m["role"] == "system" && m["content"] == "PROTO"));
+    }
+
+    #[test]
     fn image_only_message_omits_empty_text_part() {
         let r = req(vec![ChatMessage {
             role: Role::User,

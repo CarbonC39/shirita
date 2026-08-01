@@ -255,6 +255,26 @@ mod tests {
     }
 
     #[test]
+    fn final_non_system_message_is_current_turn_and_protocol_stays_in_system() {
+        let r = req(vec![
+            ChatMessage { role: Role::System, content: "SYS".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "history".into(), ..Default::default() },
+            ChatMessage { role: Role::System, content: "PROTO".into(), ..Default::default() },
+            ChatMessage { role: Role::User, content: "current".into(), ..Default::default() },
+        ], None);
+        let b = anthropic_body(&r);
+        assert_eq!(b["system"].as_str().unwrap(), "SYS\n\nPROTO");
+        let msgs = b["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0]["role"], "user");
+        assert_eq!(msgs[0]["content"], "history");
+        // The reordered current turn stays the final non-system message.
+        let last = msgs.last().unwrap();
+        assert_eq!(last["role"], "user");
+        assert_eq!(last["content"], "current");
+    }
+
+    #[test]
     fn drops_leading_assistant_so_first_message_is_user() {
         // Trimming/folding can drop the original leading user turn, leaving an
         // orphaned assistant reply first — Anthropic rejects a non-user first
