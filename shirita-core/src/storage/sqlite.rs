@@ -1585,6 +1585,139 @@ mod tests {
         }
     }
 
+    /// Apply only the migrations with version < `upto`, so a test can simulate
+    /// a database that predates a specific migration (here: 0023).
+    async fn apply_migrations_upto(pool: &SqlitePool, upto: i64) {
+        use sqlx::migrate::Migrate;
+        let migrator = sqlx::migrate!("./migrations");
+        let mut conn = pool.acquire().await.unwrap();
+        conn.ensure_migrations_table().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version < upto) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn migration_0023_strips_st_raw_from_definition_meta() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("straw.db");
+        std::mem::forget(dir);
+        let opts = SqliteConnectOptions::new()
+            .filename(path.to_str().unwrap())
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(opts)
+            .await
+            .unwrap();
+
+        // 1) Pre-0023 state: apply migrations up to (not including) 0023, then
+        //    seed a definition whose meta carries the obsolete st_raw blob.
+        apply_migrations_upto(&pool, 23).await;
+        let pre = r#"{"st_raw":{"spec":"chara_card_v2","data":{}},"avatar":"a.png","custom":1}"#;
+        sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES ('d1','char','Neo','hi',?)")
+            .bind(pre)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 2) Apply 0023 (the real migration file).
+        use sqlx::migrate::Migrate;
+        let migrator = sqlx::migrate!("./migrations");
+        let mut conn = pool.acquire().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version == 23) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+
+        // 3) st_raw is removed; every other meta key survives.
+        use sqlx::Row;
+        let row: sqlx::sqlite::SqliteRow = sqlx::query("SELECT id, type, name, content, meta FROM definitions WHERE id='d1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(row.get::<String, _>("id"), "d1");
+        assert_eq!(row.get::<String, _>("type"), "char");
+        assert_eq!(row.get::<String, _>("name"), "Neo");
+        assert_eq!(row.get::<String, _>("content"), "hi");
+        let meta: serde_json::Value = serde_json::from_str(&row.get::<String, _>("meta")).unwrap();
+        assert_eq!(meta, serde_json::json!({ "avatar": "a.png", "custom": 1 }));
+    }
+
+    #[tokio::test]
+    async fn migration_0023_leaves_meta_without_st_raw_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("straw2.db");
+        std::mem::forget(dir);
+        let opts = SqliteConnectOptions::new()
+            .filename(path.to_str().unwrap())
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(opts)
+            .await
+            .unwrap();
+        apply_migrations_upto(&pool, 23).await;
+        sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES ('d2','persona','Me','x','{\"avatar\":\"b.png\"}')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        use sqlx::migrate::Migrate;
+        let migrator = sqlx::migrate!("./migrations");
+        let mut conn = pool.acquire().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version == 23) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+
+        let meta: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d2'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(meta, r#"{"avatar":"b.png"}"#);
+    }
+
+    #[tokio::test]
+    async fn migration_0023_running_again_is_harmless() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("straw3.db");
+        std::mem::forget(dir);
+        let opts = SqliteConnectOptions::new()
+            .filename(path.to_str().unwrap())
+            .create_if_missing(true);
+        let pool = SqlitePoolOptions::new()
+            .connect_with(opts)
+            .await
+            .unwrap();
+        apply_migrations_upto(&pool, 23).await;
+        sqlx::query("INSERT INTO definitions (id, type, name, content, meta) VALUES ('d3','char','N','x','{\"st_raw\":1,\"custom\":2}')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        use sqlx::migrate::Migrate;
+        let migrator = sqlx::migrate!("./migrations");
+        let mut conn = pool.acquire().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version == 23) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+
+        // Running the full migration set again (what the app does on boot) is
+        // harmless: 0023 is already recorded as applied, so nothing re-runs.
+        migrator.run(&pool).await.unwrap();
+
+        let meta: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d3'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(meta, r#"{"custom":2}"#);
+    }
+
     #[tokio::test]
     async fn definition_crud_roundtrip() {
         let storage = temp_storage().await;
