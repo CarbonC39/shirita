@@ -2,7 +2,7 @@
 
 > Shirita 是一个 AI 角色扮演与 Agent 平台，同时支持自托管 Web 和桌面（Tauri）部署。两种部署方式是同等重要的产品目标，共享 Rust core、HTTP API 与 Vue 前端。
 
-本文描述当前已经存在的实现，不代表所有实现都会长期保留。产品边界以 [`PRODUCT.md`](PRODUCT.md) 为准，近期删改范围以 [`docs/current-direction.md`](docs/current-direction.md) 为准。特别是 SillyTavern 兼容层已决定从主应用移除，但在实际删除完成前，本文仍会如实记录相关模块。
+本文描述当前已经存在的实现，不代表所有实现都会长期保留。产品边界以 [`PRODUCT.md`](PRODUCT.md) 为准，近期删改范围以 [`docs/current-direction.md`](docs/current-direction.md) 为准。
 
 ---
 
@@ -47,7 +47,6 @@ shirita-tauri ──depends on──> shirita-web ──depends on──> shirit
 | `budget.rs` | Token 预算管理：上下文窗口裁剪（`trim_history`） |
 | `summarize.rs` | 滚动摘要生成：对话超过窗口后的自动摘要 |
 | `tokenizer/` | `TokenCounter` trait + `TiktokenCounter`（tiktoken-rs 包装） |
-| `adapters/` | 导入适配器：Character Card（PNG）、SillyTavern 预设/世界信息、LoreSet → Pack 转换 |
 | `portable.rs` | 便携格式：导出/导入为 .zip（含定义、节点树、资产）和 .json 模板包 |
 | `attachments.rs` | 附件处理：将 asset ID 解析为图片 data URL，注入到 prompt 上下文中 |
 | `html_patch.rs` | HTML 卡片修补：SEARCH/REPLACE 差异格式的解析、合并与重建。模型可以增量编辑已渲染的 HTML 文档 |
@@ -58,7 +57,6 @@ shirita-tauri ──depends on──> shirita-web ──depends on──> shirit
 | `tree.rs` | 消息树遍历：`active_path` 从消息森林中提取当前分支 |
 | `config.rs` | 环境变量配置读取（含 HTTP Basic Auth、provider 覆盖） |
 | `seed.rs` | 首次启动种子数据（默认模板、内置定义、backfill 迁移：content 节点、全局正则标志、资产哈希） |
-| `pngcard.rs` | PNG Character Card 提取 |
 | `error.rs` | 统一错误类型 |
 
 ### 2.2 `shirita-web` — HTTP 服务层
@@ -115,7 +113,7 @@ shirita-tauri ──depends on──> shirita-web ──depends on──> shirit
 /api/types                       — 容器类型注册表
 /api/settings                    — 键值设置
 /api/provider/*                  — Provider 连接测试/模型列表
-/api/import/*                    — 导入（WorldInfo/CharCard/通用包）
+/api/import                      — 导入（原生 definition/template/pack bundle）
 /api/regex-rules/scopes          — 正则规则作用域
 /api/assets                      — 媒体库上传/列表/删除
 /assets/*                        — 静态文件 ServeDir
@@ -409,15 +407,16 @@ Template/Session 节点树           Pack 节点树（多个，按挂载顺序�
                   │
                   ▼
             AssembledPlan
-            { segments[], history_enabled, regex_rules[], depth_inserts[] }
+            { segments[], history_enabled, regex_rules[] }
                   │
                   ▼
             build_chat_messages()
-            → System 段 + History + System 段 + depth_inserts
+            → System 段 + History + System 段
+            → 末尾用户 turn 保持最后（当前轮）
             → 合并相邻同角色消息
 ```
 
-**理由**：这种设计让用户可以结构化管理提示词（类似 SillyTavern 的"人物卡片"概念），而非手工编辑原始 prompt。
+**理由**：这种设计让用户可以结构化管理提示词，而非手工编辑原始 prompt。
 
 ### 6.3 三层触发机制（Constant / Keyword / Random）
 
@@ -428,7 +427,7 @@ Template/Session 节点树           Pack 节点树（多个，按挂载顺序�
 
 支持递归扫描：激活的内容本身会再次触发关键词扫描（最多 3 轮）。每个条目的 `scan_depth` 和 `recursive` 可单独配置。
 
-**理由**：与 SillyTavern 的世界信息（World Info）兼容，同时提供更大灵活性。
+**理由**：把关键词触发的"世界设定"条目从常驻系统提示中分离出来，按上下文按需注入。
 
 ### 6.4 变量系统：`<state_update>` 标签 + 分支快照 + 砖块化 schema
 
@@ -452,7 +451,7 @@ Template/Session 节点树           Pack 节点树（多个，按挂载顺序�
 
 前端通过 `activePath()` 从消息森林中提取当前分支（从根到 active leaf 的路径）。
 
-**理由**：SillyTavern 风格的 "swipe"（滑动切换回复）用户体验。
+**理由**：重生成（swipe）让用户在同一输入下浏览多条回复，而不重写已有消息。
 
 ### 6.6 协作停止（Cooperative Stop）
 
@@ -503,13 +502,12 @@ Template/Session 节点树           Pack 节点树（多个，按挂载顺序�
 
 **理由**：生产部署时是单一二进制方便分发；开发期热重载提升体验。
 
-### 6.10 导入适配器（适配存量工具）
+### 6.10 原生便携格式导入
 
-**决策**：`adapters/` 模块支持从其他工具导入数据：
-- **Character Card (PNG)**：从 PNG 文件读取角色卡片 JSON（`pngcard.rs`），转换为 `LoreSet` → 再转换为 Pack（`loreset_to_pack`）
-- **SillyTavern 预设**：将 JSON 预设转换为本地模板 + 节点树（`stpreset_to_loreset` + `tree_to_preset`）
-- **SillyTavern 世界信息**：将世界信息 JSON 转换为 definitions（`worldinfo_to_defs`）
-- **通用导入**：`/import` 端点处理 .zip 便携格式和 .json 模板包
+**决策**：`/api/import` 只接受 Shirita 原生便携格式：
+- **`shirita.definition` / `shirita.template`**：显式 `format` 判别值的 JSON 文档。
+- **`shirita.pack`**：ZIP bundle（`manifest.json` + `assets/`）或带显式 `format` 的 JSON。
+- 其余任何输入（外来卡片/预设/世界信息 JSON、任意 PNG 字节、未知 JSON）返回 `400`，不写入数据库行或资产文件。
 
 ### 6.11 Provider 多源隔离
 
@@ -571,7 +569,7 @@ Pack 节点树:
 
 `effective_regex_rules()` 从模板/会话节点树的 Ref 节点收集局部规则，再加上全局规则。`ensure_global_regex_flag()` 在启动时自动为旧的未标记规则补全 `is_global`。
 
-**理由**：与 SillyTavern 的"全局正则 vs 角色正则"概念对应，让通用规则和特定规则共存而不混淆。
+**理由**：全局规则与模板/角色作用域规则共存，让通用规整和角色特定规整不互相干扰。
 
 ### 6.15 Per-message 身份快照
 
@@ -610,7 +608,7 @@ HTML/CSS 面板不是独立创建的 UI 元素，也不是 pack 元数据的一�
 
 面板声明 `min_messages` 属性控制最早显示时机，`caps` 声明面板权限（write/insert/send）。
 
-这意味着面板是"提示词结构的一部分"而非"前端插件" — 与 SillyTavern 不同的设计哲学。
+这意味着面板是"提示词结构的一部分"而非"前端插件" — 面板由节点树声明，渲染由引擎/UI 协作完成。
 
 ### 7.4 状态变量跨越三轮：schema → seed → snapshot
 

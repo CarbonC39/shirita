@@ -250,7 +250,7 @@ const zhHans: MessageSchema = {
     regex: '正则',
     addRule: '+ 添加规则',
     about: '关于',
-    aboutText: 'Shirita —— 一个 SillyTavern 替代品。',
+    aboutText: 'Shirita —— 一个由用户掌控、可组合的 AI 角色扮演平台。',
     regexUnnamed: '未命名规则',
     regexRenameHint: '双击或按回车键重命名',
     regexFind: '查找',

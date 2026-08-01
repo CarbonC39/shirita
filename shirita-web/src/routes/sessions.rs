@@ -71,8 +71,8 @@ pub async fn create_session(
     // it doesn't call /identity (that would be one extra request per row).
     // Seed it once from the first mounted pack with a bound avatar (mount
     // order) when the caller didn't explicitly pick an avatar override, so a
-    // pack character's avatar — e.g. one just brought in by a charcard
-    // import — shows up in the list, not just inside an open chat (which
+    // pack character's avatar — e.g. one just brought in by an import —
+    // shows up in the list, not just inside an open chat (which
     // resolves live via get_session_identity's pack_avatar priority).
     if session.avatar.as_deref().unwrap_or("").is_empty() {
         session.avatar = pack_identities

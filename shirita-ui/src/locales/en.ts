@@ -260,7 +260,7 @@ const en = {
     regex: 'Regex',
     addRule: '+ Add rule',
     about: 'About',
-    aboutText: 'Shirita — a SillyTavern alternative.',
+    aboutText: 'Shirita — a user-controlled, composable AI role-playing platform.',
     regexUnnamed: 'Unnamed rule',
     regexRenameHint: 'Double-click or press Enter to rename',
     regexFind: 'Find',

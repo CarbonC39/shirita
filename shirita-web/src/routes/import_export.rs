@@ -301,8 +301,8 @@ async fn first_field(mut mp: Multipart) -> Result<Vec<u8>, StatusCode> {
 ///     signature and validated by requiring a `shirita.pack` manifest;
 ///  2. otherwise the payload must parse as JSON and carry an explicit
 ///     `format` of `shirita.definition`, `shirita.template`, or `shirita.pack`;
-///  3. everything else (ST card/preset/World Info JSON, arbitrary PNG bytes,
-///     unknown JSON) is rejected with `400 Bad Request`.
+///  3. everything else (foreign card/preset/World Info JSON, arbitrary PNG
+///     bytes, unknown JSON) is rejected with `400 Bad Request`.
 pub async fn import(
     State(state): State<AppState>,
     Query(q): Query<ImportQuery>,

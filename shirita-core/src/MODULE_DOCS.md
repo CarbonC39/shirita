@@ -98,12 +98,12 @@
 ## assembly
 
 - **职责**：Prompt 组装核心——从节点树解析 Entry、计算激活集（constant/keyword/random）、变量渲染、注释剥离、正则规则处理、XML 标签包装、消息段排序。
-- **输入/输出**：assemble_from_nodes/assemble_from_nodes_with_packs 返回 AssembledPlan（含 segments、regex_rules、depth_inserts）。build_chat_messages 将 plan + history 转为 Vec<ChatMessage>。
+- **输入/输出**：assemble_from_nodes/assemble_from_nodes_with_packs 返回 AssembledPlan（含 segments、regex_rules）。build_chat_messages 将 plan + history 转为 Vec<ChatMessage>。
 - **依赖关系**：依赖 state（变量渲染）、keyword（Aho-Corasick 扫描）、models。被 conversation 调用。
 - **实现方式**：
   - activate() 分三轮：先处理 constant/random 激活，然后按 scan_depth 分组使用 KeywordIndex 扫描最近消息，最后对 recursive 条目进行最多 3 轮的递归扫描。
   - assemble_from_nodes_with_packs 遍历 template/session 树 + pack 树，处理 History/Content/Folder/Ref 四种节点类型。
-  - build_chat_messages 按 BeforeHistory/AfterHistory 排序；当 history 末尾是用户 turn 时将其抽出，放到 AfterHistory/protocol 之后、作为最后一条消息重新追加，确保 provider 看到的对话以当前用户 turn 结尾。depth_inserts 仍从（含当前 turn 的）末尾计算插入位置，再合并相邻同 role 消息。
+  - build_chat_messages 按 BeforeHistory/AfterHistory 排序；当 history 末尾是用户 turn 时将其抽出，放到 AfterHistory/protocol 之后、作为最后一条消息重新追加，确保 provider 看到的对话以当前用户 turn 结尾。再合并相邻同 role 消息。
 - **⚠️ 需要你关注的点**：
   - **render_vars** 每次调用都创建新的 regex::Regex，未使用 LazyLock 或静态。
   - **apply_regex_rules_for** 中对编译失败的正则仅做 tracing::warn 并跳过，做得到"运行时宽容"。
@@ -114,7 +114,7 @@
 
 - **职责**：变量状态沙箱——声明 schema、合并有效状态、解析和应用 `<state_update>` 指令。纯函数，无 I/O。
 - **输入/输出**：parse_state_updates、apply_updates、effective_state、variables_from_nodes、resolve_schema_from_bricks。
-- **依赖关系**：纯函数，依赖 models。被 conversation 和 adapters/stpreset 调用。
+- **依赖关系**：纯函数，依赖 models。被 conversation 调用。
 - **实现方式**：
   - effective_state 使用三层覆盖：schema_initials < seed < leaf_snapshot。
   - apply_updates 对每个操作按 schema 类型进行类型检查，忽略未声明键或类型不匹配的操作。
@@ -133,34 +133,6 @@
 - **实现方式**：trim_history 保护第一条 system 消息和最后一条 user 消息，从中间段从旧到新丢弃消息直到 token 总量 <= window。
 - **⚠️ 需要你关注的点**：
   - 算法只从中间段丢弃，如果第一条消息不是 system 且数据量极大，仍可能超出窗口。这是 best-effort 设计。
-
----
-
-## adapters (4 个子模块)
-
-### charcard
-- **职责**：ST 角色卡 V2/V3 -> LoreSet（Template + Definitions + Nodes）转换。
-- **实现方式**：将每个非空字段映射为定义 + ref 节点，组成 2 级模板树。支持正则脚本转换、tavern_helper 变量提取、Panel 转换（识别状态条模式 -> HTML/CSS/Variables 砖块）。
-- **⚠️ 需要你关注的点**：
-  - **charcard_to_loreset 函数超长**（约 200 行）。
-  - **loreset_to_pack** 过滤 History/Content 节点——但过滤前已经修改了所有节点的 owner_kind，有冗余修改。
-  - **try_convert_status_panel** 状态条检测逻辑复杂，仅当恰好有一个明确候选时才转换。
-
-### preset
-- **职责**：模板节点树 -> ST preset JSON 序列化。代码简洁。
-
-### stpreset
-- **职责**：ST chat-completion preset -> LoreSet 导入。
-- **实现方式**：解析 setvar::/getvar:: 宏提取变量声明；选择最大的 prompt_order 组；检测跨节点标签跨度并合并为文件夹。
-- **⚠️ 需要你关注的点**：
-  - **stpreset_to_loreset 函数极长**（约 300 行）。
-  - **活跃顺序处理和 inactive 尾部处理**存在明显的代码重复。
-  - **find_first_span** 已优化为 O(n)，性能正确。
-
-### worldinfo
-- **职责**：ST World Info -> world 类型定义列表。
-- **实现方式**：支持 entries 为 map 或 array 格式；as_u64_lenient 宽松解析数值字段。
-- **⚠️ 需要你关注的点**：代码简洁，无问题。
 
 ---
 
@@ -269,17 +241,6 @@
 
 ---
 
-## pngcard
-
-- **职责**：解析嵌入 PNG 文件中的 ST 角色卡 JSON。
-- **实现方式**：手动解析 PNG chunk 结构，优先 ccv3 后 chara，Base64 解码。
-- **⚠️ 需要你关注的点**：
-  - **不验证 CRC**——设计意图。
-  - **MAX_TEXT_CHUNK=8MB** 保护，在读取数据之前返回错误，正确防御 OOM。
-  - 代码干净，无 unwrap。
-
----
-
 ## portable
 
 - **职责**：shirita 可移植文档格式导入/导出（纯数据转换）。
@@ -298,7 +259,6 @@
 | 位置 | 调用 | 风险 |
 |------|------|------|
 | tokenizer/tiktoken.rs:19 | `o200k_base().expect(...)` | tiktoken BPE 数据缺失时 panic |
-| adapters/charcard.rs:142 | `expect("tag is always static")` | tag 固定，安全 |
 
 ### 代码重复
 

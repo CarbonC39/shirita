@@ -716,8 +716,8 @@ pub fn regenerate(
         let new_snapshot = apply_updates(&branch_state, &schema, &updates);
         let cleaned = strip_state_tags(&full);
         // Hide the old assistant message so the active path only shows the new
-        // branch. SillyTavern-style: regenerate creates a sibling, hides the
-        // old one, and the frontend renders swipe counters for the sibling group.
+        // branch. Regenerate creates a sibling, hides the old one, and the
+        // frontend renders swipe counters for the sibling group.
         let mut hidden_target = target.clone();
         hidden_target.is_hidden = true;
         let _ = storage.update_message(&hidden_target).await;

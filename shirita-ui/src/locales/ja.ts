@@ -251,7 +251,7 @@ const ja: MessageSchema = {
     regex: '正規表現',
     addRule: '+ ルールを追加',
     about: '情報',
-    aboutText: 'Shirita —— SillyTavern の代替アプリ。',
+    aboutText: 'Shirita —— ユーザーが管理し、組み合わせ可能な AI ロールプレイングプラットフォーム。',
     regexUnnamed: '無名のルール',
     regexRenameHint: 'ダブルクリックまたは Enter で名前を変更',
     regexFind: '検索',

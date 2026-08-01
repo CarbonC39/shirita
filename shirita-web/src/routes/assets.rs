@@ -39,7 +39,7 @@ fn asset_json(a: &Asset) -> Value {
 /// `meta.avatar`, or `Session.avatar`. Call this right after an operation
 /// that may have just dropped the last reference to an avatar (a pack
 /// delete, or a pack/definition avatar change) — otherwise unreferenced
-/// uploads (e.g. a charcard's avatar after its pack is removed) pile up in
+/// uploads (e.g. a pack's avatar after the pack is removed) pile up in
 /// the library forever with no way to know they're unused.
 pub async fn gc_avatar_if_orphaned(state: &AppState, avatar_path: &str) -> Result<(), StatusCode> {
     if avatar_path.is_empty() {

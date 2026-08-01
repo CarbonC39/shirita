@@ -363,7 +363,7 @@ pub struct AssembledPlan {
     pub segments: Vec<PromptSegment>,
     pub history_enabled: bool,
     /// regex_rule definitions referenced by enabled refs in this tree — the
-    /// regex rules in effect for this loreset (scoped, not global).
+    /// regex rules in effect for this tree (scoped, not global).
     pub regex_rules: Vec<Definition>,
 }
 
@@ -691,7 +691,7 @@ pub fn assemble_from_nodes_with_packs(
     }
 
     // Collect the regex_rule definitions referenced by enabled refs in this
-    // tree — these are the regex rules scoped to this loreset.
+    // tree — these are the regex rules scoped to this tree.
     let regex_rules: Vec<Definition> = nodes
         .iter()
         .filter(|n| n.enabled && n.kind == NodeKind::Ref)

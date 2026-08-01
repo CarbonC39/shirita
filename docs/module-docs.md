@@ -108,12 +108,12 @@
 ## assembly
 
 - **职责**：Prompt 组装核心——从节点树解析 Entry、计算激活集（constant/keyword/random）、变量渲染、注释剥离、正则规则处理、XML 标签包装、消息段排序。
-- **输入/输出**：assemble_from_nodes/assemble_from_nodes_with_packs 返回 AssembledPlan（含 segments、regex_rules、depth_inserts）。build_chat_messages 将 plan + history 转为 Vec<ChatMessage>。
+- **输入/输出**：assemble_from_nodes/assemble_from_nodes_with_packs 返回 AssembledPlan（含 segments、regex_rules）。build_chat_messages 将 plan + history 转为 Vec<ChatMessage>。
 - **依赖关系**：依赖 state（变量渲染）、keyword（Aho-Corasick 扫描）、models。被 conversation 调用。
 - **实现方式**：
   - activate() 分三轮：先处理 constant/random 激活，然后按 scan_depth 分组使用 KeywordIndex 扫描最近消息，最后对 recursive 条目进行最多 3 轮的递归扫描。
   - assemble_from_nodes_with_packs 遍历 template/session 树 + pack 树，处理 History/Content/Folder/Ref 四种节点类型。
-  - build_chat_messages 按 BeforeHistory/AfterHistory 排序，depth_inserts 从距离末尾计算插入位置，合并相邻同 role 消息。
+  - build_chat_messages 按 BeforeHistory/AfterHistory 排序；当 history 末尾是用户 turn 时将其抽出，放到 AfterHistory/protocol 之后、作为最后一条消息重新追加，确保 provider 看到的对话以当前用户 turn 结尾。再合并相邻同 role 消息。
 - **⚠️ 需要你关注的点**：
   - **render_vars** 每次调用都创建新的 regex::Regex，未使用 LazyLock 或静态。
   - **apply_regex_rules_for** 中对编译失败的正则仅做 tracing::warn 并跳过，做得到"运行时宽容"。
@@ -124,7 +124,7 @@
 
 - **职责**：变量状态沙箱——声明 schema、合并有效状态、解析和应用 `<state_update>` 指令。纯函数，无 I/O。
 - **输入/输出**：parse_state_updates、apply_updates、effective_state、variables_from_nodes、resolve_schema_from_bricks。
-- **依赖关系**：纯函数，依赖 models。被 conversation 和 adapters/stpreset 调用。
+- **依赖关系**：纯函数，依赖 models。被 conversation 调用。
 - **实现方式**：
   - effective_state 使用三层覆盖：schema_initials < seed < leaf_snapshot。
   - apply_updates 对每个操作按 schema 类型进行类型检查，忽略未声明键或类型不匹配的操作。
@@ -143,34 +143,6 @@
 - **实现方式**：trim_history 保护第一条 system 消息和最后一条 user 消息，从中间段从旧到新丢弃消息直到 token 总量 <= window。
 - **⚠️ 需要你关注的点**：
   - 算法只从中间段丢弃，如果第一条消息不是 system 且数据量极大，仍可能超出窗口。这是 best-effort 设计。
-
----
-
-## adapters (4 个子模块)
-
-### charcard
-- **职责**：ST 角色卡 V2/V3 -> LoreSet（Template + Definitions + Nodes）转换。
-- **实现方式**：将每个非空字段映射为定义 + ref 节点，组成 2 级模板树。支持正则脚本转换、tavern_helper 变量提取、Panel 转换（识别状态条模式 -> HTML/CSS/Variables 砖块）。
-- **⚠️ 需要你关注的点**：
-  - **charcard_to_loreset 函数超长**（约 200 行）。
-  - **loreset_to_pack** 过滤 History/Content 节点——但过滤前已经修改了所有节点的 owner_kind，有冗余修改。
-  - **try_convert_status_panel** 状态条检测逻辑复杂，仅当恰好有一个明确候选时才转换。
-
-### preset
-- **职责**：模板节点树 -> ST preset JSON 序列化。代码简洁。
-
-### stpreset
-- **职责**：ST chat-completion preset -> LoreSet 导入。
-- **实现方式**：解析 setvar::/getvar:: 宏提取变量声明；选择最大的 prompt_order 组；检测跨节点标签跨度并合并为文件夹。
-- **⚠️ 需要你关注的点**：
-  - **stpreset_to_loreset 函数极长**（约 300 行）。
-  - **活跃顺序处理和 inactive 尾部处理**存在明显的代码重复。
-  - **find_first_span** 已优化为 O(n)，性能正确。
-
-### worldinfo
-- **职责**：ST World Info -> world 类型定义列表。
-- **实现方式**：支持 entries 为 map 或 array 格式；as_u64_lenient 宽松解析数值字段。
-- **⚠️ 需要你关注的点**：代码简洁，无问题。
 
 ---
 
@@ -279,17 +251,6 @@
 
 ---
 
-## pngcard
-
-- **职责**：解析嵌入 PNG 文件中的 ST 角色卡 JSON。
-- **实现方式**：手动解析 PNG chunk 结构，优先 ccv3 后 chara，Base64 解码。
-- **⚠️ 需要你关注的点**：
-  - **不验证 CRC**——设计意图。
-  - **MAX_TEXT_CHUNK=8MB** 保护，在读取数据之前返回错误，正确防御 OOM。
-  - 代码干净，无 unwrap。
-
----
-
 ## portable
 
 - **职责**：shirita 可移植文档格式导入/导出（纯数据转换）。
@@ -308,7 +269,6 @@
 | 位置 | 调用 | 风险 |
 |------|------|------|
 | tokenizer/tiktoken.rs:19 | `o200k_base().expect(...)` | tiktoken BPE 数据缺失时 panic |
-| adapters/charcard.rs:142 | `expect("tag is always static")` | tag 固定，安全 |
 
 ### 代码重复
 
@@ -662,37 +622,27 @@
 
 ---
 
-## `routes/import_export.rs` -- Import: charcard, worldinfo, pack bundle, template bundle, preset
+## `routes/import_export.rs` -- Native portable import/export
 
-- **职责**：最复杂的路由之一。实现多种数据格式的导入：PNG charcard（含 avatar）、ZIP pack bundle、JSON shirita 格式的 definition/template/pack、ST chat preset、ST character card、ST world book。
+- **职责**：导入和导出 Shirita 原生便携格式——`shirita.definition` / `shirita.template` / `shirita.pack`（JSON 或 ZIP bundle）。仅接受这三种显式格式，其余一律 `400`。
 - **API 表面**：
-  - `POST /api/import`（multipart）-> `Json<ImportSummary>`：根据内容嗅探导入类型。
-  - `POST /api/import/worldinfo` -> `Json<ImportSummary>`：导入 ST World Book（JSON）。
-  - `POST /api/import/charcard` -> `Json<ImportSummary>`：导入 ST charcard（JSON）。
+  - `POST /api/import`（multipart）-> `Json<ImportSummary>`：接受一个 `file` 字段。ZIP 签名 -> `shirita.pack` bundle；否则按 JSON 解析并要求显式 `format` 判别值。
 - **关键结构体和函数**：
   - `ImportQuery`、`ImportSummary`、`ImportItem`：导入结果摘要。
   - `OnConflict` enum：`Skip`、`Overwrite`、`Duplicate`——冲突处理策略。
-  - `unzip_pack(bytes) -> (Value, HashMap<String, Vec<u8>>)`：解包 zip，验证安全（路径遍历保护、entry 数量/大小限制、总大小限制）。
+  - `unzip_pack(bytes) -> (Value, HashMap<String, Vec<u8>>)`：解包 zip，验证安全（路径遍历保护、entry 数量/大小限制、总大小限制、必须包含 `manifest.json`）。
   - `persist_pack_bundle`：持久化 pack bundle——hash-dedup 资产、重写引用、创建 pack + defs + nodes。
   - `persist_defs`：按 `on_conflict` 策略持久化 definition 列表。
-  - `persist_loreset_as_pack`：将 loreset（来自 charcard）持久化为 pack。
-  - `persist_preset`：将 ST preset 持久化为 template。
   - `import_template_bundle`：导入 shirita.template bundle——topological node 排序后事务性写入。
-  - `first_field`：从 multipart 中读取第一个字段的字节和文件名 stem。
-  - `save_png_asset`：保存 PNG 资产文件并注册 Asset hash-dedup。
+  - `first_field`：从 multipart 中读取第一个字段的字节。
 - **实现方式**：
-  - `import` 函数是内容嗅探调度器：PNG header -> charcard；ZIP header -> pack bundle；JSON -> 根据 `format` 字段或结构特征（preset/charcard/worldinfo）分发。
+  - `import` 函数按固定顺序分发：ZIP 签名 -> `shirita.pack` bundle（要求有效 manifest）；否则 JSON -> 仅接受 `format` 为 `shirita.definition` / `shirita.template` / `shirita.pack` 的文档；其余（外来卡片/预设/World Info JSON、任意 PNG 字节、未知 JSON）返回 `400`，不写入任何数据库行或资产文件。
   - `import_template_bundle` 和 `persist_pack_bundle` 都实现了拓扑排序 node 插入逻辑（大括号内 `remaining`/`progressed` 循环），确保父节点在子节点之前创建。
   - pack 导入时 hash-dedup 资产：同内容的资产（同 sha256）复用已有或同一批中刚创建的 Asset 行。
-  - charcard 导入作为 pack：avatar 先保存到 assets，然后注入 loreset 的 char definition 的 `meta.avatar` 中。
   - 导入时检查 `on_conflict`：pack/template 按名称检查冲突，definition 按 name+def_type 检查冲突。
 - **⚠️ 需要你关注的点**：
   - **代码重复**：`import_template_bundle` 和 `persist_pack_bundle` 中的 topological node 排序逻辑几乎完全相同（变量名略有差异：一个用 `OwnerKind::Pack`，另一个用 `OwnerKind::Template`）。这是一个明显的抽象缺失——可以提取为共享函数 `topo_sort_nodes(owner_kind, owner_id, nodes, def_map, parent_local_ids) -> Vec<PromptNode>`。
   - `unzip_pack` 中的安全性不错：`MAX_ZIP_ENTRIES=512`、`MAX_ENTRY_BYTES=32MiB`、`MAX_TOTAL_BYTES=64MiB`，使用 `enclosed_name()` 防止路径遍历，拒绝嵌套 `assets/` 目录。但读取时先用 `entry.size()` 检查再用 `take(MAX_ENTRY_BYTES + 1).read_to_end` 进一步防护——double-check 模式。
-  - `import` 函数的 PNG sniff 是 `bytes[..8]`——正确（PNG magic 是 8 字节）。
-  - `save_png_asset` 中的 `tokio::fs::create_dir_all(...).await.ok()`：忽略创建目录的失败。如果 assets_dir 不存在且创建失败，后续写入会失败，错误会传播。`ok()` 只是忽略了 `create_dir_all` 的错误，但后续 `write` 的错误会正常处理。
-  - `import` 在 charcard 导入 pack 被跳过时调用了 `gc_avatar_if_orphaned` 清理可能孤立的 avatar——这是细致的设计。
-  - `persist_loreset_as_pack` 和 `persist_preset` 中 `nodes.sort_by_key(|n| ...)` 简化了拓扑排序：因为 loreset/preset 的节点通常深度较浅，简单的排序就足够了。这比完整的拓扑排序实现简单。
 
 ---
 
@@ -871,7 +821,7 @@
   - `DELETE /api/assets/{id}` -> 204：删除资产（文件 + 数据库记录）。
 - **辅助函数**：
   - `resolve_asset_url(relative) -> String`：相对路径转 URL（`/assets/<rel>`）。
-  - `gc_avatar_if_orphaned(state, avatar_path)`：如果某 avatar 没有被任何 pack/definition/session 引用，删除它（文件 + 记录）。在 `packs.rs` 的 update/delete 和 `import_export.rs` 的 charcard import 中被调用。
+  - `gc_avatar_if_orphaned(state, avatar_path)`：如果某 avatar 没有被任何 pack/definition/session 引用，删除它（文件 + 记录）。在 `packs.rs` 的 update/delete 中被调用。
   - `asset_json(a)`：Asset 转前端期望的 JSON 格式。
 - **实现方式**：
   - `upload`：从 multipart 中读取第一个文件字段，用 UUID + 原扩展名存储到 `assets_dir`，计算 hash，创建 Asset 数据库记录。如果 DB 写入失败，删除已写入的文件防止孤立。

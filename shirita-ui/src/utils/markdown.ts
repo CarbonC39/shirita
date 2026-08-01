@@ -27,10 +27,10 @@ export type ListItem = { children: Inline[]; checked?: boolean }
 
 export type MdNode = Inline | { type: 'codeblock'; lang: string | null; value: string } | Block
 
-// SillyTavern character cards sometimes ship a full HTML/CSS/JS document as
-// their first message (a "card front-end"), occasionally fenced in ```html.
-// Detected separately from the rest of markdown parsing because it needs a
-// completely different render path (sandboxed iframe, not the VNode whitelist).
+// Some definitions ship a full HTML/CSS/JS document as their content (a
+// dynamic HTML card), occasionally fenced in ```html. Detected separately
+// from the rest of markdown parsing because it needs a completely different
+// render path (sandboxed iframe, not the VNode whitelist).
 export function isHtmlDocument(text: string): boolean {
   const s = text.trim().toLowerCase()
   return s.startsWith('<!doctype html') || s.startsWith('<html')

@@ -19,7 +19,7 @@ export const useChatStore = defineStore('chat', () => {
   const streamingError = ref<string | null>(null)
   const activeSessionId = ref<string | null>(null)
   // Track which message is being regenerated so we can hide it from the
-  // active path while the new sibling streams in (cf. SillyTavern behaviour).
+  // active path while the new sibling streams in.
   const regeneratingMsgId = ref<string | null>(null)
 
   // Abort handle for the in-flight SSE stream. Set by send/regenerate, cleared

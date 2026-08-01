@@ -17,7 +17,7 @@ pub struct EditBody {
 }
 
 /// In-place edit (overwrite `raw_content`, recompute `display_content`) and/or
-/// hide toggle. Does not branch (SillyTavern-style edit).
+/// hide toggle. Edits the message itself rather than forking a new branch.
 pub async fn edit_message(
     State(state): State<AppState>,
     Path((session_id, msg_id)): Path<(String, String)>,

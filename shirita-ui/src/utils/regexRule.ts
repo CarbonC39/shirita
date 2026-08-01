@@ -1,9 +1,9 @@
 import type { Definition, RegexRule } from '../api/types'
 
 // Bridge the regex editor's view model to the backend's canonical regex_rule
-// meta contract (shared with ST import): { disabled, scope: "display"|"both"|
-// "prompt", targets: ("ai_output"|"user_input")[] }. The editor's enable toggle
-// and "Apply to" checkboxes were previously written as `enabled` / a `scope`
+// meta contract: { disabled, scope: "display"|"both"|"prompt", targets:
+// ("ai_output"|"user_input")[] }. The editor's enable toggle and "Apply to"
+// checkboxes were previously written as `enabled` / a `scope`
 // object, neither of which the backend reads — so they did nothing.
 
 /** Canonical meta -> editor view model. */

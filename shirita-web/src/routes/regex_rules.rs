@@ -12,7 +12,7 @@ use crate::AppState;
 #[derive(Serialize)]
 pub struct RegexScope {
     pub id: String,
-    /// "global" (orphan, applies everywhere) or "template" (loreset-scoped).
+    /// "global" (orphan, applies everywhere) or "template" (template-scoped).
     pub scope: String,
     /// Names of templates whose tree references this rule (deduped).
     pub template_names: Vec<String>,

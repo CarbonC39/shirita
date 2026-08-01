@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-// Renders a SillyTavern "HTML card" front-end (a full HTML/CSS/JS document
-// embedded in a message) inside a sandboxed iframe. `sandbox="allow-scripts"`
-// without `allow-same-origin` gives the document an opaque origin: its script
-// can run, but it cannot reach the parent DOM, cookies, localStorage, or this
-// app's auth state, and it cannot navigate the top-level page.
+// Renders a full HTML/CSS/JS document embedded in a message (a dynamic HTML
+// card) inside a sandboxed iframe. `sandbox="allow-scripts"` without
+// `allow-same-origin` gives the document an opaque origin: its script can run,
+// but it cannot reach the parent DOM, cookies, localStorage, or this app's
+// auth state, and it cannot navigate the top-level page.
 const props = defineProps<{ html: string }>()
 
 function themeVar(name: string, fallback: string): string {
@@ -20,8 +20,8 @@ function themeVar(name: string, fallback: string): string {
 const token = Math.random().toString(36).slice(2)
 
 // Real cards are authored assuming the host sizes the iframe to their
-// content (the SillyTavern/JS-Slash-Runner convention — see
-// examples/JS-Slash-Runner/src/iframe/adjust_iframe_height.js, which writes
+// content (see examples/JS-Slash-Runner/src/iframe/adjust_iframe_height.js,
+// which writes
 // `frameElement.style.height` directly; that requires `allow-same-origin`,
 // which this sandbox intentionally omits). `postMessage` works without it,
 // so this injected script relays the same measurement across the boundary

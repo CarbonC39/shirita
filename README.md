@@ -14,9 +14,9 @@
 
 </div>
 
-Shirita is an experimental, user-controlled platform for AI role-playing. It combines a Rust runtime with a Vue interface and supports both a Tauri desktop application and a self-hosted web service. Its direction is a composable agent system for characters, knowledge, prompts, state, tools, and text transforms — not another SillyTavern implementation.
+Shirita is an experimental, user-controlled platform for AI role-playing. It combines a Rust runtime with a Vue interface and supports both a Tauri desktop application and a self-hosted web service. Its direction is a composable agent system for characters, knowledge, prompts, state, tools, and text transforms.
 
-Many features already work, but the project is pre-1.0 and is entering a deliberate simplification phase. Expect breaking changes while legacy SillyTavern compatibility is removed, the default UI is rebuilt, and core chat behavior is hardened. Shirita is not yet a daily driver.
+Many features already work, but the project is pre-1.0 and is entering a deliberate simplification phase. SillyTavern compatibility has been removed from the main application; the default UI is being rebuilt and core chat behavior is being hardened. Shirita is not yet a daily driver.
 
 - **Desktop and self-hosted are equal targets** — Tauri desktop, Docker, or standalone web binary
 - **User-controlled** — SQLite storage, BYO model API key, no required hosted account
@@ -49,7 +49,7 @@ shirita/
 ├── shirita-core/       Domain models, storage (SQLite/sqlx), prompt assembly,
 │                       context engine, auto-summarization, regex rules,
 │                       provider adapters, variable/state sandbox, HTML patching,
-│                       content hashing, identity resolution, import adapters
+│                       content hashing, identity resolution, portable import/export
 ├── shirita-web/        Axum REST + SSE layer (bearer auth, HTTP Basic Auth,
 │                       CORS, multipart, embedded static assets)
 ├── shirita-ui/         Vue 3 + Vite + Pinia + vue-router (view layer only)
@@ -78,7 +78,7 @@ shirita/
 - **Auto-summarization** — rolling summary that folds older messages when a token threshold is reached; configurable window, threshold, keep-count, and summary instruction
 - **Message tree** — branching, forking, editing, and hiding messages. Fork clones the full history to a new session for clean isolation. Regenerate creates a sibling (swipe-style) rather than overwriting
 - **Per-message identity** — each message carries the `$assistant_name` / `$assistant_avatar` / `$user_name` / `$user_avatar` that was active when it was created, so later template/pack changes don't rewrite old messages
-- **Import / export** — Shirita-native template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate). Legacy SillyTavern import exists in the current codebase but is scheduled for removal from the main application
+- **Import / export** — Shirita-native definition/template bundles (.json) and pack bundles (.zip), with dedup conflict resolution (skip / overwrite / duplicate). The unified `/api/import` accepts only these native formats; legacy SillyTavern formats are rejected
 - **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars; content-addressed dedup via SHA-256 hashing
 - **Composer attachments** — attach images to chat messages (resolved as data URLs in the prompt)
 - **i18n** — English, 简体中文, 繁體中文, 日本語 (vue-i18n v10, locale switcher in settings)
@@ -172,7 +172,7 @@ For public deployments, set both `HTTP_AUTH_USER` and `HTTP_AUTH_PASS` to gate t
 
 | Path | Purpose |
 |------|---------|
-| `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, adapters, panels, HTML patching, hashing, identity, attachments |
+| `shirita-core/src/` | Domain: models, storage, assembly, summarize, state, tokenizer, panels, HTML patching, hashing, identity, attachments |
 | `shirita-core/migrations/` | Numbered SQLite schema migrations |
 | `shirita-web/src/routes/` | Axum route handlers (settings, provider, assets, sessions, chat, regex, variables, local overrides, export, etc.) |
 | `shirita-ui/src/views/` | Vue page components (Chat, Book, Settings, NewChat, Home) |
@@ -237,7 +237,7 @@ Development is now focused on reducing maintenance cost and clarifying Shirita's
 
 1. Document the product boundary and keep current documentation authoritative.
 2. Fix only the chat correctness and recovery bugs that materially affect use.
-3. Remove SillyTavern compatibility from the main application while retaining generally useful capabilities such as regex text transforms and message branching.
+3. Removed SillyTavern compatibility from the main application, retaining generally useful capabilities such as regex text transforms and message branching.
 4. Rebuild the default UI around a simpler, mobile-friendly layout.
 5. Normalize state changes and other agent capabilities around registered tools in a later phase.
 
