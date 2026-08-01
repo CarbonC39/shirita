@@ -1647,11 +1647,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn migration_0023_strips_st_raw_null_value() {
-        // A present `st_raw` whose value is JSON null must still be removed.
-        // `json_extract(...) IS NOT NULL` would leave it behind (it returns SQL
-        // NULL for a JSON null value too); the migration matches on
-        // `json_type(...) IS NOT NULL` instead.
+    async fn migration_0024_strips_st_raw_null_after_0023() {
+        // Real upgrade path: a database that already ran the original 0023 (a
+        // present `st_raw` whose value is JSON null was left behind, because
+        // `json_extract(...) IS NOT NULL` returns SQL NULL for a JSON null too).
+        // 0024 then removes it via `json_type(...) IS NOT NULL`.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("straw_null.db");
         std::mem::forget(dir);
@@ -1668,6 +1668,7 @@ mod tests {
             .await
             .unwrap();
 
+        // 1) Apply the original 0023 (as published): it leaves the null row.
         use sqlx::migrate::Migrate;
         let migrator = sqlx::migrate!("./migrations");
         let mut conn = pool.acquire().await.unwrap();
@@ -1676,12 +1677,24 @@ mod tests {
             conn.apply(m).await.unwrap();
         }
         conn.unlock().await.unwrap();
-
-        let meta: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d4'")
+        let after_0023: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d4'")
             .fetch_one(&pool)
             .await
             .unwrap();
-        assert_eq!(meta, r#"{"custom":1}"#);
+        assert_eq!(after_0023, r#"{"st_raw":null,"custom":1}"#, "0023 must not remove a JSON-null st_raw");
+
+        // 2) Apply 0024: the null st_raw is finally removed.
+        let mut conn = pool.acquire().await.unwrap();
+        conn.lock().await.unwrap();
+        for m in migrator.migrations.iter().filter(|m| m.version == 24) {
+            conn.apply(m).await.unwrap();
+        }
+        conn.unlock().await.unwrap();
+        let after_0024: String = sqlx::query_scalar("SELECT meta FROM definitions WHERE id='d4'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(after_0024, r#"{"custom":1}"#);
     }
 
     #[tokio::test]

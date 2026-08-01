@@ -46,7 +46,7 @@ UI 重写前只处理会持续妨碍使用或可能造成错误理解的缺陷�
 ### 2. 移除 ST 兼容层 — 已完成
 
 - 已删除主应用中的 ST card、preset、World Info 和 TavernHelper 导入路径。
-- 已删除 `st_raw` 等只为往返兼容保留的数据（迁移 0023）。
+- 已删除 `st_raw` 等只为往返兼容保留的数据（迁移 0023–0024）。
 - 已删除进入运行时的 ST 专用语义（depth-insert / Author's Note）。
 - 保留 Shirita 原生 JSON/ZIP bundle；`/api/import` 仅接受三种显式原生格式。
 - 是否提供一次性独立转换器，留到删除范围明确后决定。
