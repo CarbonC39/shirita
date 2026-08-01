@@ -115,6 +115,8 @@ const en = {
     options: 'Options',
     thinking: 'Thoughts',
     forkNotice: 'Forked conversation — this is an independent copy.',
+    retry: 'Retry',
+    dismiss: 'Dismiss',
   },
   composer: {
     attach: 'Attach',

@@ -108,6 +108,8 @@ const zhHans: MessageSchema = {
     options: '选项',
     thinking: '思考过程',
     forkNotice: '已分叉对话 — 这是一个独立副本。',
+    retry: '重试',
+    dismiss: '关闭',
   },
   composer: {
     attach: '附件',

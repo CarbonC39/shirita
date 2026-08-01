@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
 import * as client from '../api/client'
+import { useChatStore } from '../stores/chat'
 import ChatView from './ChatView.vue'
 
 function makeRouter() {
@@ -64,14 +65,69 @@ describe('ChatView', () => {
     expect(wrapper.text()).toContain('Loading')
   })
 
-  it('shows error state', async () => {
-    vi.spyOn(client, 'listMessages').mockRejectedValue(new Error('Not found'))
+  it('shows initial load error with a working retry action', async () => {
+    vi.spyOn(client, 'listMessages')
+      .mockRejectedValueOnce(new Error('Not found'))
+      .mockResolvedValueOnce([{
+        id: 'm1', session_id: 's1', parent_id: null, role: 'user',
+        raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+        snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+      }])
     const router = makeRouter()
     router.push('/chat/s1')
     await router.isReady()
     const wrapper = mount(ChatView, { global: { plugins: [router] } })
     await flushPromises()
-    expect(wrapper.text()).toContain('Not found')
+    // Initial failure has no cached transcript, so show the full error + retry.
+    expect(wrapper.find('[data-test="load-error"]').text()).toContain('Not found')
+    await wrapper.find('[data-test="retry-load"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('hello')
+    expect(wrapper.find('[data-test="load-error"]').exists()).toBe(false)
+  })
+
+  it('keeps a cached transcript visible when a refresh fails', async () => {
+    const initial = [{
+      id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }]
+    vi.spyOn(client, 'listMessages').mockResolvedValue(initial)
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    // A background refresh fails after the transcript loaded.
+    vi.spyOn(client, 'listMessages').mockRejectedValueOnce(new Error('boom'))
+    await wrapper.vm.$nextTick()
+    await useChatStore().loadMessages('s1')
+    await flushPromises()
+    // Refresh failure is non-destructive: the transcript stays on screen.
+    expect(wrapper.find('[data-test="refresh-error"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('boom')
+    expect(wrapper.text()).toContain('hello')
+  })
+
+  it('dismisses a generation error without starting a new turn', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'error', message: 'provider exploded' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('hello')
+    await wrapper.find('[data-test="send-btn"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="streaming-error"]').text()).toContain('provider exploded')
+    await wrapper.find('[data-test="dismiss-streaming-error"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-test="streaming-error"]').exists()).toBe(false)
   })
 
   it('calls send on composer submit', async () => {

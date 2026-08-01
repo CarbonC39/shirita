@@ -137,6 +137,66 @@ describe('chat store', () => {
     expect(store.displayed.map((x: Message) => x.id)).toEqual(['a', 'b2'])
   })
 
+  it('loadMessages exposes an initial load error and retry succeeds', async () => {
+    vi.spyOn(client, 'listMessages')
+      .mockRejectedValueOnce(new Error('Not found'))
+      .mockResolvedValueOnce([msg()])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as any)
+    const store = useChatStore()
+    await store.loadMessages('s1')
+    expect(store.error).toBe('Not found')
+    expect(store.messages).toEqual([])
+    // Retry in place: the same session is reloaded and the error clears.
+    await store.retryLoad()
+    expect(store.error).toBeNull()
+    expect(store.messages).toEqual([msg()])
+  })
+
+  it('failed refresh preserves the last successful transcript', async () => {
+    const items = [msg({ id: 'm1' })]
+    vi.spyOn(client, 'listMessages').mockResolvedValueOnce(items)
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as any)
+    const store = useChatStore()
+    await store.loadMessages('s1')
+    expect(store.messages).toEqual(items)
+    // A background refresh fails: the displayed transcript must survive.
+    vi.spyOn(client, 'listMessages').mockRejectedValueOnce(new Error('boom'))
+    await store.loadMessages('s1')
+    expect(store.messages).toEqual(items)
+    expect(store.error).toBe('boom')
+  })
+
+  it('clearStreamingError dismisses a generation error', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'error', message: 'boom' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+    const store = useChatStore()
+    await store.send('s1', 'hi')
+    expect(store.streamingError).toBe('boom')
+    store.clearStreamingError()
+    expect(store.streamingError).toBeNull()
+  })
+
+  it('a later send starts with no stale generation error', async () => {
+    async function* errStream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'error', message: 'boom' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValueOnce(errStream())
+    const store = useChatStore()
+    await store.send('s1', 'first')
+    expect(store.streamingError).toBe('boom')
+    // A new send must reset the error before work begins.
+    async function* okStream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'done', message_id: 'a1' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValueOnce(okStream())
+    vi.spyOn(client, 'listMessages').mockResolvedValue([msg()])
+    vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null } as any)
+    await store.send('s1', 'second')
+    expect(store.streamingError).toBeNull()
+  })
+
   it('hiding an intermediate message keeps the full root-to-leaf chain displayed', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([
       msg({ id: 'root', parent_id: null, role: 'user', created_at: '1' }),

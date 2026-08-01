@@ -24,6 +24,7 @@ const emit = defineEmits<{
   'toggle-hidden': [id: string]
   delete: [id: string]
   swipe: [id: string, delta: -1 | 1]
+  'dismiss-streaming-error': []
 }>()
 
 // Anchor messages are synthetic prompt-only turns; never render them.
@@ -86,9 +87,12 @@ const streamingMsg = computed<Message | null>(() => {
       :is-streaming="true"
     />
 
-    <p v-if="streamingError" class="text-coral text-sm text-center py-2">
-      {{ streamingError }}
-    </p>
+    <div v-if="streamingError" data-test="streaming-error" class="flex items-center justify-center gap-2 py-2">
+      <span class="text-coral text-sm">{{ streamingError }}</span>
+      <button class="text-muted hover:text-ink text-sm" data-test="dismiss-streaming-error" @click="emit('dismiss-streaming-error')">
+        {{ $t('chat.dismiss') }}
+      </button>
+    </div>
 
     <div ref="bottom" />
   </div>

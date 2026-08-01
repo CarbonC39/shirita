@@ -114,7 +114,21 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  /** Retry the last load (initial failure or a failed refresh) in place.
+   *  Reloads `activeSessionId` through the normal load path so the view never
+   *  navigates away or reloads the browser to recover. */
+  async function retryLoad() {
+    if (activeSessionId.value) await loadMessages(activeSessionId.value)
+  }
+
+  /** Dismiss a surfaced generation error without starting a new turn. */
+  function clearStreamingError() {
+    streamingError.value = null
+  }
+
   async function send(sessionId: string, text: string, attachments: string[] = []) {
+    // A stale error from a previous failed turn must not persist into this one.
+    streamingError.value = null
     const prevLeaf = activeLeafId.value
     const optimistic = makeOptimisticUserMessage(sessionId, prevLeaf, text, attachments)
     messages.value = [...messages.value, optimistic]
@@ -129,6 +143,8 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
   async function regenerate(sessionId: string, msgId: string) {
+    // Same contract as send: a dismissed/cleared error must not resurface.
+    streamingError.value = null
     activeAbort = new AbortController()
     regeneratingMsgId.value = msgId
     try {
@@ -200,6 +216,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, activeLeafId, displayed, loading, error,
     isStreaming, streamingText, streamingError, activeSessionId,
-    loadMessages, send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
+    loadMessages, retryLoad, clearStreamingError,
+    send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
   }
 })

@@ -120,7 +120,9 @@ const bg = computed(() => {
 const bgStyle = computed(() => (bg.value ? { backgroundImage: `url(${bg.value})` } : {}))
 
 onMounted(async () => {
-  chat.loadMessages(sessionId)
+  // Await the transcript load so the error/retry state is set before identity
+  // and panel fetches race against it; unrelated requests stay parallel.
+  await chat.loadMessages(sessionId)
   loadState()
   // Ensure settings (incl. default user identity) are loaded before resolving
   // identity; if they're already cached this is a cheap no-op re-fetch.
@@ -242,27 +244,38 @@ async function handleDelete(id: string) {
       </details>
     </div>
 
-    <p v-if="chat.error" class="text-coral text-sm py-4">{{ chat.error }}</p>
+    <!-- Initial load failure: nothing cached to fall back on, offer a retry. -->
+    <div v-if="chat.error && chat.messages.length === 0" data-test="load-error" class="flex flex-col items-center gap-2 py-10 text-center">
+      <p class="text-coral text-sm">{{ chat.error }}</p>
+      <button class="btn" data-test="retry-load" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
+    </div>
     <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm pt-12 text-center">{{ $t('common.loading') }}</p>
 
-    <MessageList
-      v-else
-      :messages="chat.displayed"
-      :all-messages="chat.messages"
-      :style="ui.messageStyle"
-      :is-streaming="chat.isStreaming"
-      :streaming-text="chat.streamingText"
-      :streaming-error="chat.streamingError"
-      :identity="effectiveIdentity"
-      :tokens="convoTokens"
-      @copy="handleCopy"
-      @regenerate="handleRegenerate"
-      @fork="handleFork"
-      @edit-save="handleEditSave"
-      @toggle-hidden="handleToggleHidden"
-      @delete="handleDelete"
-      @swipe="handleSwipe"
-    />
+    <template v-else>
+      <!-- Refresh failure with a cached transcript: keep messages visible. -->
+      <div v-if="chat.error" data-test="refresh-error" class="flex items-center justify-between gap-2 rounded-lg border border-coral/30 bg-coral/10 px-3 py-1.5 text-[13px] text-ink">
+        <span>{{ chat.error }}</span>
+        <button class="shrink-0 text-muted hover:text-ink" data-test="retry-refresh" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
+      </div>
+      <MessageList
+        :messages="chat.displayed"
+        :all-messages="chat.messages"
+        :style="ui.messageStyle"
+        :is-streaming="chat.isStreaming"
+        :streaming-text="chat.streamingText"
+        :streaming-error="chat.streamingError"
+        :identity="effectiveIdentity"
+        :tokens="convoTokens"
+        @copy="handleCopy"
+        @regenerate="handleRegenerate"
+        @fork="handleFork"
+        @edit-save="handleEditSave"
+        @toggle-hidden="handleToggleHidden"
+        @delete="handleDelete"
+        @swipe="handleSwipe"
+        @dismiss-streaming-error="chat.clearStreamingError()"
+      />
+    </template>
 
     <VariablesPanel :schema="sessionState.schema" :values="sessionState.values" />
     <Composer ref="composerRef" :disabled="chat.isStreaming" :streaming="chat.isStreaming" @send="handleSend" @stop="handleStop" />
