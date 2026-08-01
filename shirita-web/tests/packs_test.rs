@@ -183,7 +183,7 @@ async fn make_avatar_asset(state: &AppState, path: &str) {
 
 #[tokio::test]
 async fn deleting_a_pack_garbage_collects_its_now_unreferenced_avatar() {
-    // Bug: unreferenced avatars (e.g. one a charcard import saved) were never
+    // Bug: unreferenced avatars (e.g. one an import saved) were never
     // automatically cleaned up — only the pack itself was removed, leaving
     // the Asset row (and file) behind forever with nothing pointing at it.
     let state = test_state().await;

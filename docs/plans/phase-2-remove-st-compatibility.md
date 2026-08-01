@@ -1,6 +1,6 @@
 # Phase 2 implementation plan: remove SillyTavern compatibility
 
-> Status: proposed implementation plan for review  
+> Status: implemented  
 > Date: 2026-08-01  
 > Scope: remove SillyTavern compatibility from the main application without removing Shirita-native data or generally useful runtime capabilities
 

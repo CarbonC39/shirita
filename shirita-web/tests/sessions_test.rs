@@ -208,9 +208,9 @@ async fn identity_pack_without_display_name_falls_back_to_char_def() {
 async fn create_session_seeds_avatar_from_mounted_pack_when_not_given() {
     // Bug: ChatCard.vue (the chat-list row) reads session.avatar directly,
     // not the live /identity resolution that ChatView uses — so a session
-    // mounting a character pack (e.g. one just brought in by a charcard
-    // import) showed no avatar at all in the list unless the user also
-    // manually picked an avatar override in NewChatView.
+    // mounting a character pack (e.g. one just brought in by an import)
+    // showed no avatar at all in the list unless the user also manually
+    // picked an avatar override in NewChatView.
     let state = test_state().await;
     let (_, p) = send(&state, "POST", "/api/packs",
         Some(r#"{"name":"AvatarPack","identity":{"display_name":"Aria","avatar":"aria.png"}}"#)).await;
