@@ -8,6 +8,7 @@ This index separates current documentation from historical design artifacts. Whe
 - [Product direction](../PRODUCT.md) — product identity, commitments, non-goals, and decision boundary
 - [Current development direction](current-direction.md) — active cleanup scope and sequencing
 - [Phase 1 implementation plan](plans/phase-1-chat-correctness.md) — proposed task-by-task plan for chat correctness and recovery
+- [Phase 2 implementation plan](plans/phase-2-remove-st-compatibility.md) — proposed deletion boundary and task sequence for removing SillyTavern compatibility
 - [Architecture](../ARCHITECTURE.md) — current implementation architecture; update it alongside structural code changes
 
 ## Reference

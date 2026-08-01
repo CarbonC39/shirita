@@ -1,10 +1,9 @@
-//! 统一 /api/import：ST 角色卡(PNG/JSON)/世界书 + 原创单定义 + on_conflict。
+//! 统一 /api/import：原创单定义/模板/包 bundle + on_conflict + 原生格式拒绝。
 
 use std::sync::Arc;
 
 use axum::body::Body;
 use axum::http::{header, Request, StatusCode};
-use base64::Engine;
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -59,75 +58,6 @@ fn created_defs(v: &Value) -> usize {
     v["created"].as_array().unwrap().iter().filter(|c| c["kind"] == "definition").count()
 }
 
-fn png_card(json: &str) -> Vec<u8> {
-    let sig = [0x89u8, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n'];
-    let b64 = base64::engine::general_purpose::STANDARD.encode(json.as_bytes());
-    let mut data = Vec::new();
-    data.extend_from_slice(b"chara");
-    data.push(0);
-    data.extend_from_slice(b64.as_bytes());
-    let mut out = sig.to_vec();
-    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    out.extend_from_slice(b"tEXt");
-    out.extend_from_slice(&data);
-    out.extend_from_slice(&[0, 0, 0, 0]);
-    out.extend_from_slice(&0u32.to_be_bytes());
-    out.extend_from_slice(b"IEND");
-    out.extend_from_slice(&[0, 0, 0, 0]);
-    out
-}
-
-#[tokio::test]
-async fn imports_st_card_json() {
-    let (state, _) = test_state().await;
-    let card = r#"{"spec":"chara_card_v2","data":{"name":"Neo","description":"The One"}}"#;
-    let (st, v) = import_bytes(&state, "", "neo.json", card.as_bytes()).await;
-    assert_eq!(st, StatusCode::OK);
-    // a card now imports as a loreset: char definition + template
-    assert_eq!(created_defs(&v), 1);
-    let defs = state.storage.list_definitions().await.unwrap();
-    assert!(defs.iter().any(|d| d.def_type == "char" && d.name == "Neo"));
-}
-
-#[tokio::test]
-async fn imports_png_card_and_saves_avatar() {
-    let (state, assets) = test_state().await;
-    let png = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Trinity"}}"#);
-    let (st, _v) = import_bytes(&state, "", "trinity.png", &png).await;
-    assert_eq!(st, StatusCode::OK);
-    let defs = state.storage.list_definitions().await.unwrap();
-    let ch = defs.iter().find(|d| d.name == "Trinity").unwrap();
-    let avatar = ch.meta.get("avatar").and_then(|v| v.as_str()).unwrap();
-    assert!(avatar.ends_with(".png"));
-    assert!(assets.join(avatar).exists(), "PNG 整图应存进 assets");
-}
-
-#[tokio::test]
-async fn skipped_card_import_does_not_leak_its_just_saved_avatar() {
-    // save_png_asset runs before persist_loreset_as_pack's same-name skip
-    // check, so a card whose pack import ends up skipped (a pack with that
-    // name already exists) must not leave its freshly written avatar behind
-    // with zero references.
-    let (state, _) = test_state().await;
-    send_pack_create(&state, "Trinity").await;
-    let png = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Trinity"}}"#);
-    let (st, v) = import_bytes(&state, "", "trinity.png", &png).await;
-    assert_eq!(st, StatusCode::OK);
-    assert_eq!(v["skipped"].as_array().unwrap().len(), 1, "same-named pack already exists");
-    assert!(state.storage.list_assets(Some("avatar")).await.unwrap().is_empty(), "orphaned avatar is cleaned up");
-}
-
-async fn send_pack_create(state: &AppState, name: &str) {
-    let req = Request::builder()
-        .method("POST")
-        .uri("/api/packs")
-        .header(header::AUTHORIZATION, "Bearer secret-token")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(serde_json::to_vec(&serde_json::json!({ "name": name })).unwrap()))
-        .unwrap();
-    app(state.clone()).oneshot(req).await.unwrap();
-}
-
 #[tokio::test]
 async fn imports_portable_definition() {
     let (state, _) = test_state().await;
@@ -140,79 +70,56 @@ async fn imports_portable_definition() {
 
 #[tokio::test]
 async fn conflict_skip_then_overwrite_then_duplicate() {
-    // Charcard imports persist as a Pack now (see import_charcard_test.rs); the
-    // pack-name is the conflict unit (mirrors persist_pack_bundle), and a
-    // card's own definitions are always created fresh — never deduped by
-    // name+type across cards, since two unrelated cards can share a name
-    // (e.g. both called "Dup") and must not end up sharing content/avatar.
+    // Native definition import: the conflict unit is name+def_type in
+    // `persist_defs` — skip keeps the existing row, overwrite updates it in
+    // place (preserving its id), duplicate creates a same-named sibling.
     let (state, _) = test_state().await;
-    let card = r#"{"data":{"name":"Dup","description":"v1"}}"#;
-    // 首次：created (1 def + 1 pack)
-    let (_, v1) = import_bytes(&state, "", "d.json", card.as_bytes()).await;
+    let doc = |v: &str| format!(
+        r#"{{"format":"shirita.definition","version":1,"definition":{{"type":"persona","name":"Dup","content":"{v}","meta":{{}}}}}}"#
+    );
+    // 首次：created 1
+    let (_, v1) = import_bytes(&state, "", "d.json", doc("v1").as_bytes()).await;
     assert_eq!(created_defs(&v1), 1);
 
-    // skip：同名 pack 整体跳过，不产生任何新 definition
-    let (_, v2) = import_bytes(&state, "?on_conflict=skip", "d.json", card.as_bytes()).await;
+    // skip：同名同类型跳过，不产生新定义
+    let (_, v2) = import_bytes(&state, "?on_conflict=skip", "d.json", doc("v2").as_bytes()).await;
     assert_eq!(v2["skipped"].as_array().unwrap().len(), 1);
     assert_eq!(created_defs(&v2), 0);
     assert_eq!(state.storage.list_definitions().await.unwrap().iter().filter(|d| d.name == "Dup").count(), 1);
 
-    // overwrite：包级别没有就地覆盖（同 persist_pack_bundle），按新卡内容新建一份，
-    // 不复用/篡改已有同名定义。
-    let card2 = r#"{"data":{"name":"Dup","description":"v2"}}"#;
-    let (_, v3) = import_bytes(&state, "?on_conflict=overwrite", "d.json", card2.as_bytes()).await;
-    assert_eq!(created_defs(&v3), 1);
+    // overwrite：就地更新（id 保留），不新增
+    let (_, v3) = import_bytes(&state, "?on_conflict=overwrite", "d.json", doc("v2").as_bytes()).await;
+    assert_eq!(v3["overwritten"].as_array().unwrap().len(), 1);
+    assert_eq!(created_defs(&v3), 0);
     let after = state.storage.list_definitions().await.unwrap();
     let dups: Vec<_> = after.iter().filter(|d| d.name == "Dup").collect();
-    assert_eq!(dups.len(), 2, "overwrite 不应吞掉已有同名卡的定义");
+    assert_eq!(dups.len(), 1, "overwrite 应更新而非新增");
+    assert_eq!(dups[0].content, "v2");
 
     // duplicate：同名再建新 id
-    let (_, v4) = import_bytes(&state, "?on_conflict=duplicate", "d.json", card.as_bytes()).await;
+    let (_, v4) = import_bytes(&state, "?on_conflict=duplicate", "d.json", doc("v1").as_bytes()).await;
     assert_eq!(created_defs(&v4), 1);
     let dups: Vec<_> = state.storage.list_definitions().await.unwrap().into_iter().filter(|d| d.name == "Dup").collect();
-    assert_eq!(dups.len(), 3, "duplicate 应产生同名共存");
+    assert_eq!(dups.len(), 2, "duplicate 应产生同名共存");
 }
 
 #[tokio::test]
-async fn reimporting_same_card_reuses_avatar_asset_instead_of_duplicating() {
-    // Bug: each PNG import always wrote a brand-new Asset row + file with no
-    // content-hash dedup, so re-importing the same card (e.g. a retried
-    // upload) silently piled up duplicate avatar assets for the same image.
-    let (state, assets) = test_state().await;
-    let png = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Trinity1"}}"#);
-    let (st1, _) = import_bytes(&state, "?on_conflict=duplicate", "trinity1.png", &png).await;
-    assert_eq!(st1, StatusCode::OK);
-    let (st2, _) = import_bytes(&state, "?on_conflict=duplicate", "trinity2.png", &png).await;
-    assert_eq!(st2, StatusCode::OK);
-
-    let all_assets = state.storage.list_assets(None).await.unwrap();
-    assert_eq!(all_assets.len(), 1, "identical image bytes must reuse the existing Asset row, not duplicate it");
-    assert!(assets.join(&all_assets[0].path).exists());
-}
-
-#[tokio::test]
-async fn unrelated_same_named_cards_keep_their_own_avatar() {
-    // Bug: definitions were deduped by name+def_type across charcard imports,
-    // so two unrelated cards sharing a `char` def name (very plausible —
-    // e.g. both literally named "Aria") ended up with the second one's pack
-    // referencing/inheriting the first one's avatar instead of its own.
+async fn rejects_malformed_json() {
     let (state, _) = test_state().await;
-    let png_a = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Aria","description":"first"}}"#);
-    let (_, va) = import_bytes(&state, "?on_conflict=duplicate", "a.png", &png_a).await;
-    assert_eq!(created_defs(&va), 1);
+    let (st, _) = import_bytes(&state, "", "bad.json", br#"{not json"#).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
 
-    let png_b = png_card(r#"{"spec":"chara_card_v2","data":{"name":"Aria","description":"second, unrelated"}}"#);
-    let (_, vb) = import_bytes(&state, "?on_conflict=duplicate", "b.png", &png_b).await;
-    assert_eq!(created_defs(&vb), 1, "the second card's own char def must be created, not skipped/merged");
-
-    let defs = state.storage.list_definitions().await.unwrap();
-    let arias: Vec<_> = defs.iter().filter(|d| d.def_type == "char" && d.name == "Aria").collect();
-    assert_eq!(arias.len(), 2, "two unrelated cards stay as two distinct char defs");
-    let avatars: std::collections::HashSet<_> =
-        arias.iter().filter_map(|d| d.meta.get("avatar").and_then(|v| v.as_str())).collect();
-    assert_eq!(avatars.len(), 2, "each card keeps its own avatar reference, not the other's");
-    assert_eq!(arias[0].content, "first");
-    assert_eq!(arias[1].content, "second, unrelated");
+#[tokio::test]
+async fn rejects_arbitrary_png_bytes() {
+    // A PNG with no embedded character-card JSON is not a native bundle and
+    // must be rejected without creating rows or asset files.
+    let (state, assets) = test_state().await;
+    let png = [0x89u8, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 1, 2, 3];
+    let (st, _) = import_bytes(&state, "", "img.png", &png).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    assert!(state.storage.list_assets(None).await.unwrap().is_empty(), "no asset rows for rejected PNG");
+    assert!(std::fs::read_dir(&assets).map(|mut d| d.next().is_none()).unwrap_or(true), "no asset files for rejected PNG");
 }
 
 #[tokio::test]

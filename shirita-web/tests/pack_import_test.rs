@@ -147,6 +147,57 @@ async fn import_pack_zip_rejects_nested_asset_entry() {
 }
 
 #[tokio::test]
+async fn import_pack_zip_rejects_too_many_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = test_state(dir.path()).await;
+    let manifest = serde_json::json!({
+        "format": "shirita.pack",
+        "pack": { "name": "Many", "identity": {}, "meta": {} },
+        "nodes": [], "definitions": []
+    });
+    // One manifest + 513 tiny asset entries exceeds MAX_ZIP_ENTRIES (512).
+    let entries: Vec<(String, Vec<u8>)> = (0..513)
+        .map(|i| (format!("assets/f{i}.png"), vec![i as u8]))
+        .collect();
+    let refs: Vec<(&str, &[u8])> = entries.iter().map(|(n, b)| (n.as_str(), b.as_slice())).collect();
+    let zip = make_zip(&manifest, &refs);
+    let (st, _) = import_bytes(&state, "", &zip).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn import_pack_zip_rejects_oversized_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = test_state(dir.path()).await;
+    let manifest = serde_json::json!({
+        "format": "shirita.pack",
+        "pack": { "name": "Big", "identity": {}, "meta": {} },
+        "nodes": [], "definitions": []
+    });
+    // 33 MiB > MAX_ENTRY_BYTES (32 MiB).
+    let big = vec![0u8; 33 * 1024 * 1024];
+    let zip = make_zip(&manifest, &[("assets/huge.png", &big)]);
+    let (st, _) = import_bytes(&state, "", &zip).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn import_pack_zip_rejects_oversized_total() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = test_state(dir.path()).await;
+    let manifest = serde_json::json!({
+        "format": "shirita.pack",
+        "pack": { "name": "Big2", "identity": {}, "meta": {} },
+        "nodes": [], "definitions": []
+    });
+    // Two 33 MiB entries each pass the per-entry cap but total 66 MiB > 64 MiB.
+    let chunk = vec![0u8; 33 * 1024 * 1024];
+    let zip = make_zip(&manifest, &[("assets/a.png", &chunk), ("assets/b.png", &chunk)]);
+    let (st, _) = import_bytes(&state, "", &zip).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn import_pack_zip_rejects_missing_manifest() {
     let dir = tempfile::tempdir().unwrap();
     let state = test_state(dir.path()).await;
