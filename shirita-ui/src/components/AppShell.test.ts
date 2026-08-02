@@ -21,6 +21,48 @@ function makeRouter() {
 }
 
 describe('AppShell', () => {
+  function host(wrapper: ReturnType<typeof mount>) {
+    return wrapper.find('[data-test="route-host"]')
+  }
+
+  it('route host exposes ordinary-page scrolling mode on /book', async () => {
+    const router = makeRouter()
+    router.push('/book')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    expect(host(wrapper).attributes('data-layout')).toBe('page')
+  })
+
+  it('route host exposes the workspace (non-scrolling) mode on /chat/:id', async () => {
+    const router = makeRouter()
+    router.push('/chat/abc')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    expect(host(wrapper).attributes('data-layout')).toBe('workspace')
+  })
+
+  it('chat does not render the mobile breadcrumb row', async () => {
+    const router = makeRouter()
+    router.push('/chat/abc')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    expect(wrapper.find('[data-test="mobile-crumbs"]').exists()).toBe(false)
+  })
+
+  it('a non-chat route with crumbs still renders the mobile breadcrumb row', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/chat/:id', name: 'chat', component: { template: '<div />' } },
+        { path: '/new', meta: { crumbs: [{ label: 'chat.title', to: '/' }, { label: 'shell.new' }] }, component: { template: '<div />' } },
+      ],
+    })
+    router.push('/new')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    expect(wrapper.find('[data-test="mobile-crumbs"]').exists()).toBe(true)
+  })
+
   it('renders three nav links and a slot', async () => {
     const router = makeRouter()
     router.push('/')
