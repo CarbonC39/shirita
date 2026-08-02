@@ -18,14 +18,22 @@ pub const MAX_RANDOM_ITEMS: usize = 1_000;
 pub const MAX_RANDOM_INTEGER_SPAN: i128 = 1_000_000_000;
 pub const MAX_MATH_EXPRESSION_BYTES: usize = 4 * 1024;
 pub const MAX_MATH_PARSE_DEPTH: usize = 64;
+/// Single response workspace ceiling (the one user-visible response a run builds).
+pub const MAX_RESPONSE_WORKSPACE_BYTES: usize = 256 * 1024;
+/// Maximum operations in one atomic `shirita.response.patch` batch.
+pub const MAX_RESPONSE_PATCH_OPS: usize = 16;
+/// Total bytes across all `search` strings in one patch batch.
+pub const MAX_RESPONSE_PATCH_SEARCH_BYTES: usize = 8 * 1024;
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = r#"You are operating inside Shirita's text-generation harness.
 Use the registered tools when they help you produce the response requested by the user and the conversation prompt. Tool schemas are authoritative.
 Ordinary model text and reasoning are private working output. They are not returned to the user.
-Use shirita.run.update_status only when a transient status is useful. A status with visibility=user may be shown while you work; internal status remains private.
-Only the response passed to shirita.run.finish is returned to the user and stored in the conversation. Call shirita.run.finish exactly once when the response is ready."#;
+The current user-visible response is supplied every round as a response workspace with a revision number. Ordinary output does not change it.
+Use shirita.response.replace to create or replace the response, and shirita.response.patch to revise it atomically. Tool results become visible only in the next round.
+Use shirita.run.update_status only for transient status: visibility=user may be shown while you work; internal status remains private.
+Only shirita.run.finish returns text to the user and stores it. Call finish() to commit the current response workspace, or finish with a response field for a one-shot response. Calls after finish are ignored."#;
 
-pub const DEFAULT_UNFINISHED_PROMPT: &str = "Continue working. When the response is ready, submit the complete user-visible text with shirita.run.finish.";
+pub const DEFAULT_UNFINISHED_PROMPT: &str = "Continue working. Tool results from this round are visible now. When the response is ready, call shirita.run.finish() to commit the response workspace, or shirita.run.finish with the final text as a one-shot response.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -222,6 +230,21 @@ pub enum RunStatus {
     Failed,
 }
 
+/// The run-owned response workspace. Only `shirita.response.*` controls and a
+/// successful `finish` may change it; ordinary model output never does.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponseWorkspace {
+    pub text: String,
+    pub revision: u64,
+}
+
+/// One literal search/replace step in an atomic response patch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponsePatchOperation {
+    pub search: String,
+    pub replace: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GenerationRun {
     pub id: String,
@@ -231,6 +254,24 @@ pub struct GenerationRun {
     pub round: u32,
     pub tool_calls: u32,
     pub status: RunStatus,
+    /// The mutable response workspace, owned by this run.
+    #[serde(default)]
+    pub workspace: ResponseWorkspace,
+}
+
+impl GenerationRun {
+    pub fn new(id: &str, session_id: &str, parent_message_id: Option<&str>, kind: RunKind) -> Self {
+        Self {
+            id: id.into(),
+            session_id: session_id.into(),
+            parent_message_id: parent_message_id.map(str::to_string),
+            kind,
+            round: 0,
+            tool_calls: 0,
+            status: RunStatus::Running,
+            workspace: ResponseWorkspace::default(),
+        }
+    }
 }
 
 #[cfg(test)]

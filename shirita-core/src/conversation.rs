@@ -688,7 +688,7 @@ pub fn send_message(
         //    A cooperative stop (Stop button / navigate-away) breaks out of the loop so
         //    we persist whatever was generated so far instead of discarding it.
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
-        let run_state = crate::agent::GenerationRun { id: uuid::Uuid::new_v4().to_string(), session_id: session_id.clone(), parent_message_id: Some(user_msg.id.clone()), kind: crate::agent::RunKind::Send, round: 0, tool_calls: 0, status: crate::agent::RunStatus::Running };
+        let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, Some(user_msg.id.as_str()), crate::agent::RunKind::Send);
         let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {
@@ -796,7 +796,7 @@ pub fn regenerate(
         let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens, tools: req.tools };
 
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
-        let run_state = crate::agent::GenerationRun { id: uuid::Uuid::new_v4().to_string(), session_id: session_id.clone(), parent_message_id: target.parent_id.clone(), kind: crate::agent::RunKind::Regenerate, round: 0, tool_calls: 0, status: crate::agent::RunStatus::Running };
+        let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, target.parent_id.as_deref(), crate::agent::RunKind::Regenerate);
         let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {

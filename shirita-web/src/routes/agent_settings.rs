@@ -6,8 +6,9 @@ use serde::Serialize;
 use shirita_core::agent::{
     AgentSettings, HARD_MAX_ROUNDS, HARD_MAX_TOOL_CALLS, HARD_MAX_TOOL_TIMEOUT_MS,
     MAX_AGENT_PROMPT_BYTES, MAX_FINISH_RESPONSE_BYTES, MAX_MATH_EXPRESSION_BYTES,
-    MAX_MATH_PARSE_DEPTH, MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS, MAX_STATUS_MESSAGE_BYTES,
-    MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_RESULT_BYTES, MAX_XML_ROUND_BYTES,
+    MAX_MATH_PARSE_DEPTH, MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS,
+    MAX_RESPONSE_PATCH_OPS, MAX_RESPONSE_PATCH_SEARCH_BYTES, MAX_RESPONSE_WORKSPACE_BYTES,
+    MAX_STATUS_MESSAGE_BYTES, MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_RESULT_BYTES, MAX_XML_ROUND_BYTES,
 };
 use shirita_core::{builtin_tool_registry, ToolSpec};
 
@@ -28,6 +29,9 @@ pub struct AgentLimits {
     max_random_integer_span: i128,
     max_math_expression_bytes: usize,
     max_math_parse_depth: usize,
+    max_response_workspace_bytes: usize,
+    max_response_patch_ops: usize,
+    max_response_patch_search_bytes: usize,
 }
 
 #[derive(Serialize)]
@@ -60,6 +64,9 @@ fn limits() -> AgentLimits {
         max_random_integer_span: MAX_RANDOM_INTEGER_SPAN,
         max_math_expression_bytes: MAX_MATH_EXPRESSION_BYTES,
         max_math_parse_depth: MAX_MATH_PARSE_DEPTH,
+        max_response_workspace_bytes: MAX_RESPONSE_WORKSPACE_BYTES,
+        max_response_patch_ops: MAX_RESPONSE_PATCH_OPS,
+        max_response_patch_search_bytes: MAX_RESPONSE_PATCH_SEARCH_BYTES,
     }
 }
 

@@ -8,8 +8,9 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::agent::{
     MAX_FINISH_RESPONSE_BYTES, MAX_MATH_EXPRESSION_BYTES, MAX_MATH_PARSE_DEPTH,
-    MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS, MAX_STATUS_MESSAGE_BYTES, MAX_TOOL_ARGUMENT_BYTES,
-    MAX_TOOL_RESULT_BYTES,
+    MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS, MAX_RESPONSE_PATCH_OPS,
+    MAX_RESPONSE_PATCH_SEARCH_BYTES, MAX_RESPONSE_WORKSPACE_BYTES, MAX_STATUS_MESSAGE_BYTES,
+    MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_RESULT_BYTES, ResponsePatchOperation,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,7 +67,15 @@ pub enum ToolResultStatus {
 pub enum ToolControl {
     None,
     Status { message: String, user_visible: bool },
-    Finish { response: String },
+    ReplaceResponse { text: String },
+    PatchResponse { revision: u64, operations: Vec<ResponsePatchOperation> },
+    Finish { response: Option<String> },
+}
+
+/// Whether a normalized Tool name is a response-control capability (whose
+/// call/result pair is compacted into a bounded receipt after execution).
+pub fn is_response_control(name: &str) -> bool {
+    name == "shirita.response.replace" || name == "shirita.response.patch"
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,7 +182,7 @@ fn valid_name(name: &str) -> bool {
         })
 }
 
-fn rejected(call: &ToolCall, code: &str) -> ToolExecution {
+pub(crate) fn rejected(call: &ToolCall, code: &str) -> ToolExecution {
     ToolExecution {
         result: ToolResult {
             call_id: call.id.clone(),
@@ -233,20 +242,89 @@ struct FinishTool;
 #[async_trait]
 impl ToolHandler for FinishTool {
     async fn execute(&self, call: &ToolCall) -> ToolExecution {
-        let Some(response) = call
-            .arguments
-            .get("response")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|s| !s.is_empty() && s.len() <= MAX_FINISH_RESPONSE_BYTES)
-        else {
+        // `finish()` (commit the workspace) or `finish({"response": "..."})`
+        // (replace the workspace then commit). The empty-workspace rejection is
+        // a run-state check performed by the loop, not here.
+        let response = match call.arguments.get("response") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let Some(s) = value
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && s.len() <= MAX_FINISH_RESPONSE_BYTES)
+                else {
+                    return rejected(call, "invalid_arguments");
+                };
+                Some(s.to_string())
+            }
+        };
+        ok(call, json!({}), ToolControl::Finish { response })
+    }
+}
+
+struct ReplaceResponseTool;
+#[async_trait]
+impl ToolHandler for ReplaceResponseTool {
+    async fn execute(&self, call: &ToolCall) -> ToolExecution {
+        let Some(text) = call.arguments.get("text").and_then(Value::as_str) else {
             return rejected(call, "invalid_arguments");
         };
+        if text.len() > MAX_RESPONSE_WORKSPACE_BYTES {
+            return rejected(call, "response_too_large");
+        }
         ok(
             call,
-            json!({"accepted": true}),
-            ToolControl::Finish {
-                response: response.into(),
+            json!({}),
+            ToolControl::ReplaceResponse {
+                text: text.to_string(),
+            },
+        )
+    }
+}
+
+struct PatchResponseTool;
+#[async_trait]
+impl ToolHandler for PatchResponseTool {
+    async fn execute(&self, call: &ToolCall) -> ToolExecution {
+        let Some(revision) = call.arguments.get("revision").and_then(Value::as_u64) else {
+            return rejected(call, "invalid_arguments");
+        };
+        let Some(ops) = call.arguments.get("operations").and_then(Value::as_array) else {
+            return rejected(call, "invalid_arguments");
+        };
+        if ops.is_empty() {
+            return rejected(call, "empty_patch");
+        }
+        if ops.len() > MAX_RESPONSE_PATCH_OPS {
+            return rejected(call, "too_many_operations");
+        }
+        let mut operations = Vec::with_capacity(ops.len());
+        let mut search_bytes = 0usize;
+        for op in ops {
+            let (Some(search), Some(replace)) = (
+                op.get("search").and_then(Value::as_str),
+                op.get("replace").and_then(Value::as_str),
+            ) else {
+                return rejected(call, "invalid_arguments");
+            };
+            if search.is_empty() {
+                return rejected(call, "invalid_arguments");
+            }
+            search_bytes = search_bytes.saturating_add(search.len());
+            operations.push(ResponsePatchOperation {
+                search: search.to_string(),
+                replace: replace.to_string(),
+            });
+        }
+        if search_bytes > MAX_RESPONSE_PATCH_SEARCH_BYTES {
+            return rejected(call, "response_too_large");
+        }
+        ok(
+            call,
+            json!({}),
+            ToolControl::PatchResponse {
+                revision,
+                operations,
             },
         )
     }
@@ -331,13 +409,47 @@ pub fn builtin_tool_registry() -> ToolRegistry {
         .register(
             ToolSpec {
                 name: "shirita.run.finish".into(),
-                description: "Submit the final user-visible response".into(),
-                input_schema: schema(json!({"response":{"type":"string"}}), &["response"]),
+                description: "Commit the current response workspace, or supply a final response".into(),
+                input_schema: schema(json!({"response":{"type":"string"}}), &[]),
                 output_schema: None,
                 source: source.clone(),
                 required: true,
             },
             Arc::new(FinishTool),
+        )
+        .unwrap()
+        .register(
+            ToolSpec {
+                name: "shirita.response.replace".into(),
+                description: "Replace the response workspace with a complete new draft".into(),
+                input_schema: schema(json!({"text":{"type":"string"}}), &["text"]),
+                output_schema: None,
+                source: source.clone(),
+                required: true,
+            },
+            Arc::new(ReplaceResponseTool),
+        )
+        .unwrap()
+        .register(
+            ToolSpec {
+                name: "shirita.response.patch".into(),
+                description: "Atomically apply ordered literal search/replace edits to the response workspace".into(),
+                input_schema: schema(
+                    json!({
+                        "revision":{"type":"integer"},
+                        "operations":{"type":"array","minItems":1,"maxItems":MAX_RESPONSE_PATCH_OPS,"items":{
+                            "type":"object",
+                            "properties":{"search":{"type":"string"},"replace":{"type":"string"}},
+                            "required":["search","replace"]
+                        }}
+                    }),
+                    &["revision", "operations"],
+                ),
+                output_schema: None,
+                source: source.clone(),
+                required: true,
+            },
+            Arc::new(PatchResponseTool),
         )
         .unwrap()
         .register(
@@ -555,6 +667,47 @@ mod tests {
             Some("disabled_tool")
         );
     }
+    #[tokio::test]
+    async fn response_tools_validate_schemas_and_bounds() {
+        let r = builtin_tool_registry();
+        let bad_patch = r
+            .execute(
+                &call("shirita.response.patch", json!({"revision": 0, "operations": []})),
+                &[],
+            )
+            .await;
+        assert_eq!(bad_patch.result.error_code.as_deref(), Some("empty_patch"));
+        let too_many = r
+            .execute(
+                &call(
+                    "shirita.response.patch",
+                    json!({"revision": 0, "operations": (0..crate::agent::MAX_RESPONSE_PATCH_OPS + 1)
+                        .map(|i| json!({"search": format!("s{i}"), "replace": "x"}))
+                        .collect::<Vec<_>>()}),
+                ),
+                &[],
+            )
+            .await;
+        assert_eq!(too_many.result.error_code.as_deref(), Some("too_many_operations"));
+        // The serialized-argument ceiling (64 KiB) is tighter than the response
+        // workspace ceiling, so an over-sized draft is rejected by the registry's
+        // layered argument check before it could become workspace text.
+        let oversized = r
+            .execute(
+                &call(
+                    "shirita.response.replace",
+                    json!({"text": "x".repeat(crate::agent::MAX_RESPONSE_WORKSPACE_BYTES + 1)}),
+                ),
+                &[],
+            )
+            .await;
+        assert_eq!(oversized.result.error_code.as_deref(), Some("arguments_too_large"));
+        let ok = r
+            .execute(&call("shirita.response.replace", json!({"text": "hi"})), &[])
+            .await;
+        assert!(matches!(ok.control, ToolControl::ReplaceResponse { .. }));
+    }
+
     #[tokio::test]
     async fn math_is_bounded_not_eval() {
         let r = builtin_tool_registry();

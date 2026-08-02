@@ -79,7 +79,7 @@ fn unescape_attr(s: &str) -> String {
         .replace("&amp;", "&")
 }
 
-fn safe_json(value: &Value) -> String {
+pub(crate) fn safe_json(value: &Value) -> String {
     serde_json::to_string(value)
         .unwrap_or_else(|_| "null".into())
         .replace('&', "\\u0026")
@@ -109,7 +109,10 @@ To call a tool, emit a complete block with JSON arguments:
 <tool_call id="unique_call_id" name="registered.tool.name">
 {{"argument":"value"}}
 </tool_call>
-Do not invent tool names or place final user-visible prose outside shirita.run.finish.
+The current user-visible response is supplied each round as a SHIRITA_RESPONSE_WORKSPACE block with a revision. Ordinary text does not change it.
+Tool results become visible only in the next round.
+Use shirita.response.replace to create/replace the response and shirita.response.patch to revise it.
+Finish the run with shirita.run.finish: call it with no arguments to commit the current response workspace, or with a "response" argument for a one-shot response. Do not invent tool names or place final user-visible prose outside shirita.run.finish. Calls after finish are ignored.
 Registered tools:
 {}"#,
         safe_json(&Value::Array(tools))

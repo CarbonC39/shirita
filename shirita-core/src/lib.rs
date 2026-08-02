@@ -26,7 +26,10 @@ pub mod tools;
 pub mod tree;
 pub mod xml_tools;
 
-pub use agent::{AgentSettings, GenerationRun, NativeToolCapability, RunKind, RunStatus, ToolTransport};
+pub use agent::{
+    AgentSettings, GenerationRun, NativeToolCapability, ResponsePatchOperation, ResponseWorkspace,
+    RunKind, RunStatus, ToolTransport,
+};
 pub use agent_loop::HarnessEvent;
 pub use assembly::{
     apply_regex_rules, apply_regex_rules_for, assemble_from_nodes, build_chat_messages,

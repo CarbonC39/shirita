@@ -6,7 +6,7 @@ use std::sync::Arc;
 use async_stream::stream;
 use futures::{Stream, StreamExt};
 
-use crate::agent::{AgentSettings, GenerationRun, RunStatus, ToolTransport};
+use crate::agent::{AgentSettings, GenerationRun, ResponseWorkspace, RunStatus, ToolTransport};
 use crate::conversation::StopToken;
 use crate::model::{ChatMessage, ChatRequest, ModelEvent, ModelProvider};
 use crate::models::message::Role;
@@ -31,6 +31,8 @@ pub enum HarnessEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    /// A successful workspace mutation bumped the revision.
+    WorkspaceChanged { revision: u64 },
     Finished { response: String, run: GenerationRun },
     Stopped { run: GenerationRun },
     Failed {
@@ -99,7 +101,11 @@ pub fn run(
             if stop.is_cancelled() { run_state.status = RunStatus::Stopped; yield HarnessEvent::Stopped { run: run_state.clone() }; return; }
             run_state.round = round;
             yield HarnessEvent::RoundStarted { run: run_state.clone() };
-            let mut stream = match provider.stream_chat(request.clone()).await {
+            // Exactly one canonical workspace snapshot is overlaid onto a clone
+            // for this round; the run context itself never accumulates drafts.
+            let mut round_request = request.clone();
+            inject_workspace_snapshot(&mut round_request, &run_state.workspace, round == 1);
+            let mut stream = match provider.stream_chat(round_request).await {
                 Ok(stream) => stream,
                 Err(error) => { yield HarnessEvent::Failed { message: error.to_string() }; return; }
             };
@@ -152,8 +158,9 @@ pub fn run(
                 return;
             }
 
-            let mut results = Vec::new();
-            let mut finished = None;
+            let mut results: Vec<ToolResult> = Vec::new();
+            let mut pending_finish: Option<(ToolCall, Option<String>)> = None;
+            let mut preceding_failed = false;
             for call in &calls {
                 if stop.is_cancelled() { run_state.status = RunStatus::Stopped; yield HarnessEvent::Stopped { run: run_state.clone() }; return; }
                 yield HarnessEvent::ToolStarted { call: call.clone() };
@@ -162,38 +169,257 @@ pub fn run(
                     biased;
                     _ = stop.cancelled() => { run_state.status = RunStatus::Stopped; yield HarnessEvent::Stopped { run: run_state.clone() }; return; }
                     result = timed => match result {
-                    Ok(execution) => execution,
-                    Err(_) => crate::tools::ToolExecution {
-                        result: ToolResult { call_id: call.id.clone(), name: call.name.clone(), status: ToolResultStatus::Failed, output: serde_json::json!({}), error_code: Some("timeout".into()) },
-                        control: ToolControl::None,
-                    },
+                        Ok(execution) => execution,
+                        Err(_) => crate::tools::ToolExecution {
+                            result: ToolResult { call_id: call.id.clone(), name: call.name.clone(), status: ToolResultStatus::Failed, output: serde_json::json!({}), error_code: Some("timeout".into()) },
+                            control: ToolControl::None,
+                        },
                     }
                 };
-                yield HarnessEvent::ToolFinished { result: execution.result.clone() };
                 match execution.control {
-                    ToolControl::Status { message, user_visible } if user_visible && settings.show_user_status => yield HarnessEvent::Status { message },
-                    ToolControl::Finish { response } => { finished = Some(response); results.push(execution.result); break; }
-                    _ => results.push(execution.result),
+                    ToolControl::Status { message, user_visible } if user_visible && settings.show_user_status => {
+                        yield HarnessEvent::ToolFinished { result: execution.result.clone() };
+                        yield HarnessEvent::Status { message };
+                        preceding_failed |= execution.result.status != ToolResultStatus::Ok;
+                        results.push(execution.result);
+                    }
+                    ToolControl::Status { .. } => {
+                        yield HarnessEvent::ToolFinished { result: execution.result.clone() };
+                        preceding_failed |= execution.result.status != ToolResultStatus::Ok;
+                        results.push(execution.result);
+                    }
+                    ToolControl::ReplaceResponse { text } => {
+                        let result = apply_replace(&mut run_state.workspace, call, text);
+                        preceding_failed |= result.status != ToolResultStatus::Ok;
+                        let ok = result.status == ToolResultStatus::Ok;
+                        yield HarnessEvent::ToolFinished { result: result.clone() };
+                        if ok {
+                            yield HarnessEvent::WorkspaceChanged { revision: run_state.workspace.revision };
+                        }
+                        results.push(result);
+                    }
+                    ToolControl::PatchResponse { revision, operations } => {
+                        let result = apply_patch(&mut run_state.workspace, call, revision, operations);
+                        preceding_failed |= result.status != ToolResultStatus::Ok;
+                        let ok = result.status == ToolResultStatus::Ok;
+                        yield HarnessEvent::ToolFinished { result: result.clone() };
+                        if ok {
+                            yield HarnessEvent::WorkspaceChanged { revision: run_state.workspace.revision };
+                        }
+                        results.push(result);
+                    }
+                    ToolControl::Finish { response } => {
+                        if preceding_failed {
+                            // The fence still holds: finish is not executed, but
+                            // later calls are never run either. Report it.
+                            let skipped = crate::tools::rejected(call, "finish_skipped");
+                            yield HarnessEvent::ToolFinished { result: skipped.result.clone() };
+                            results.push(skipped.result);
+                        } else {
+                            pending_finish = Some((call.clone(), response));
+                            yield HarnessEvent::ToolFinished { result: execution.result.clone() };
+                        }
+                        break;
+                    }
+                    ToolControl::None => {
+                        yield HarnessEvent::ToolFinished { result: execution.result.clone() };
+                        preceding_failed |= execution.result.status != ToolResultStatus::Ok;
+                        results.push(execution.result);
+                    }
                 }
             }
-            if let Some(response) = finished {
-                run_state.status = RunStatus::Completed;
-                yield HarnessEvent::Finished { response, run: run_state.clone() };
-                return;
+            if let Some((finish_call, response)) = pending_finish {
+                match commit_finish(&mut run_state.workspace, response) {
+                    Ok(committed) => {
+                        run_state.status = RunStatus::Completed;
+                        yield HarnessEvent::Finished { response: committed, run: run_state.clone() };
+                        return;
+                    }
+                    Err(code) => {
+                        // Recoverable invalid finish (e.g. empty workspace):
+                        // the fence still held, but the run continues.
+                        let rejected = crate::tools::rejected(&finish_call, code);
+                        yield HarnessEvent::ToolFinished { result: rejected.result.clone() };
+                        results.push(rejected.result);
+                    }
+                }
             }
 
-            request.messages.push(ChatMessage { role: Role::Assistant, content: working, tool_calls: calls, ..Default::default() });
-            for result in results {
-                if transport == ToolCallTransport::Native {
-                    request.messages.push(ChatMessage { role: Role::User, tool_result: Some(result), ..Default::default() });
-                } else {
-                    request.messages.push(ChatMessage { role: Role::User, content: render_xml_tool_result(&result), ..Default::default() });
-                }
-            }
-            request.messages.push(ChatMessage { role: Role::System, content: settings.unfinished_prompt.clone(), ..Default::default() });
+            append_round(&mut request, &working, &calls, &results, transport, &settings.unfinished_prompt);
         }
         yield HarnessEvent::Failed { message: "configured Agent round limit reached before finish".into() };
     }
+}
+
+fn apply_replace(workspace: &mut ResponseWorkspace, call: &ToolCall, text: String) -> ToolResult {
+    workspace.text = text;
+    workspace.revision = workspace.revision.saturating_add(1);
+    ToolResult {
+        call_id: call.id.clone(),
+        name: call.name.clone(),
+        status: ToolResultStatus::Ok,
+        output: serde_json::json!({ "revision": workspace.revision }),
+        error_code: None,
+    }
+}
+
+fn apply_patch(
+    workspace: &mut ResponseWorkspace,
+    call: &ToolCall,
+    revision: u64,
+    operations: Vec<crate::agent::ResponsePatchOperation>,
+) -> ToolResult {
+    if revision != workspace.revision {
+        return crate::tools::rejected(call, "stale_revision").result;
+    }
+    let mut candidate = workspace.text.clone();
+    for op in &operations {
+        let matches: Vec<_> = candidate.match_indices(&op.search).collect();
+        if matches.len() != 1 {
+            let code = if matches.is_empty() {
+                "search_not_found"
+            } else {
+                "search_not_unique"
+            };
+            return crate::tools::rejected(call, code).result;
+        }
+        let (at, _) = matches[0];
+        candidate.replace_range(at..at + op.search.len(), &op.replace);
+        if candidate.len() > crate::agent::MAX_RESPONSE_WORKSPACE_BYTES {
+            return crate::tools::rejected(call, "response_too_large").result;
+        }
+    }
+    workspace.text = candidate;
+    workspace.revision = workspace.revision.saturating_add(1);
+    ToolResult {
+        call_id: call.id.clone(),
+        name: call.name.clone(),
+        status: ToolResultStatus::Ok,
+        output: serde_json::json!({ "revision": workspace.revision, "operations": operations.len() }),
+        error_code: None,
+    }
+}
+
+fn commit_finish(
+    workspace: &mut ResponseWorkspace,
+    response: Option<String>,
+) -> Result<String, &'static str> {
+    match response {
+        Some(text) => {
+            workspace.text = text;
+            workspace.revision = workspace.revision.saturating_add(1);
+            Ok(workspace.text.clone())
+        }
+        None if workspace.text.trim().is_empty() => Err("empty_response"),
+        None => Ok(workspace.text.clone()),
+    }
+}
+
+fn render_workspace_snapshot(workspace: &ResponseWorkspace) -> String {
+    let payload = serde_json::json!({
+        "revision": workspace.revision,
+        "state": if workspace.text.is_empty() { "empty" } else { "present" },
+        "text": workspace.text,
+    });
+    format!(
+        "SHIRITA_RESPONSE_WORKSPACE\n{}\nEND_SHIRITA_RESPONSE_WORKSPACE",
+        crate::xml_tools::safe_json(&payload)
+    )
+}
+
+/// Overlay exactly one canonical snapshot onto a clone of the run context.
+/// Round 1 places it before the current user turn; later rounds after retained
+/// Tool results and immediately before the configured unfinished instruction.
+fn inject_workspace_snapshot(
+    request: &mut ChatRequest,
+    workspace: &ResponseWorkspace,
+    first_round: bool,
+) {
+    let snapshot = render_workspace_snapshot(workspace);
+    let message = ChatMessage {
+        role: Role::System,
+        content: snapshot,
+        ..Default::default()
+    };
+    if first_round {
+        let insertion = request
+            .messages
+            .iter()
+            .rposition(|m| m.role == Role::User)
+            .unwrap_or(request.messages.len());
+        request.messages.insert(insertion, message);
+    } else {
+        request.messages.insert(request.messages.len().saturating_sub(1), message);
+    }
+}
+
+fn render_receipt(call: &ToolCall, result: &ToolResult) -> String {
+    let revision = result.output["revision"].as_u64().unwrap_or(0);
+    if call.name == "shirita.response.replace" {
+        format!("response replaced -> revision {revision}")
+    } else {
+        let ops = result.output["operations"].as_u64().unwrap_or(0);
+        format!("response patched ({ops} operations) -> revision {revision}")
+    }
+}
+
+/// Append the round's retained Tool conversation. Successful response-control
+/// call/result pairs are compacted into bounded receipts; the canonical
+/// snapshot is an overlay and is never stored in the run context.
+fn append_round(
+    request: &mut ChatRequest,
+    working: &str,
+    calls: &[ToolCall],
+    results: &[ToolResult],
+    transport: ToolCallTransport,
+    unfinished: &str,
+) {
+    let mut retained_calls = Vec::new();
+    let mut retained_results = Vec::new();
+    let mut receipts = Vec::new();
+    for (call, result) in calls.iter().zip(results.iter()) {
+        if crate::tools::is_response_control(&call.name) && result.status == ToolResultStatus::Ok {
+            receipts.push(render_receipt(call, result));
+        } else {
+            retained_calls.push(call.clone());
+            retained_results.push(result.clone());
+        }
+    }
+    if !working.is_empty() || !retained_calls.is_empty() {
+        request.messages.push(ChatMessage {
+            role: Role::Assistant,
+            content: working.to_string(),
+            tool_calls: retained_calls,
+            ..Default::default()
+        });
+    }
+    for result in retained_results {
+        if transport == ToolCallTransport::Native {
+            request.messages.push(ChatMessage {
+                role: Role::User,
+                tool_result: Some(result),
+                ..Default::default()
+            });
+        } else {
+            request.messages.push(ChatMessage {
+                role: Role::User,
+                content: render_xml_tool_result(&result),
+                ..Default::default()
+            });
+        }
+    }
+    for receipt in receipts {
+        request.messages.push(ChatMessage {
+            role: Role::System,
+            content: receipt,
+            ..Default::default()
+        });
+    }
+    request.messages.push(ChatMessage {
+        role: Role::System,
+        content: unfinished.to_string(),
+        ..Default::default()
+    });
 }
 
 #[cfg(test)]
@@ -301,6 +527,341 @@ mod tests {
     }
 
     fn run_state() -> GenerationRun {
-        GenerationRun { id: "run".into(), session_id: "session".into(), parent_message_id: None, kind: crate::agent::RunKind::Send, round: 0, tool_calls: 0, status: RunStatus::Running }
+        GenerationRun::new("run", "session", None, crate::agent::RunKind::Send)
+    }
+
+    fn replace_call(text: &str) -> ToolCall {
+        ToolCall {
+            id: "r".into(),
+            name: "shirita.response.replace".into(),
+            arguments: serde_json::json!({"text": text}),
+            transport: ToolCallTransport::Native,
+        }
+    }
+    fn patch_call(revision: u64, ops: serde_json::Value) -> ToolCall {
+        ToolCall {
+            id: "p".into(),
+            name: "shirita.response.patch".into(),
+            arguments: serde_json::json!({"revision": revision, "operations": ops}),
+            transport: ToolCallTransport::Native,
+        }
+    }
+    fn finish_call_workspace() -> ToolCall {
+        ToolCall {
+            id: "f".into(),
+            name: "shirita.run.finish".into(),
+            arguments: serde_json::json!({}),
+            transport: ToolCallTransport::Native,
+        }
+    }
+
+    /// A provider that also records every request it sees, for transcript
+    /// placement assertions.
+    struct Recording(
+        Mutex<VecDeque<Vec<ModelEvent>>>,
+        Arc<Mutex<Vec<ChatRequest>>>,
+    );
+    #[async_trait]
+    impl ModelProvider for Recording {
+        async fn stream_chat(
+            &self,
+            req: ChatRequest,
+        ) -> crate::Result<BoxStream<'static, crate::Result<ModelEvent>>> {
+            self.1.lock().unwrap().push(req.clone());
+            let events = self.0.lock().unwrap().pop_front().unwrap_or_default();
+            Ok(Box::pin(stream::iter(events.into_iter().map(Ok))))
+        }
+    }
+    fn recording(rounds: Vec<Vec<ModelEvent>>) -> (Arc<Recording>, Arc<Mutex<Vec<ChatRequest>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let provider = Arc::new(Recording(Mutex::new(VecDeque::from(rounds)), seen.clone()));
+        (provider, seen)
+    }
+    fn snapshot_messages(req: &ChatRequest) -> Vec<&ChatMessage> {
+        req.messages
+            .iter()
+            .filter(|m| m.content.starts_with("SHIRITA_RESPONSE_WORKSPACE"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn replace_then_finish_commits_the_workspace() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(replace_call("Draft one"))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::Finished { response, .. } if response == "Draft one")));
+        assert!(events
+            .iter()
+            .any(|e| matches!(e, HarnessEvent::WorkspaceChanged { revision: 1 })));
+    }
+
+    #[tokio::test]
+    async fn patches_apply_incrementally_and_bump_revision() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(replace_call("red door; red cloak"))],
+            vec![ModelEvent::ToolCall(patch_call(
+                1,
+                serde_json::json!([
+                    {"search": "red door", "replace": "blue door"},
+                    {"search": "red", "replace": "black"}
+                ]),
+            ))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "blue door; black cloak"
+        )));
+        let revisions: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                HarnessEvent::WorkspaceChanged { revision } => Some(*revision),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(revisions, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn stale_revision_patch_is_rejected_without_mutation() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(replace_call("original"))],
+            vec![ModelEvent::ToolCall(patch_call(
+                9,
+                serde_json::json!([{"search": "orig", "replace": "changed"}]),
+            ))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolFinished { result } if result.error_code.as_deref() == Some("stale_revision")
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "original"
+        )));
+    }
+
+    #[tokio::test]
+    async fn ambiguous_patch_rolls_back_atomically() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(replace_call("alpha beta beta"))],
+            vec![ModelEvent::ToolCall(patch_call(
+                1,
+                serde_json::json!([
+                    {"search": "alpha", "replace": "beta"},
+                    {"search": "beta", "replace": "gamma"}
+                ]),
+            ))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolFinished { result } if result.error_code.as_deref() == Some("search_not_unique")
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "alpha beta beta"
+        )));
+    }
+
+    #[tokio::test]
+    async fn finish_with_empty_workspace_is_recoverable() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+            vec![ModelEvent::ToolCall(finish_call("ok"))],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolFinished { result } if result.error_code.as_deref() == Some("empty_response")
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "ok"
+        )));
+    }
+
+    #[tokio::test]
+    async fn failed_call_before_finish_skips_the_commit() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![
+                ModelEvent::ToolCall(ToolCall {
+                    id: "m".into(),
+                    name: "shirita.math.evaluate".into(),
+                    arguments: serde_json::json!({"expression": "system(1)"}),
+                    transport: ToolCallTransport::Native,
+                }),
+                ModelEvent::ToolCall(finish_call_workspace()),
+            ],
+            vec![ModelEvent::ToolCall(finish_call("recovered"))],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolFinished { result } if result.error_code.as_deref() == Some("finish_skipped")
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "recovered"
+        )));
+    }
+
+    #[tokio::test]
+    async fn round1_snapshot_is_empty_and_before_the_user_turn() {
+        let (provider, seen) = recording(vec![vec![ModelEvent::ToolCall(finish_call("hi"))]]);
+        run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        let req = &seen[0];
+        let snapshots = snapshot_messages(req);
+        assert_eq!(snapshots.len(), 1);
+        assert!(snapshots[0].content.contains("\"revision\":0"));
+        assert!(snapshots[0].content.contains("\"state\":\"empty\""));
+        let snapshot_idx = req.messages.iter().position(|m| m.content.starts_with("SHIRITA_RESPONSE_WORKSPACE")).unwrap();
+        let user_idx = req.messages.iter().rposition(|m| m.role == Role::User).unwrap();
+        assert!(snapshot_idx < user_idx);
+    }
+
+    #[tokio::test]
+    async fn round2_snapshot_is_current_and_compacts_response_history() {
+        let (provider, seen) = recording(vec![
+            vec![ModelEvent::ToolCall(replace_call("hi"))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]);
+        run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        let req2 = &seen[1];
+        // exactly one canonical snapshot, at the current revision
+        let snapshots = snapshot_messages(req2);
+        assert_eq!(snapshots.len(), 1);
+        assert!(snapshots[0].content.contains("\"revision\":1"));
+        assert!(snapshots[0].content.contains("\"state\":\"present\""));
+        // immediately before the last (unfinished) message
+        let snapshot_idx = req2.messages.iter().position(|m| m.content.starts_with("SHIRITA_RESPONSE_WORKSPACE")).unwrap();
+        assert_eq!(snapshot_idx + 1, req2.messages.len() - 1);
+        assert!(req2.messages.last().unwrap().content.contains("Continue working"));
+        // the response-control call/result pair is compacted: no assistant
+        // tool_calls, no tool_result, and a bounded receipt instead
+        assert!(!req2.messages.iter().any(|m| m.role == Role::Assistant && !m.tool_calls.is_empty()));
+        assert!(!req2.messages.iter().any(|m| m.tool_result.is_some()));
+        assert!(req2.messages.iter().any(|m| m.content.contains("response replaced -> revision 1")));
+    }
+
+    #[tokio::test]
+    async fn xml_response_tools_finish_through_the_same_registry() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::TextDelta(
+                r#"<tool_call id="r" name="shirita.response.replace">{"text":"xml draft"}</tool_call>"#.into(),
+            )],
+            vec![ModelEvent::TextDelta(
+                r#"<tool_call id="f" name="shirita.run.finish">{}</tool_call>"#.into(),
+            )],
+        ]))));
+        let mut settings = AgentSettings::default();
+        settings.transport = ToolTransport::Xml;
+        let events = run(
+            provider,
+            request(),
+            settings,
+            false,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "xml draft"
+        )));
     }
 }
