@@ -113,6 +113,29 @@ describe('chat store', () => {
     expect(store.streamingText).toBe('')
   })
 
+  it('builds a run-scoped AgentRunView from structured events', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'run_start', run_id: 'run-1' }
+      yield { type: 'activity', round: 1, message: 'Agent round 1' }
+      yield { type: 'tool_start', call_id: 'a', name: 'shirita.math.evaluate' }
+      yield { type: 'workspace_mutation', revision: 1 }
+      yield { type: 'workspace_mutation', revision: 2 }
+      yield { type: 'finish', run_id: 'run-1' }
+      yield { type: 'error', message: 'unfinished' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+
+    const store = useChatStore()
+    await store.send('s1', 'hi')
+
+    expect(store.agentRun?.runId).toBe('run-1')
+    expect(store.agentRun?.phase).toBe('failed')
+    expect(store.agentRun?.responseRevision).toBe(2)
+    expect(store.agentRun?.events.map((e) => e.kind)).toEqual([
+      'round', 'tool', 'workspace', 'workspace',
+    ])
+  })
+
   it('sendMessage catches fetch errors', async () => {
     async function* stream(): AsyncGenerator<client.SseEvent> {
       throw new Error('Network error')

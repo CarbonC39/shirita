@@ -10,6 +10,19 @@ import { activePath } from '../utils/tree'
 import { notifyReplyDone } from '../utils/notify'
 import { useSettingsStore } from './settings'
 
+export type AgentRunPhase = 'running' | 'finished' | 'stopped' | 'failed'
+export interface AgentActivityEvent {
+  kind: 'round' | 'tool' | 'workspace' | 'status'
+  message: string
+}
+export interface AgentRunView {
+  runId: string | null
+  phase: AgentRunPhase
+  round: number
+  responseRevision: number
+  events: AgentActivityEvent[]
+}
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const activeLeafId = ref<string | null>(null)
@@ -22,6 +35,14 @@ export const useChatStore = defineStore('chat', () => {
   const agentStatus = ref<string | null>(null)
   const generationUsage = ref<{ input_tokens: number; output_tokens: number } | null>(null)
   const activeSessionId = ref<string | null>(null)
+
+  // Run-scoped transient Agent view: rebuilt on every send/regenerate from
+  // structured SSE events, never persisted, and never fed from localized strings.
+  const MAX_AGENT_EVENTS = 50
+  const agentRun = ref<AgentRunView>({ runId: null, phase: 'running', round: 0, responseRevision: 0, events: [] })
+  function pushAgentEvent(kind: AgentActivityEvent['kind'], message: string) {
+    agentRun.value.events = [...agentRun.value.events, { kind, message }].slice(-MAX_AGENT_EVENTS)
+  }
   // Track which message is being regenerated so we can hide it from the
   // active path while the new sibling streams in.
   const regeneratingMsgId = ref<string | null>(null)
@@ -73,14 +94,42 @@ export const useChatStore = defineStore('chat', () => {
     agentActivity.value = null
     agentStatus.value = null
     generationUsage.value = null
+    agentRun.value = { runId: null, phase: 'running', round: 0, responseRevision: 0, events: [] }
     try {
       for await (const event of stream) {
         if (event.type === 'delta') streamingText.value += event.text
-        else if (event.type === 'activity') agentActivity.value = event.message
-        else if (event.type === 'tool_start') agentActivity.value = event.name
-        else if (event.type === 'tool_result') agentActivity.value = `${event.name}: ${event.status}`
-        else if (event.type === 'status') agentStatus.value = event.message
+        else if (event.type === 'run_start') {
+          agentRun.value.runId = event.run_id
+          agentRun.value.phase = 'running'
+          agentRun.value.round = 0
+          agentRun.value.responseRevision = 0
+          agentRun.value.events = []
+        }
+        else if (event.type === 'activity') {
+          agentRun.value.round = event.round
+          agentRun.value.phase = 'running'
+          agentActivity.value = event.message
+          pushAgentEvent('round', event.message)
+        }
+        else if (event.type === 'tool_start') {
+          agentActivity.value = event.name
+          pushAgentEvent('tool', event.name)
+        }
+        else if (event.type === 'tool_result') {
+          agentActivity.value = `${event.name}: ${event.status}`
+          pushAgentEvent('tool', `${event.name}: ${event.status}`)
+        }
+        else if (event.type === 'workspace_mutation') {
+          agentRun.value.responseRevision = event.revision
+          agentActivity.value = `response revision ${event.revision}`
+          pushAgentEvent('workspace', `response revision ${event.revision}`)
+        }
+        else if (event.type === 'status') {
+          agentStatus.value = event.message
+          pushAgentEvent('status', event.message)
+        }
         else if (event.type === 'usage') addUsage(event.input_tokens, event.output_tokens)
+        else if (event.type === 'finish') agentRun.value.phase = 'finished'
         else if (event.type === 'done') {
           streamingText.value = ''
           await loadMessages(sessionId)
@@ -93,10 +142,16 @@ export const useChatStore = defineStore('chat', () => {
         else if (event.type === 'stopped') {
           // The user explicitly stopped generation; the backend persisted the
           // partial reply, so reload to reveal it — without flagging an error.
+          agentRun.value.phase = 'stopped'
           streamingText.value = ''
           await loadMessages(sessionId)
         }
-        else if (event.type === 'error') { streamingError.value = event.message ?? null; isStreaming.value = false; return }
+        else if (event.type === 'error') {
+          agentRun.value.phase = 'failed'
+          streamingError.value = event.message ?? null
+          isStreaming.value = false
+          return
+        }
       }
     } catch (e) {
       // A client-side abort (Stop button / navigate-away) is expected and means
@@ -236,7 +291,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     messages, activeLeafId, displayed, loading, error,
-    isStreaming, streamingText, streamingError, agentActivity, agentStatus, generationUsage, activeSessionId,
+    isStreaming, streamingText, streamingError, agentActivity, agentStatus, generationUsage, agentRun, activeSessionId,
     loadMessages, retryLoad, clearStreamingError,
     send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
   }

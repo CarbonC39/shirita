@@ -189,6 +189,7 @@ export type SseEvent =
   | { type: 'run_start'; run_id: string }
   | { type: 'tool_start'; call_id: string; name: string }
   | { type: 'tool_result'; call_id: string; name: string; status: string }
+  | { type: 'workspace_mutation'; revision: number }
   | { type: 'finish'; run_id: string }
   | { type: 'status'; message: string; visibility?: 'internal' | 'user' }
   | { type: 'usage'; input_tokens: number; output_tokens: number }

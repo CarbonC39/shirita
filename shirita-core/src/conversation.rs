@@ -434,6 +434,7 @@ pub enum SendEvent {
     RunStart { run_id: String },
     ToolStart { call_id: String, name: String },
     ToolResult { call_id: String, name: String, status: String },
+    WorkspaceChanged { revision: u64 },
     Finish { run_id: String },
     Status(String),
     Usage { input_tokens: u64, output_tokens: u64 },
@@ -480,6 +481,7 @@ enum RunStreamEvent {
     Delta(String), Activity { round: u32, message: String }, Status(String),
     RunStart { run_id: String }, Finish { run_id: String },
     ToolStart { call_id: String, name: String }, ToolResult { call_id: String, name: String, status: String },
+    WorkspaceChanged { revision: u64 },
     Usage { input_tokens: u64, output_tokens: u64 },
     Final { text: String, stopped: bool }, StoppedWithoutResponse, Failed(String),
 }
@@ -500,6 +502,7 @@ fn generation_stream(
                     },
                     crate::agent_loop::HarnessEvent::ToolStarted { call } if settings.show_activity => yield RunStreamEvent::ToolStart { call_id: call.id, name: call.name },
                     crate::agent_loop::HarnessEvent::ToolFinished { result } if settings.show_activity => yield RunStreamEvent::ToolResult { call_id: result.call_id, name: result.name, status: format!("{:?}", result.status).to_lowercase() },
+                    crate::agent_loop::HarnessEvent::WorkspaceChanged { revision } if settings.show_activity => yield RunStreamEvent::WorkspaceChanged { revision },
                     crate::agent_loop::HarnessEvent::Status { message } if settings.show_activity => yield RunStreamEvent::Status(message),
                     crate::agent_loop::HarnessEvent::Usage { input_tokens, output_tokens } => yield RunStreamEvent::Usage { input_tokens, output_tokens },
                     crate::agent_loop::HarnessEvent::Finished { response, run } => { yield RunStreamEvent::Finish { run_id: run.id }; yield RunStreamEvent::Delta(response.clone()); yield RunStreamEvent::Final { text: response, stopped: false }; return; }
@@ -699,6 +702,7 @@ pub fn send_message(
                 Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
                 Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },
                 Some(RunStreamEvent::ToolResult { call_id, name, status }) => yield SendEvent::ToolResult { call_id, name, status },
+                Some(RunStreamEvent::WorkspaceChanged { revision }) => yield SendEvent::WorkspaceChanged { revision },
                 Some(RunStreamEvent::Status(message)) => yield SendEvent::Status(message),
                 Some(RunStreamEvent::Usage { input_tokens, output_tokens }) => yield SendEvent::Usage { input_tokens, output_tokens },
                 Some(RunStreamEvent::Final { text, stopped }) => break (text, stopped),
@@ -807,6 +811,7 @@ pub fn regenerate(
                 Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
                 Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },
                 Some(RunStreamEvent::ToolResult { call_id, name, status }) => yield SendEvent::ToolResult { call_id, name, status },
+                Some(RunStreamEvent::WorkspaceChanged { revision }) => yield SendEvent::WorkspaceChanged { revision },
                 Some(RunStreamEvent::Status(message)) => yield SendEvent::Status(message),
                 Some(RunStreamEvent::Usage { input_tokens, output_tokens }) => yield SendEvent::Usage { input_tokens, output_tokens },
                 Some(RunStreamEvent::Final { text, stopped }) => break (text, stopped),
@@ -955,7 +960,7 @@ mod tests {
                 SendEvent::Done { message_id } => done_id = Some(message_id),
                 SendEvent::Stopped { .. } => panic!("unexpected stop in non-stopped test"),
                 SendEvent::Error(e) => panic!("unexpected error: {e}"),
-                SendEvent::Activity { .. } | SendEvent::RunStart { .. } | SendEvent::ToolStart { .. } | SendEvent::ToolResult { .. } | SendEvent::Finish { .. } | SendEvent::Status(_) | SendEvent::Usage { .. } => {}
+                SendEvent::Activity { .. } | SendEvent::RunStart { .. } | SendEvent::ToolStart { .. } | SendEvent::ToolResult { .. } | SendEvent::WorkspaceChanged { .. } | SendEvent::Finish { .. } | SendEvent::Status(_) | SendEvent::Usage { .. } => {}
             }
         }
         assert_eq!(deltas, "echo: hello");
