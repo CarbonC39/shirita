@@ -124,6 +124,10 @@ pub trait Storage: Send + Sync {
     async fn promote_local_definition(&self, session_id: &str, def_id: &str, def: &Definition) -> Result<()>;
     /// Replaces session-local variable declarations (`override_config.local_variables`) in a single operation.
     async fn set_local_variables(&self, session_id: &str, variables: &serde_json::Value) -> Result<()>;
+    /// Atomically replaces `override_config.agent`, preserving every sibling key.
+    async fn set_session_agent_override(&self, session_id: &str, agent: &serde_json::Value) -> Result<()>;
+    /// Atomically removes `override_config.agent`, preserving every sibling key.
+    async fn clear_session_agent_override(&self, session_id: &str) -> Result<()>;
 
     // --- summaries (M6 rolling context summaries) ---
     async fn create_summary(&self, summary: &Summary) -> Result<()>;
@@ -136,6 +140,8 @@ pub trait Storage: Send + Sync {
     async fn set_settings(&self, pairs: &[(String, serde_json::Value)]) -> Result<()>;
     async fn list_settings(&self) -> Result<Vec<(String, serde_json::Value)>>;
     async fn delete_setting(&self, key: &str) -> Result<()>;
+    /// Delete several settings in one transaction.
+    async fn delete_settings(&self, keys: &[String]) -> Result<()>;
 
     // --- packs ---
     async fn create_pack(&self, pack: &Pack) -> Result<()>;

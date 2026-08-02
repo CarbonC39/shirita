@@ -14,7 +14,7 @@ pub async fn test_connection(State(state): State<AppState>) -> Result<Json<Value
     let model = if model.is_empty() { "gpt-4o".to_string() } else { model };
     // A builder that shares the same origin as the actual generation (compatible with anthropic, ollama, and OpenAI), reusing a shared client.
     let provider = build_provider(state.http_client.clone(), &source, &base_url, &api_key);
-    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into(), ..Default::default() }], summary: None, max_tokens: Some(16) };
+    let req = ChatRequest { model, messages: vec![ChatMessage { role: Role::User, content: "ping".into(), ..Default::default() }], summary: None, max_tokens: Some(16), tools: Vec::new() };
     match provider.stream_chat(req).await {
         // Only the first streamed chunk matters: it confirms the credentials
         // and endpoint accept a request.

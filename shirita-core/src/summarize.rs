@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 
-use crate::model::{ChatMessage, ChatRequest, ModelProvider};
+use crate::model::{ChatMessage, ChatRequest, ModelEvent, ModelProvider};
 use crate::models::message::Role;
 use crate::models::summary::Summary;
 use crate::storage::Storage;
@@ -127,6 +127,7 @@ pub async fn run(
         ],
         summary: None,
         max_tokens,
+        tools: Vec::new(),
     };
 
     // Aggregate call (non-streaming semantics: collects all deltas).
@@ -140,7 +141,8 @@ pub async fn run(
     let mut full = String::new();
     while let Some(item) = stream.next().await {
         match item {
-            Ok(d) => full.push_str(&d),
+            Ok(ModelEvent::TextDelta(d)) => full.push_str(&d),
+            Ok(_) => {}
             Err(e) => {
                 tracing::warn!(error = %e, %session_id, "summary stream error");
                 return;
@@ -182,9 +184,9 @@ mod tests {
     struct FixedProvider(String);
     #[async_trait::async_trait]
     impl ModelProvider for FixedProvider {
-        async fn stream_chat(&self, _req: ChatRequest) -> crate::Result<BoxStream<'static, crate::Result<String>>> {
+        async fn stream_chat(&self, _req: ChatRequest) -> crate::Result<BoxStream<'static, crate::Result<ModelEvent>>> {
             let r = self.0.clone();
-            Ok(Box::pin(futures::stream::iter(vec![Ok(r)])))
+            Ok(Box::pin(futures::stream::iter(vec![Ok(ModelEvent::TextDelta(r))])))
         }
     }
 

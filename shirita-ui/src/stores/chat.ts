@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Message } from '../api/types'
+import type { SseEvent } from '../api/client'
 import {
   listMessages, getSession, sendMessage, regenerateMessage,
   editMessage, deleteMessage, setActiveLeaf, forkSession, abortSession,
@@ -17,6 +18,9 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const streamingText = ref('')
   const streamingError = ref<string | null>(null)
+  const agentActivity = ref<string | null>(null)
+  const agentStatus = ref<string | null>(null)
+  const generationUsage = ref<{ input_tokens: number; output_tokens: number } | null>(null)
   const activeSessionId = ref<string | null>(null)
   // Track which message is being regenerated so we can hide it from the
   // active path while the new sibling streams in.
@@ -26,6 +30,14 @@ export const useChatStore = defineStore('chat', () => {
   // on settle. `stop()` asks the backend to persist partial text then aborts;
   // `abortActive()` (navigate-away) hard-aborts without surfacing an error.
   let activeAbort: AbortController | null = null
+
+  function addUsage(inputTokens: number, outputTokens: number) {
+    const previous = generationUsage.value
+    generationUsage.value = {
+      input_tokens: (previous?.input_tokens ?? 0) + inputTokens,
+      output_tokens: (previous?.output_tokens ?? 0) + outputTokens,
+    }
+  }
 
   const displayed = computed(() =>
     activePath(messages.value.filter((m) => m.id !== regeneratingMsgId.value), activeLeafId.value),
@@ -52,15 +64,23 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function consume(
-    stream: AsyncGenerator<{ type: string; text?: string; message?: string }>,
+    stream: AsyncGenerator<SseEvent>,
     sessionId: string,
   ) {
     isStreaming.value = true
     streamingText.value = ''
     streamingError.value = null
+    agentActivity.value = null
+    agentStatus.value = null
+    generationUsage.value = null
     try {
       for await (const event of stream) {
         if (event.type === 'delta') streamingText.value += event.text
+        else if (event.type === 'activity') agentActivity.value = event.message
+        else if (event.type === 'tool_start') agentActivity.value = event.name
+        else if (event.type === 'tool_result') agentActivity.value = `${event.name}: ${event.status}`
+        else if (event.type === 'status') agentStatus.value = event.message
+        else if (event.type === 'usage') addUsage(event.input_tokens, event.output_tokens)
         else if (event.type === 'done') {
           streamingText.value = ''
           await loadMessages(sessionId)
@@ -90,6 +110,7 @@ export const useChatStore = defineStore('chat', () => {
       }
     } finally {
       isStreaming.value = false
+      agentActivity.value = null
       activeAbort = null
     }
   }
@@ -215,7 +236,7 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     messages, activeLeafId, displayed, loading, error,
-    isStreaming, streamingText, streamingError, activeSessionId,
+    isStreaming, streamingText, streamingError, agentActivity, agentStatus, generationUsage, activeSessionId,
     loadMessages, retryLoad, clearStreamingError,
     send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
   }

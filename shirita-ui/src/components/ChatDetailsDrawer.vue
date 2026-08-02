@@ -2,13 +2,17 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { X } from 'lucide-vue-next'
 import type { SessionPanel, PanelAction, VarDecl } from '../api/types'
+import type { AgentSettings, AgentSettingsView } from '../api/types'
+import { getSessionAgentSettings, resetSessionAgentSettings, updateSessionAgentSettings } from '../api/client'
 import PanelView from './PanelView.vue'
+import AgentSettingsEditor from './AgentSettingsEditor.vue'
 
 const props = defineProps<{
   open: boolean
   panels: SessionPanel[]
   schema: VarDecl[]
   values: Record<string, unknown>
+  sessionId: string
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +21,55 @@ const emit = defineEmits<{
 }>()
 
 const dialogRef = ref<HTMLElement | null>(null)
+const agentView = ref<AgentSettingsView | null>(null)
+const agentDraft = ref<AgentSettings | null>(null)
+const agentOverride = ref(false)
+const agentSaving = ref(false)
+const agentError = ref<string | null>(null)
+
+async function loadAgentSettings() {
+  agentError.value = null
+  try {
+    agentView.value = await getSessionAgentSettings(props.sessionId)
+    agentOverride.value = agentView.value.override !== null
+    agentDraft.value = structuredClone(agentView.value.override ?? agentView.value.effective)
+  } catch (e) {
+    agentError.value = (e as Error).message
+  }
+}
+
+async function setAgentOverride(enabled: boolean) {
+  agentOverride.value = enabled
+  if (!agentView.value) return
+  if (enabled) {
+    agentDraft.value = structuredClone(agentView.value.effective)
+    return
+  }
+  agentSaving.value = true
+  try {
+    agentView.value = await resetSessionAgentSettings(props.sessionId)
+    agentDraft.value = structuredClone(agentView.value.effective)
+  } catch (e) {
+    agentError.value = (e as Error).message
+    agentOverride.value = true
+  } finally {
+    agentSaving.value = false
+  }
+}
+
+async function saveAgentOverride() {
+  if (!agentDraft.value || !agentOverride.value) return
+  agentSaving.value = true
+  agentError.value = null
+  try {
+    agentView.value = await updateSessionAgentSettings(props.sessionId, agentDraft.value)
+    agentDraft.value = structuredClone(agentView.value.effective)
+  } catch (e) {
+    agentError.value = (e as Error).message
+  } finally {
+    agentSaving.value = false
+  }
+}
 
 const system = computed(() => props.schema.filter((d) => d.scope === 'system'))
 const custom = computed(() => props.schema.filter((d) => d.scope !== 'system'))
@@ -63,6 +116,7 @@ watch(
   () => props.open,
   (open) => {
     if (open) {
+      void loadAgentSettings()
       nextTick(() => {
         const list = focusables()
         ;(list[0] ?? dialogRef.value)?.focus()
@@ -129,6 +183,23 @@ watch(
                 </span>
               </div>
             </div>
+          </section>
+
+          <section data-test="session-agent-settings" class="border-t border-line pt-4 space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <span class="text-[12px] font-semibold text-muted">{{ $t('settings.agent') }}</span>
+              <label class="flex items-center gap-2 text-[12px]">
+                <input type="checkbox" :checked="agentOverride" :disabled="agentSaving || !agentView" @change="setAgentOverride(($event.target as HTMLInputElement).checked)" />
+                {{ $t('settings.agentSessionOverride') }}
+              </label>
+            </div>
+            <p v-if="agentError" class="text-[12px] text-coral">{{ agentError }}</p>
+            <p v-else-if="!agentView" class="text-[12px] text-muted">{{ $t('common.loading') }}</p>
+            <template v-else-if="agentDraft">
+              <p v-if="!agentOverride" class="text-[12px] text-muted">{{ $t('settings.agentInherited') }}</p>
+              <AgentSettingsEditor v-model="agentDraft" :metadata="agentView" :disabled="agentSaving || !agentOverride" />
+              <button v-if="agentOverride" class="btn" :disabled="agentSaving" @click="saveAgentOverride">{{ $t('common.save') }}</button>
+            </template>
           </section>
         </div>
       </div>

@@ -95,6 +95,13 @@ pub async fn send(
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
+            SendEvent::Activity { round, message } => json!({ "type": "activity", "round": round, "message": message }),
+            SendEvent::RunStart { run_id } => json!({ "type": "run_start", "run_id": run_id }),
+            SendEvent::ToolStart { call_id, name } => json!({ "type": "tool_start", "call_id": call_id, "name": name }),
+            SendEvent::ToolResult { call_id, name, status } => json!({ "type": "tool_result", "call_id": call_id, "name": name, "status": status }),
+            SendEvent::Finish { run_id } => json!({ "type": "finish", "run_id": run_id }),
+            SendEvent::Status(message) => json!({ "type": "status", "message": message }),
+            SendEvent::Usage { input_tokens, output_tokens } => json!({ "type": "usage", "input_tokens": input_tokens, "output_tokens": output_tokens }),
             SendEvent::Done { message_id } => json!({ "type": "done", "message_id": message_id }),
             SendEvent::Stopped { message_id } => json!({ "type": "stopped", "message_id": message_id }),
             SendEvent::Error(message) => json!({ "type": "error", "message": message }),
@@ -138,6 +145,13 @@ pub async fn regenerate_message(
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
+            SendEvent::Activity { round, message } => json!({ "type": "activity", "round": round, "message": message }),
+            SendEvent::RunStart { run_id } => json!({ "type": "run_start", "run_id": run_id }),
+            SendEvent::ToolStart { call_id, name } => json!({ "type": "tool_start", "call_id": call_id, "name": name }),
+            SendEvent::ToolResult { call_id, name, status } => json!({ "type": "tool_result", "call_id": call_id, "name": name, "status": status }),
+            SendEvent::Finish { run_id } => json!({ "type": "finish", "run_id": run_id }),
+            SendEvent::Status(message) => json!({ "type": "status", "message": message }),
+            SendEvent::Usage { input_tokens, output_tokens } => json!({ "type": "usage", "input_tokens": input_tokens, "output_tokens": output_tokens }),
             SendEvent::Done { message_id } => json!({ "type": "done", "message_id": message_id }),
             SendEvent::Stopped { message_id } => json!({ "type": "stopped", "message_id": message_id }),
             SendEvent::Error(message) => json!({ "type": "error", "message": message }),

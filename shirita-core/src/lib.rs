@@ -1,5 +1,7 @@
 //! shirita-core: Core business library
 
+pub mod agent;
+pub mod agent_loop;
 pub mod assembly;
 pub mod auth_password;
 pub mod attachments;
@@ -20,8 +22,12 @@ pub mod state;
 pub mod storage;
 pub mod summarize;
 pub mod tokenizer;
+pub mod tools;
 pub mod tree;
+pub mod xml_tools;
 
+pub use agent::{AgentSettings, GenerationRun, NativeToolCapability, RunKind, RunStatus, ToolTransport};
+pub use agent_loop::HarnessEvent;
 pub use assembly::{
     apply_regex_rules, apply_regex_rules_for, assemble_from_nodes, build_chat_messages,
     is_valid_regex, regex_error, render_vars, sanitize_tag, AssembledPlan, Placement,
@@ -69,3 +75,5 @@ pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
 pub use summarize::run as run_summary;
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
+pub use tools::{builtin_tool_registry, ToolCall, ToolCallTransport, ToolControl, ToolExecution, ToolRegistry, ToolResult, ToolResultStatus, ToolSource, ToolSpec};
+pub use xml_tools::{parse_xml_tool_round, render_xml_tool_result, xml_protocol_prompt, XmlRound};

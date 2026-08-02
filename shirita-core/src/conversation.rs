@@ -391,14 +391,14 @@ async fn assemble_request(
     let chat_messages = crate::assembly::build_chat_messages(&plan, &prompt_context, include_history);
 
     let max_tokens = provider_max_tokens(storage).await;
-    Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens }, regex_rules))
+    Ok((ChatRequest { model, messages: chat_messages, summary, max_tokens, tools: Vec::new() }, regex_rules))
 }
 
 /// Convert a `Message` that has already been stored in the database into a `ChatMessage` to be sent to the provider, and parse its
 /// `attachments` (asset IDs) into image data URLs.
 async fn chat_message_from(storage: &dyn Storage, assets_dir: &str, m: &Message) -> ChatMessage {
     let images = resolve_images(storage, assets_dir, &m.attachments).await;
-    ChatMessage { role: m.role, content: m.raw_content.clone(), images }
+    ChatMessage { role: m.role, content: m.raw_content.clone(), images, ..Default::default() }
 }
 
 /// The most recent rendered HTML "card" in this branch, if any — the base a new
@@ -430,13 +430,115 @@ fn resolve_display(path: &[&Message], full: &str, cleaned: &str) -> Option<Strin
 pub enum SendEvent {
     /// A text increment.
     Delta(String),
+    Activity { round: u32, message: String },
+    RunStart { run_id: String },
+    ToolStart { call_id: String, name: String },
+    ToolResult { call_id: String, name: String, status: String },
+    Finish { run_id: String },
+    Status(String),
+    Usage { input_tokens: u64, output_tokens: u64 },
     /// Completion, with an assistant message ID.
     Done { message_id: String },
     /// The user explicitly stopped generation; the partial assistant message
     /// (with whatever text was produced so far) has been persisted.
-    Stopped { message_id: String },
+    Stopped { message_id: Option<String> },
     /// Error (the stream terminates afterward).
     Error(String),
+}
+
+async fn runtime_agent_settings(storage: &dyn Storage, session: &Session) -> (crate::agent::AgentSettings, bool) {
+    let map: serde_json::Map<String, serde_json::Value> = storage.list_settings().await.unwrap_or_default().into_iter().collect();
+    let global = crate::agent::AgentSettings::from_settings_map(&map);
+    let capabilities = crate::tools::builtin_tool_registry().capability_names();
+    let effective = crate::agent::effective_agent_settings(&global, &session.override_config).sanitized(&capabilities);
+    let source = map.get("provider_source").and_then(serde_json::Value::as_str).unwrap_or("openai");
+    let native = native_tools_supported(&map, source);
+    (effective, native)
+}
+
+fn native_tools_supported(map: &serde_json::Map<String, serde_json::Value>, source: &str) -> bool {
+    let key = format!("provider.{source}.native_tools");
+    let capability = map.get(&key).and_then(|value| {
+        if let Some(flag) = value.as_bool() {
+            return Some(if flag { crate::agent::NativeToolCapability::Supported } else { crate::agent::NativeToolCapability::Unsupported });
+        }
+        serde_json::from_value(value.clone()).ok()
+    }).unwrap_or_default();
+    let base_url = map.get(&format!("provider.{source}.base_url")).and_then(serde_json::Value::as_str).unwrap_or("");
+    let base_url = base_url.trim_end_matches('/');
+    let known_native = (source == "openai" && base_url == "https://api.openai.com/v1")
+        || (source == "anthropic" && base_url == "https://api.anthropic.com");
+    let native = match capability {
+        crate::agent::NativeToolCapability::Supported => true,
+        crate::agent::NativeToolCapability::Unsupported => false,
+        crate::agent::NativeToolCapability::Auto => known_native,
+    };
+    native
+}
+
+enum RunStreamEvent {
+    Delta(String), Activity { round: u32, message: String }, Status(String),
+    RunStart { run_id: String }, Finish { run_id: String },
+    ToolStart { call_id: String, name: String }, ToolResult { call_id: String, name: String, status: String },
+    Usage { input_tokens: u64, output_tokens: u64 },
+    Final { text: String, stopped: bool }, StoppedWithoutResponse, Failed(String),
+}
+
+fn generation_stream(
+    provider: Arc<dyn ModelProvider>, request: ChatRequest, settings: crate::agent::AgentSettings,
+    native_supported: bool, stop: StopToken, run_state: crate::agent::GenerationRun,
+) -> impl Stream<Item = RunStreamEvent> {
+    async_stream::stream! {
+        if settings.enabled {
+            let events = crate::agent_loop::run(provider, request, settings.clone(), native_supported, Arc::new(crate::tools::builtin_tool_registry()), stop, run_state);
+            futures::pin_mut!(events);
+            while let Some(event) = events.next().await {
+                match event {
+                    crate::agent_loop::HarnessEvent::RoundStarted { run } if settings.show_activity => {
+                        if run.round == 1 { yield RunStreamEvent::RunStart { run_id: run.id.clone() }; }
+                        yield RunStreamEvent::Activity { round: run.round, message: format!("Agent round {}", run.round) }
+                    },
+                    crate::agent_loop::HarnessEvent::ToolStarted { call } if settings.show_activity => yield RunStreamEvent::ToolStart { call_id: call.id, name: call.name },
+                    crate::agent_loop::HarnessEvent::ToolFinished { result } if settings.show_activity => yield RunStreamEvent::ToolResult { call_id: result.call_id, name: result.name, status: format!("{:?}", result.status).to_lowercase() },
+                    crate::agent_loop::HarnessEvent::Status { message } if settings.show_activity => yield RunStreamEvent::Status(message),
+                    crate::agent_loop::HarnessEvent::Usage { input_tokens, output_tokens } => yield RunStreamEvent::Usage { input_tokens, output_tokens },
+                    crate::agent_loop::HarnessEvent::Finished { response, run } => { yield RunStreamEvent::Finish { run_id: run.id }; yield RunStreamEvent::Delta(response.clone()); yield RunStreamEvent::Final { text: response, stopped: false }; return; }
+                    crate::agent_loop::HarnessEvent::Stopped { .. } => { yield RunStreamEvent::StoppedWithoutResponse; return; }
+                    crate::agent_loop::HarnessEvent::Failed { message } => { yield RunStreamEvent::Failed(message); return; }
+                    _ => {}
+                }
+            }
+            yield RunStreamEvent::Failed("Agent ended without finish".into());
+        } else {
+            let mut stream = match provider.stream_chat(request).await {
+                Ok(stream) => stream,
+                Err(error) => { yield RunStreamEvent::Failed(error.to_string()); return; }
+            };
+            let mut full = String::new();
+            let mut stopped = false;
+            let mut in_reasoning = false;
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = stop.cancelled() => { stopped = true; break; }
+                    item = stream.next() => match item {
+                        Some(Ok(crate::model::ModelEvent::TextDelta(text))) => {
+                            if let Some(delta) = crate::model::render_delta(&mut in_reasoning, crate::model::Delta::Content(text)) { full.push_str(&delta); yield RunStreamEvent::Delta(delta); }
+                        }
+                        Some(Ok(crate::model::ModelEvent::ReasoningDelta(text))) => {
+                            if let Some(delta) = crate::model::render_delta(&mut in_reasoning, crate::model::Delta::Reasoning(text)) { full.push_str(&delta); yield RunStreamEvent::Delta(delta); }
+                        }
+                        Some(Ok(crate::model::ModelEvent::Usage { input_tokens, output_tokens })) => yield RunStreamEvent::Usage { input_tokens, output_tokens },
+                        Some(Ok(_)) => {}
+                        Some(Err(error)) => { yield RunStreamEvent::Failed(error.to_string()); return; }
+                        None => break,
+                    }
+                }
+            }
+            if let Some(delta) = crate::model::close_reasoning(&mut in_reasoning) { full.push_str(&delta); yield RunStreamEvent::Delta(delta); }
+            yield RunStreamEvent::Final { text: full, stopped };
+        }
+    }
 }
 
 /// A cooperative stop signal threaded into [`send_message`] / [`regenerate`].
@@ -449,6 +551,7 @@ pub enum SendEvent {
 pub struct StopToken(watch::Receiver<bool>);
 
 impl StopToken {
+    pub fn is_cancelled(&self) -> bool { *self.0.borrow() }
     /// A token that will never fire (used by tests / callers that don't need a
     /// stop handle).
     pub fn never() -> Self {
@@ -563,7 +666,7 @@ pub fn send_message(
             context.push(chat_message_from(storage.as_ref(), &assets_dir, m).await);
         }
         let new_turn_images = resolve_images(storage.as_ref(), &assets_dir, &attachment_ids).await;
-        context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images });
+        context.push(ChatMessage { role: Role::User, content: user_text.clone(), images: new_turn_images, ..Default::default() });
         let (req, regex_rules) = match assemble_request(storage.as_ref(), &session, model, &context, &branch_state, &schema, summary_text.clone()).await {
             Ok(r) => r,
             Err(e) => { yield SendEvent::Error(e.to_string()); return; }
@@ -575,7 +678,7 @@ pub fn send_message(
         if dropped > 0 {
             tracing::warn!(dropped, "context over window: trimmed oldest history");
         }
-        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens };
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens, tools: req.tools };
 
         let prompt_text: String =
             req.messages.iter().map(|m| m.content.as_str()).collect::<Vec<_>>().join("\n");
@@ -584,25 +687,26 @@ pub fn send_message(
         // 3) Process the provider stream, accumulating and yielding one delta at a time.
         //    A cooperative stop (Stop button / navigate-away) breaks out of the loop so
         //    we persist whatever was generated so far instead of discarding it.
-        let mut full = String::new();
-        let mut stream = match provider.stream_chat(req).await {
-            Ok(s) => s,
-            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
-        };
-        let mut stopped = false;
-        loop {
-            tokio::select! {
-                biased;
-                _ = stop.cancelled() => { stopped = true; break; }
-                item = stream.next() => {
-                    match item {
-                        Some(Ok(delta)) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
-                        Some(Err(e)) => { yield SendEvent::Error(e.to_string()); return; }
-                        None => break,
-                    }
-                }
+        let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
+        let run_state = crate::agent::GenerationRun { id: uuid::Uuid::new_v4().to_string(), session_id: session_id.clone(), parent_message_id: Some(user_msg.id.clone()), kind: crate::agent::RunKind::Send, round: 0, tool_calls: 0, status: crate::agent::RunStatus::Running };
+        let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
+        futures::pin_mut!(run);
+        let (full, stopped) = loop {
+            match run.next().await {
+                Some(RunStreamEvent::Delta(text)) => yield SendEvent::Delta(text),
+                Some(RunStreamEvent::Activity { round, message }) => yield SendEvent::Activity { round, message },
+                Some(RunStreamEvent::RunStart { run_id }) => yield SendEvent::RunStart { run_id },
+                Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
+                Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },
+                Some(RunStreamEvent::ToolResult { call_id, name, status }) => yield SendEvent::ToolResult { call_id, name, status },
+                Some(RunStreamEvent::Status(message)) => yield SendEvent::Status(message),
+                Some(RunStreamEvent::Usage { input_tokens, output_tokens }) => yield SendEvent::Usage { input_tokens, output_tokens },
+                Some(RunStreamEvent::Final { text, stopped }) => break (text, stopped),
+                Some(RunStreamEvent::StoppedWithoutResponse) => { yield SendEvent::Stopped { message_id: None }; return; }
+                Some(RunStreamEvent::Failed(message)) => { yield SendEvent::Error(message); return; }
+                None => { yield SendEvent::Error("generation ended without a result".into()); return; }
             }
-        }
+        };
 
         // 4) Fold <state_update> into the snapshot, strip the display text, store the assistant message in the database, and then yield Done.
         // map the capture variables from the panel (regex_rule.meta.capture_vars) to the <state_update> tag
@@ -622,7 +726,7 @@ pub fn send_message(
         // Activate the leaf node to advance to the new assistant message: The next round of messages will be attached to it.
         let _ = storage.set_session_active_leaf(&session_id, Some(&assistant.id)).await;
         if stopped {
-            yield SendEvent::Stopped { message_id: assistant.id };
+            yield SendEvent::Stopped { message_id: Some(assistant.id) };
         } else {
             yield SendEvent::Done { message_id: assistant.id };
         }
@@ -689,27 +793,28 @@ pub fn regenerate(
         if dropped > 0 {
             tracing::warn!(dropped, "context over window: trimmed oldest history");
         }
-        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens };
+        let req = ChatRequest { model: req.model, messages: trimmed, summary: req.summary, max_tokens: req.max_tokens, tools: req.tools };
 
-        let mut full = String::new();
-        let mut stream = match provider.stream_chat(req).await {
-            Ok(s) => s,
-            Err(e) => { yield SendEvent::Error(e.to_string()); return; }
-        };
-        let mut stopped = false;
-        loop {
-            tokio::select! {
-                biased;
-                _ = stop.cancelled() => { stopped = true; break; }
-                item = stream.next() => {
-                    match item {
-                        Some(Ok(delta)) => { full.push_str(&delta); yield SendEvent::Delta(delta); }
-                        Some(Err(e)) => { yield SendEvent::Error(e.to_string()); return; }
-                        None => break,
-                    }
-                }
+        let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
+        let run_state = crate::agent::GenerationRun { id: uuid::Uuid::new_v4().to_string(), session_id: session_id.clone(), parent_message_id: target.parent_id.clone(), kind: crate::agent::RunKind::Regenerate, round: 0, tool_calls: 0, status: crate::agent::RunStatus::Running };
+        let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
+        futures::pin_mut!(run);
+        let (full, stopped) = loop {
+            match run.next().await {
+                Some(RunStreamEvent::Delta(text)) => yield SendEvent::Delta(text),
+                Some(RunStreamEvent::Activity { round, message }) => yield SendEvent::Activity { round, message },
+                Some(RunStreamEvent::RunStart { run_id }) => yield SendEvent::RunStart { run_id },
+                Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
+                Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },
+                Some(RunStreamEvent::ToolResult { call_id, name, status }) => yield SendEvent::ToolResult { call_id, name, status },
+                Some(RunStreamEvent::Status(message)) => yield SendEvent::Status(message),
+                Some(RunStreamEvent::Usage { input_tokens, output_tokens }) => yield SendEvent::Usage { input_tokens, output_tokens },
+                Some(RunStreamEvent::Final { text, stopped }) => break (text, stopped),
+                Some(RunStreamEvent::StoppedWithoutResponse) => { yield SendEvent::Stopped { message_id: None }; return; }
+                Some(RunStreamEvent::Failed(message)) => { yield SendEvent::Error(message); return; }
+                None => { yield SendEvent::Error("generation ended without a result".into()); return; }
             }
-        }
+        };
         // Same as above: `capture` comes first, followed by `state_update`; in case of a conflict, the explicit instruction takes precedence.
         let mut updates = capture_panel_updates(&full, &regex_rules);
         updates.extend(parse_state_updates(&full));
@@ -734,7 +839,7 @@ pub fn regenerate(
             return;
         }
         if stopped {
-            yield SendEvent::Stopped { message_id: sibling.id };
+            yield SendEvent::Stopped { message_id: Some(sibling.id) };
         } else {
             yield SendEvent::Done { message_id: sibling.id };
         }
@@ -748,6 +853,51 @@ mod tests {
     use crate::models::session::Session;
     use crate::storage::sqlite::SqliteStorage;
     use crate::tokenizer::tiktoken::TiktokenCounter;
+
+    #[test]
+    fn native_tool_auto_does_not_trust_custom_openai_endpoints() {
+        let custom: serde_json::Map<String, serde_json::Value> = serde_json::from_value(serde_json::json!({
+            "provider.openai.base_url": "http://localhost:8080/v1",
+            "provider.openai.native_tools": "auto"
+        })).unwrap();
+        assert!(!native_tools_supported(&custom, "openai"));
+        let explicit: serde_json::Map<String, serde_json::Value> = serde_json::from_value(serde_json::json!({
+            "provider.openai.base_url": "http://localhost:8080/v1",
+            "provider.openai.native_tools": "supported"
+        })).unwrap();
+        assert!(native_tools_supported(&explicit, "openai"));
+    }
+
+    #[tokio::test]
+    async fn runtime_clamps_agent_values_written_through_generic_settings() {
+        let storage = temp_storage().await;
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+        storage.set_setting("agent.max_rounds", &serde_json::json!(999)).await.unwrap();
+        storage.set_setting("agent.max_tool_calls", &serde_json::json!(999)).await.unwrap();
+        storage.set_setting("agent.tool_timeout_ms", &serde_json::json!(999_999)).await.unwrap();
+        let (settings, _) = runtime_agent_settings(&storage, &session).await;
+        assert_eq!(settings.max_rounds, crate::agent::HARD_MAX_ROUNDS);
+        assert_eq!(settings.max_tool_calls, crate::agent::HARD_MAX_TOOL_CALLS);
+        assert_eq!(settings.tool_timeout_ms, crate::agent::HARD_MAX_TOOL_TIMEOUT_MS);
+    }
+
+    #[tokio::test]
+    async fn stopping_agent_mode_is_not_an_error_and_keeps_the_user_turn() {
+        let storage = Arc::new(temp_storage().await);
+        let session = Session::new("s");
+        storage.create_session(&session).await.unwrap();
+        storage.set_setting("agent.enabled", &serde_json::json!(true)).await.unwrap();
+        let (handle, token) = StopHandle::new(); handle.stop();
+        let stream = send_message(storage.clone(), Arc::new(EchoProvider), Arc::new(TiktokenCounter::new()), "m".into(), session.id.clone(), "keep me".into(), "".into(), Vec::new(), token);
+        futures::pin_mut!(stream);
+        let events = stream.collect::<Vec<_>>().await;
+        assert!(events.iter().any(|event| matches!(event, SendEvent::Stopped { message_id: None })));
+        assert!(!events.iter().any(|event| matches!(event, SendEvent::Error(_))));
+        let messages = storage.list_messages(&session.id).await.unwrap();
+        assert_eq!(messages.iter().filter(|m| m.role == Role::User).count(), 1);
+        assert_eq!(messages.iter().filter(|m| m.role == Role::Assistant).count(), 0);
+    }
 
     async fn temp_storage() -> SqliteStorage {
         let dir = tempfile::tempdir().unwrap();
@@ -805,6 +955,7 @@ mod tests {
                 SendEvent::Done { message_id } => done_id = Some(message_id),
                 SendEvent::Stopped { .. } => panic!("unexpected stop in non-stopped test"),
                 SendEvent::Error(e) => panic!("unexpected error: {e}"),
+                SendEvent::Activity { .. } | SendEvent::RunStart { .. } | SendEvent::ToolStart { .. } | SendEvent::ToolResult { .. } | SendEvent::Finish { .. } | SendEvent::Status(_) | SendEvent::Usage { .. } => {}
             }
         }
         assert_eq!(deltas, "echo: hello");
@@ -906,7 +1057,7 @@ mod tests {
         assert_eq!(user2.parent_id.as_deref(), Some(assistant1.id.as_str()));
     }
 
-    use crate::model::{ChatRequest, ModelProvider};
+    use crate::model::{ChatRequest, ModelEvent, ModelProvider};
     use futures::stream::{self, BoxStream};
     use std::sync::Mutex;
 
@@ -919,10 +1070,10 @@ mod tests {
         async fn stream_chat(
             &self,
             req: ChatRequest,
-        ) -> crate::Result<BoxStream<'static, crate::Result<String>>> {
+        ) -> crate::Result<BoxStream<'static, crate::Result<ModelEvent>>> {
             *self.seen.lock().unwrap() = Some(req);
             let reply = self.reply.clone();
-            Ok(Box::pin(stream::iter(vec![Ok(reply)])))
+            Ok(Box::pin(stream::iter(vec![Ok(ModelEvent::TextDelta(reply))])))
         }
     }
 

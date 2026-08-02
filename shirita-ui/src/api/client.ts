@@ -13,6 +13,8 @@ import type {
   SessionState,
   Template,
   VarDecl,
+  AgentSettings,
+  AgentSettingsView,
 } from './types'
 
 // BASE (the embedded server origin, injected by Tauri / build-time for web) is
@@ -182,6 +184,14 @@ export function listMessages(sessionId: string): Promise<Message[]> {
 export type SseEvent =
   | { type: 'delta'; text: string }
   | { type: 'done'; message_id: string }
+  | { type: 'stopped'; message_id?: string }
+  | { type: 'activity'; round: number; message: string }
+  | { type: 'run_start'; run_id: string }
+  | { type: 'tool_start'; call_id: string; name: string }
+  | { type: 'tool_result'; call_id: string; name: string; status: string }
+  | { type: 'finish'; run_id: string }
+  | { type: 'status'; message: string; visibility?: 'internal' | 'user' }
+  | { type: 'usage'; input_tokens: number; output_tokens: number }
   | { type: 'error'; message: string }
 
 /** Parse an `data: {...}\n` SSE body into a stream of `SseEvent`s. */
@@ -519,6 +529,39 @@ export async function updateSettings(settings: Record<string, unknown>): Promise
     body: JSON.stringify(settings),
   })
   if (!res.ok) throw new Error(`Update settings failed: ${res.status}`)
+}
+
+async function writeAgentSettings(path: string, method: 'PUT' | 'DELETE', settings?: AgentSettings): Promise<AgentSettingsView> {
+  const res = await apiFetch(path, {
+    method,
+    ...(settings && { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(settings) }),
+  })
+  if (!res.ok) throw new Error(`${method} ${path} failed: ${res.status}`)
+  return res.json()
+}
+
+export function getAgentSettings(): Promise<AgentSettingsView> {
+  return apiGet<AgentSettingsView>('/agent-settings')
+}
+
+export function updateAgentSettings(settings: AgentSettings): Promise<AgentSettingsView> {
+  return writeAgentSettings('/agent-settings', 'PUT', settings)
+}
+
+export function resetAgentSettings(): Promise<AgentSettingsView> {
+  return writeAgentSettings('/agent-settings', 'DELETE')
+}
+
+export function getSessionAgentSettings(sessionId: string): Promise<AgentSettingsView> {
+  return apiGet<AgentSettingsView>(`/sessions/${sessionId}/agent-settings`)
+}
+
+export function updateSessionAgentSettings(sessionId: string, settings: AgentSettings): Promise<AgentSettingsView> {
+  return writeAgentSettings(`/sessions/${sessionId}/agent-settings`, 'PUT', settings)
+}
+
+export function resetSessionAgentSettings(sessionId: string): Promise<AgentSettingsView> {
+  return writeAgentSettings(`/sessions/${sessionId}/agent-settings`, 'DELETE')
 }
 
 export async function testProviderConnection(): Promise<{ ok: boolean; error?: string }> {

@@ -1017,6 +1017,36 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
+    async fn set_session_agent_override(
+        &self,
+        session_id: &str,
+        agent: &serde_json::Value,
+    ) -> Result<()> {
+        let agent = serde_json::to_string(agent)?;
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_set(\
+                COALESCE(override_config, '{}'), '$.agent', json(?)) \
+             WHERE id = ?",
+        )
+        .bind(agent)
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn clear_session_agent_override(&self, session_id: &str) -> Result<()> {
+        sqlx::query(
+            "UPDATE chat_sessions SET override_config = json_remove(\
+                COALESCE(override_config, '{}'), '$.agent') \
+             WHERE id = ?",
+        )
+        .bind(session_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     // --- summaries ---
     async fn create_summary(&self, summary: &Summary) -> Result<()> {
         sqlx::query(
@@ -1086,6 +1116,18 @@ impl Storage for SqliteStorage {
 
     async fn delete_setting(&self, key: &str) -> Result<()> {
         sqlx::query("DELETE FROM settings WHERE key = ?").bind(key).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn delete_settings(&self, keys: &[String]) -> Result<()> {
+        let mut tx = self.pool.begin().await?;
+        for key in keys {
+            sqlx::query("DELETE FROM settings WHERE key = ?")
+                .bind(key)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2097,6 +2139,29 @@ mod tests {
         let got = storage.get_session(&s.id).await.unwrap().unwrap();
         assert!(got.override_config["local_definitions"].get("def-a").is_none());
         assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
+
+        storage
+            .set_session_agent_override(&s.id, &serde_json::json!({ "enabled": true }))
+            .await
+            .unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert_eq!(got.override_config["agent"]["enabled"], true);
+        assert_eq!(got.override_config["local_variables"][0]["name"], "hp");
+        assert_eq!(got.override_config["local_definitions"]["def-b"]["content"], "B");
+
+        // Replacing the Agent block must not merge stale fields into it.
+        storage
+            .set_session_agent_override(&s.id, &serde_json::json!({ "transport": "xml" }))
+            .await
+            .unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert_eq!(got.override_config["agent"]["transport"], "xml");
+        assert!(got.override_config["agent"].get("enabled").is_none());
+
+        storage.clear_session_agent_override(&s.id).await.unwrap();
+        let got = storage.get_session(&s.id).await.unwrap().unwrap();
+        assert!(got.override_config.get("agent").is_none());
+        assert_eq!(got.override_config["local_variables"][0]["name"], "hp");
     }
 
     #[tokio::test]
@@ -2358,6 +2423,10 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(s.get_setting("theme").await.unwrap(), Some(serde_json::json!("dark")));
+        assert_eq!(s.get_setting("lang").await.unwrap(), Some(serde_json::json!("en")));
+
+        s.delete_settings(&["theme".into()]).await.unwrap();
+        assert_eq!(s.get_setting("theme").await.unwrap(), None);
         assert_eq!(s.get_setting("lang").await.unwrap(), Some(serde_json::json!("en")));
     }
 

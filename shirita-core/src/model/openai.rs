@@ -5,14 +5,38 @@ use futures::stream::BoxStream;
 use futures::StreamExt;
 use serde_json::json;
 
+use crate::tools::{ToolCall, ToolCallTransport};
 use crate::{Error, Result};
 
-use super::{close_reasoning, decode_utf8_chunk, parse_delta_kind, render_delta, ChatRequest, ModelProvider};
+use super::{decode_utf8_chunk, ChatRequest, ModelEvent, ModelProvider};
 
 pub struct OpenAiProvider {
     client: reqwest::Client,
     base_url: String,
     api_key: String,
+}
+
+#[derive(Default)]
+struct ToolCallAccumulator(Vec<(String, String, String)>);
+
+impl ToolCallAccumulator {
+    fn push(&mut self, parts: &[serde_json::Value]) {
+        for part in parts {
+            let index = part["index"].as_u64().unwrap_or(0) as usize;
+            while self.0.len() <= index { self.0.push((String::new(), String::new(), String::new())); }
+            if let Some(id) = part["id"].as_str() { self.0[index].0.push_str(id); }
+            if let Some(name) = part["function"]["name"].as_str() { self.0[index].1.push_str(name); }
+            if let Some(args) = part["function"]["arguments"].as_str() { self.0[index].2.push_str(args); }
+        }
+    }
+
+    fn finish(&mut self) -> Result<Vec<ToolCall>> {
+        self.0.drain(..).map(|(id, name, raw)| Ok(ToolCall {
+            id, name,
+            arguments: serde_json::from_str(&raw).map_err(|e| Error::Config(format!("invalid tool arguments: {e}")))?,
+            transport: ToolCallTransport::Native,
+        })).collect()
+    }
 }
 
 /// Construct the OpenAI request body: `messages` is the same as `openai_messages`; send only when `req.max_tokens` is `Some`
@@ -25,6 +49,10 @@ pub fn openai_body(req: &ChatRequest) -> serde_json::Value {
     });
     if let Some(mt) = req.max_tokens {
         body["max_tokens"] = json!(mt);
+    }
+    if !req.tools.is_empty() {
+        body["tools"] = json!(req.tools.iter().map(|t| json!({"type":"function","function":{"name":t.name,"description":t.description,"parameters":t.input_schema}})).collect::<Vec<_>>());
+        body["stream_options"] = json!({"include_usage":true});
     }
     body
 }
@@ -50,7 +78,16 @@ pub fn openai_messages(req: &ChatRequest) -> Vec<serde_json::Value> {
     let mut msgs: Vec<serde_json::Value> = req
         .messages
         .iter()
-        .map(|m| json!({ "role": m.role.as_str(), "content": openai_content(m) }))
+        .map(|m| {
+            if let Some(result) = &m.tool_result {
+                return json!({"role":"tool","tool_call_id":result.call_id,"content":serde_json::to_string(result).unwrap_or_default()});
+            }
+            let mut out = json!({"role":m.role.as_str(),"content":openai_content(m)});
+            if !m.tool_calls.is_empty() {
+                out["tool_calls"] = json!(m.tool_calls.iter().map(|c| json!({"id":c.id,"type":"function","function":{"name":c.name,"arguments":serde_json::to_string(&c.arguments).unwrap_or_else(|_| "{}".into())}})).collect::<Vec<_>>());
+            }
+            out
+        })
         .collect();
     if let Some(sum) = &req.summary {
         let block = format!("\n\n[Summary of earlier conversation]\n{sum}");
@@ -81,7 +118,7 @@ impl OpenAiProvider {
 
 #[async_trait]
 impl ModelProvider for OpenAiProvider {
-    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>> {
+    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<ModelEvent>>> {
         let url = format!("{}/chat/completions", self.base_url.trim_end_matches('/'));
         let body = openai_body(&req);
 
@@ -105,9 +142,7 @@ impl ModelProvider for OpenAiProvider {
         let stream = async_stream::stream! {
             let mut buf = String::new();
             let mut pending_bytes = Vec::new();
-            // Inference models such as DeepSeek stream `reasoning_content` before `content`;
-            // This section wraps it into the existing <think>…</think> frontend convention (see model/mod.rs::render_delta).
-            let mut in_reasoning = false;
+            let mut calls = ToolCallAccumulator::default();
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -127,17 +162,29 @@ impl ModelProvider for OpenAiProvider {
                         None => continue,
                     };
                     if data == "[DONE]" {
-                        if let Some(close) = close_reasoning(&mut in_reasoning) { yield Ok(close); }
                         return;
                     }
-                    match parse_delta_kind(data) {
-                        Ok(delta) => if let Some(text) = render_delta(&mut in_reasoning, delta) { yield Ok(text); },
-                        Err(e) => { yield Err(e); return; }
+                    let v: serde_json::Value = match serde_json::from_str(data) { Ok(v) => v, Err(e) => { yield Err(e.into()); return; } };
+                    if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
+                        yield Err(Error::Config(format!("provider stream error: {}", err.get("message").and_then(|x| x.as_str()).unwrap_or("provider error")))); return;
+                    }
+                    if let Some(usage) = v.get("usage").filter(|x| !x.is_null()) {
+                        yield Ok(ModelEvent::Usage { input_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0), output_tokens: usage["completion_tokens"].as_u64().unwrap_or(0) });
+                    }
+                    let choice = &v["choices"][0];
+                    let delta = &choice["delta"];
+                    if let Some(s) = delta["reasoning_content"].as_str() { yield Ok(ModelEvent::ReasoningDelta(s.into())); }
+                    if let Some(s) = delta["content"].as_str() { yield Ok(ModelEvent::TextDelta(s.into())); }
+                    if let Some(parts) = delta["tool_calls"].as_array() { calls.push(parts); }
+                    if let Some(reason) = choice["finish_reason"].as_str() {
+                        if reason == "tool_calls" {
+                            let completed = match calls.finish() { Ok(v) => v, Err(e) => { yield Err(e); return; } };
+                            for call in completed { yield Ok(ModelEvent::ToolCall(call)); }
+                        }
+                        yield Ok(ModelEvent::Finished { reason: reason.into() });
                     }
                 }
             }
-            // Clean EOF without a trailing [DONE]: still close a dangling <think>.
-            if let Some(close) = close_reasoning(&mut in_reasoning) { yield Ok(close); }
         };
         Ok(Box::pin(stream))
     }
@@ -150,7 +197,7 @@ mod tests {
     use crate::models::message::Role;
 
     fn req(messages: Vec<ChatMessage>, summary: Option<&str>) -> ChatRequest {
-        ChatRequest { model: "m".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None }
+        ChatRequest { model: "m".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None, tools: Vec::new() }
     }
 
     #[test]
@@ -197,6 +244,7 @@ mod tests {
             role: Role::User,
             content: "what is this?".into(),
             images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
         }], None);
         let msgs = openai_messages(&r);
         let parts = msgs[0]["content"].as_array().unwrap();
@@ -228,10 +276,22 @@ mod tests {
             role: Role::User,
             content: "".into(),
             images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
         }], None);
         let msgs = openai_messages(&r);
         let parts = msgs[0]["content"].as_array().unwrap();
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0]["type"], "image_url");
+    }
+
+    #[test]
+    fn fragmented_native_tool_arguments_are_accumulated() {
+        let mut calls = ToolCallAccumulator::default();
+        calls.push(&[json!({"index":0,"id":"call_","function":{"name":"demo.","arguments":"{\"x\":"}})]);
+        calls.push(&[json!({"index":0,"id":"1","function":{"name":"pick","arguments":"2}"}})]);
+        let calls = calls.finish().unwrap();
+        assert_eq!(calls[0].id, "call_1");
+        assert_eq!(calls[0].name, "demo.pick");
+        assert_eq!(calls[0].arguments, json!({"x":2}));
     }
 }

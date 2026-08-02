@@ -13,7 +13,7 @@ const schema: VarDecl[] = [
 
 function mountDrawer(overrides: Partial<Record<string, unknown>> = {}) {
   return mount(ChatDetailsDrawer, {
-    props: { open: true, panels, schema, values: { hp: 95 }, ...overrides },
+    props: { open: true, panels, schema, values: { hp: 95 }, sessionId: 'session-1', ...overrides },
     attachTo: document.body,
   })
 }

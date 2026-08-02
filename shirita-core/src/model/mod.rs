@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::models::message::Role;
+use crate::tools::{ToolCall, ToolResult, ToolSpec};
 use crate::{Error, Result};
 
 pub use anthropic::AnthropicProvider;
@@ -23,11 +24,13 @@ pub struct ChatMessage {
     /// from stored asset ids ahead of request assembly (see
     /// `attachments::resolve_images`). Empty for plain-text turns.
     pub images: Vec<String>,
+    pub tool_calls: Vec<ToolCall>,
+    pub tool_result: Option<ToolResult>,
 }
 
 impl Default for ChatMessage {
     fn default() -> Self {
-        Self { role: Role::User, content: String::new(), images: Vec::new() }
+        Self { role: Role::User, content: String::new(), images: Vec::new(), tool_calls: Vec::new(), tool_result: None }
     }
 }
 
@@ -41,12 +44,21 @@ pub struct ChatRequest {
     /// Maximum number of tokens in the response (output). Non-contextual window. When `None`, Anthropic uses the built-in default,
     /// OpenAI omits this field (uses the server-side default). Source: `provider_max_tokens` setting.
     pub max_tokens: Option<u32>,
+    pub tools: Vec<ToolSpec>,
 }
 
-/// Stream-based chat: Each element is a text increment; when the stream ends, the process is complete.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModelEvent {
+    TextDelta(String),
+    ReasoningDelta(String),
+    ToolCall(ToolCall),
+    Usage { input_tokens: u64, output_tokens: u64 },
+    Finished { reason: String },
+}
+
 #[async_trait]
 pub trait ModelProvider: Send + Sync {
-    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>>;
+    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<ModelEvent>>>;
 }
 
 /// Parses the JSON following `data:` in OpenAI SSE and extracts `choices[0].delta.content`.

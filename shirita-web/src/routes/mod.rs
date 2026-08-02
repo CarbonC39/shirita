@@ -1,3 +1,4 @@
+pub mod agent_settings;
 pub mod assets;
 pub mod auth;
 pub mod chat;

@@ -1,5 +1,52 @@
 export type Role = 'system' | 'user' | 'assistant'
 
+export type AgentTransport = 'auto' | 'native' | 'xml'
+
+export interface AgentSettings {
+  enabled: boolean
+  transport: AgentTransport
+  enabled_tools: string[]
+  max_rounds: number
+  max_tool_calls: number
+  tool_timeout_ms: number
+  show_activity: boolean
+  show_user_status: boolean
+  max_identical_call_rounds: number
+  system_prompt: string
+  unfinished_prompt: string
+}
+
+export interface AgentToolSpec {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+  output_schema: Record<string, unknown> | null
+  source: 'builtin' | 'plugin' | 'mcp'
+  required: boolean
+}
+
+export interface AgentSettingsView {
+  global: AgentSettings
+  override: AgentSettings | null
+  effective: AgentSettings
+  limits: {
+    hard_max_rounds: number
+    hard_max_tool_calls: number
+    hard_max_tool_timeout_ms: number
+    max_tool_argument_bytes: number
+    max_tool_result_bytes: number
+    max_finish_response_bytes: number
+    max_xml_round_bytes: number
+    max_agent_prompt_bytes: number
+    max_status_message_bytes: number
+    max_random_items: number
+    max_random_integer_span: number
+    max_math_expression_bytes: number
+    max_math_parse_depth: number
+  }
+  tools: AgentToolSpec[]
+}
+
 export interface Session {
   id: string
   name: string

@@ -9,8 +9,11 @@ import {
     updateDefinition,
     deleteDefinition,
     getRegexScopes,
+    getAgentSettings,
+    updateAgentSettings,
+    resetAgentSettings,
 } from "../api/client";
-import type { Definition, RegexScope } from "../api/types";
+import type { AgentSettings, AgentSettingsView, Definition, RegexScope } from "../api/types";
 import { metaToRule, scopeFlagsToMeta } from "../utils/regexRule";
 import { providerKey, type ProviderField } from "../utils/providerKeys";
 import { fallbackModels } from "../api/modelCatalog";
@@ -19,6 +22,7 @@ import RegexRuleEditor from "../components/RegexRuleEditor.vue";
 import AssetPicker from "../components/AssetPicker.vue";
 import FullscreenEditor from "../components/FullscreenEditor.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import AgentSettingsEditor from "../components/AgentSettingsEditor.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
 import { ensureNotifyPermission } from "../utils/notify";
@@ -42,6 +46,9 @@ const cssFullscreen = ref(false);
 // settings doesn't immediately echo them back.
 const loaded = ref(false);
 const saveState = ref<"idle" | "saving" | "saved">("idle");
+const agentView = ref<AgentSettingsView | null>(null);
+const agentDraft = ref<AgentSettings | null>(null);
+const agentSaving = ref(false);
 
 const providerSources = [
     "openai",
@@ -137,6 +144,15 @@ const providerModel = computed({
 const providerStream = computed({
     get: () => (get("provider_stream") as boolean) ?? true,
     set: (v: boolean) => set("provider_stream", v),
+});
+const providerNativeTools = computed({
+    get: () => {
+        const value = get(providerKey(providerSource.value, "native_tools"));
+        if (value === true) return "supported";
+        if (value === false) return "unsupported";
+        return value === "supported" || value === "unsupported" ? value : "auto";
+    },
+    set: (v: "auto" | "supported" | "unsupported") => set(providerKey(providerSource.value, "native_tools"), v),
 });
 // Default user identity (name + avatar) shown for the user side of messages
 // that have no user-definition attached. Avatar is picked from the shared
@@ -294,6 +310,8 @@ async function deleteRegexRule(rule: Definition) {
 onMounted(async () => {
     try {
         await settings.load();
+        agentView.value = await getAgentSettings();
+        agentDraft.value = structuredClone(agentView.value.global);
         // server is the source of truth for the background; sync the UI store cache
         const bg = settings.data.appearance_background;
         if (typeof bg === "string" && bg !== ui.background)
@@ -347,6 +365,7 @@ watch(
         providerApiKey.value,
         providerModel.value,
         providerStream.value,
+        providerNativeTools.value,
         genTemp.value,
         genTopP.value,
         genFreqPenalty.value,
@@ -376,6 +395,7 @@ watch(
                     [providerKey(providerSource.value, "api_key")]: providerApiKey.value,
                     [providerKey(providerSource.value, "model")]: providerModel.value,
                     provider_stream: providerStream.value,
+                    [providerKey(providerSource.value, "native_tools")]: providerNativeTools.value,
                     "user.name": userName.value,
                     "user.avatar": userAvatar.value,
                     "assistant.name": assistantName.value,
@@ -446,6 +466,31 @@ async function handleTestConnection() {
         [providerKey(providerSource.value, "model")]: providerModel.value,
     });
     await settings.testConnection();
+}
+
+async function saveAgentSettings() {
+    if (!agentDraft.value) return;
+    agentSaving.value = true;
+    try {
+        agentView.value = await updateAgentSettings(agentDraft.value);
+        agentDraft.value = structuredClone(agentView.value.global);
+    } catch (e) {
+        error.value = (e as Error).message;
+    } finally {
+        agentSaving.value = false;
+    }
+}
+
+async function resetAgentSettingsToDefaults() {
+    agentSaving.value = true;
+    try {
+        agentView.value = await resetAgentSettings();
+        agentDraft.value = structuredClone(agentView.value.global);
+    } catch (e) {
+        error.value = (e as Error).message;
+    } finally {
+        agentSaving.value = false;
+    }
 }
 </script>
 
@@ -717,6 +762,14 @@ async function handleTestConnection() {
                             @update:model-value="providerStream = $event"
                         />
                     </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-[14px] text-ink">{{ $t("settings.nativeTools") }}</span>
+                        <select v-model="providerNativeTools" class="field max-w-40">
+                            <option value="auto">{{ $t("settings.agentTransportAuto") }}</option>
+                            <option value="supported">{{ $t("settings.nativeToolsSupported") }}</option>
+                            <option value="unsupported">{{ $t("settings.nativeToolsUnsupported") }}</option>
+                        </select>
+                    </div>
                     <button
                         class="btn btn-ghost"
                         :disabled="settings.testStatus === 'testing'"
@@ -747,6 +800,19 @@ async function handleTestConnection() {
             </section>
 
             <div class="border-t border-line my-6" />
+
+            <section v-if="agentView && agentDraft" class="mb-8" data-test="global-agent-settings">
+                <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">
+                    {{ $t("settings.agent") }}
+                </h3>
+                <AgentSettingsEditor v-model="agentDraft" :metadata="agentView" :disabled="agentSaving" />
+                <div class="flex gap-2 mt-4">
+                    <button class="btn" :disabled="agentSaving" @click="saveAgentSettings">{{ $t("common.save") }}</button>
+                    <button class="btn btn-ghost" :disabled="agentSaving" @click="resetAgentSettingsToDefaults">{{ $t("settings.agentReset") }}</button>
+                </div>
+            </section>
+
+            <div v-if="agentView && agentDraft" class="border-t border-line my-6" />
 
             <!-- Generation -->
             <section class="mb-8">

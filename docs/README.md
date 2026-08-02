@@ -10,6 +10,7 @@ This index separates current documentation from historical design artifacts. Whe
 - [Phase 1 implementation plan](plans/phase-1-chat-correctness.md) — proposed task-by-task plan for chat correctness and recovery
 - [Phase 2 implementation plan](plans/phase-2-remove-st-compatibility.md) — implemented deletion boundary and task sequence for removing SillyTavern compatibility
 - [Phase 3 implementation plan](plans/phase-3-default-ui-rewrite.md) — implemented responsive shell and chat-workspace rewrite
+- [Phase 4 implementation plan](plans/phase-4-rp-agent-harness-foundation.md) — proposed minimal RP Agent harness, Tool loop, and layered settings
 - [Architecture](../ARCHITECTURE.md) — current implementation architecture; update it alongside structural code changes
 
 ## Reference

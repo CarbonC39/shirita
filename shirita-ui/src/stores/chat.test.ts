@@ -96,6 +96,23 @@ describe('chat store', () => {
     expect(store.streamingError).toBe('session not found')
   })
 
+  it('tracks Agent activity, status, and usage without appending them to reply text', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'activity', round: 1, message: 'Using shirita.math.evaluate' }
+      yield { type: 'status', message: 'Checking the scene' }
+      yield { type: 'usage', input_tokens: 12, output_tokens: 3 }
+      yield { type: 'error', message: 'unfinished' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+
+    const store = useChatStore()
+    await store.send('s1', 'hi')
+
+    expect(store.agentStatus).toBe('Checking the scene')
+    expect(store.generationUsage).toEqual({ input_tokens: 12, output_tokens: 3 })
+    expect(store.streamingText).toBe('')
+  })
+
   it('sendMessage catches fetch errors', async () => {
     async function* stream(): AsyncGenerator<client.SseEvent> {
       throw new Error('Network error')

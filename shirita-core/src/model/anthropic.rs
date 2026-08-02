@@ -6,9 +6,10 @@ use futures::StreamExt;
 use serde_json::json;
 
 use crate::models::message::Role;
+use crate::tools::{ToolCall, ToolCallTransport};
 use crate::{Error, Result};
 
-use super::{close_reasoning, decode_utf8_chunk, ChatMessage, ChatRequest, ModelProvider};
+use super::{decode_utf8_chunk, ChatMessage, ChatRequest, ModelEvent, ModelProvider};
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -31,6 +32,15 @@ impl AnthropicProvider {
 /// an array of content blocks in the format `[{type:text}, {type:image, source:{type:base64,...}}...]`.
 /// Images are passed as data URLs (`data:<mime>;base64,<data>`), and the media_type and data are extracted using `;base64,` as a delimiter.
 fn anthropic_content(m: &ChatMessage) -> serde_json::Value {
+    if let Some(result) = &m.tool_result {
+        return json!([{"type":"tool_result","tool_use_id":result.call_id,"content":serde_json::to_string(result).unwrap_or_default(),"is_error":result.error_code.is_some()}]);
+    }
+    if !m.tool_calls.is_empty() {
+        let mut parts = Vec::new();
+        if !m.content.is_empty() { parts.push(json!({"type":"text","text":m.content})); }
+        parts.extend(m.tool_calls.iter().map(|c| json!({"type":"tool_use","id":c.id,"name":c.name,"input":c.arguments})));
+        return json!(parts);
+    }
     if m.images.is_empty() {
         return json!(m.content);
     }
@@ -95,13 +105,17 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
             messages.insert(0, json!({ "role": "user", "content": wrapped }));
         }
     }
-    json!({
+    let mut body = json!({
         "model": req.model,
         "stream": true,
         "max_tokens": req.max_tokens.unwrap_or(8192),
         "system": system,
         "messages": messages,
-    })
+    });
+    if !req.tools.is_empty() {
+        body["tools"] = json!(req.tools.iter().map(|t| json!({"name":t.name,"description":t.description,"input_schema":t.input_schema})).collect::<Vec<_>>());
+    }
+    body
 }
 
 /// Parsed Anthropic SSE events: the start and body of a thinking block, or the body of a text block; all other events are ignored.
@@ -112,6 +126,11 @@ pub enum AnthropicEvent {
     ThinkingStart,
     Thinking(String),
     Text(String),
+    ToolStart { index: usize, id: String, name: String, initial: serde_json::Value },
+    ToolArguments { index: usize, fragment: String },
+    ToolStop { index: usize },
+    Usage { input_tokens: u64, output_tokens: u64 },
+    Finished { reason: String, output_tokens: u64 },
     Other,
 }
 
@@ -121,6 +140,7 @@ pub fn parse_anthropic_event(json_after_data: &str) -> Result<AnthropicEvent> {
     match v["type"].as_str().unwrap_or("") {
         "content_block_start" => match v["content_block"]["type"].as_str().unwrap_or("") {
             "thinking" => Ok(AnthropicEvent::ThinkingStart),
+            "tool_use" => Ok(AnthropicEvent::ToolStart { index:v["index"].as_u64().unwrap_or(0) as usize, id:v["content_block"]["id"].as_str().unwrap_or("").into(), name:v["content_block"]["name"].as_str().unwrap_or("").into(), initial:v["content_block"]["input"].clone() }),
             _ => Ok(AnthropicEvent::Other),
         },
         "content_block_delta" => match v["delta"]["type"].as_str().unwrap_or("") {
@@ -130,15 +150,19 @@ pub fn parse_anthropic_event(json_after_data: &str) -> Result<AnthropicEvent> {
             "text_delta" => Ok(AnthropicEvent::Text(
                 v["delta"]["text"].as_str().unwrap_or("").to_string(),
             )),
+            "input_json_delta" => Ok(AnthropicEvent::ToolArguments { index:v["index"].as_u64().unwrap_or(0) as usize, fragment:v["delta"]["partial_json"].as_str().unwrap_or("").into() }),
             _ => Ok(AnthropicEvent::Other),
         },
+        "content_block_stop" => Ok(AnthropicEvent::ToolStop { index:v["index"].as_u64().unwrap_or(0) as usize }),
+        "message_start" if v["message"]["usage"].is_object() => Ok(AnthropicEvent::Usage { input_tokens:v["message"]["usage"]["input_tokens"].as_u64().unwrap_or(0), output_tokens:v["message"]["usage"]["output_tokens"].as_u64().unwrap_or(0) }),
+        "message_delta" => Ok(AnthropicEvent::Finished { reason:v["delta"]["stop_reason"].as_str().unwrap_or("end_turn").into(), output_tokens:v["usage"]["output_tokens"].as_u64().unwrap_or(0) }),
         _ => Ok(AnthropicEvent::Other),
     }
 }
 
 #[async_trait]
 impl ModelProvider for AnthropicProvider {
-    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<String>>> {
+    async fn stream_chat(&self, req: ChatRequest) -> Result<BoxStream<'static, Result<ModelEvent>>> {
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let body = anthropic_body(&req);
 
@@ -162,9 +186,7 @@ impl ModelProvider for AnthropicProvider {
         let stream = async_stream::stream! {
             let mut buf = String::new();
             let mut pending_bytes = Vec::new();
-            // The “extended thinking” block is streamed using separate content_block_start and _delta events;
-            // It is nested within the existing <think>…</think> front-end convention (see thinking.ts), and a closing tag is added when the next text block begins.
-            let mut in_thinking = false;
+            let mut calls: std::collections::HashMap<usize, (String, String, serde_json::Value, String)> = std::collections::HashMap::new();
             while let Some(chunk) = bytes.next().await {
                 let chunk = match chunk {
                     Ok(c) => c,
@@ -180,27 +202,25 @@ impl ModelProvider for AnthropicProvider {
                         None => continue,
                     };
                     match parse_anthropic_event(data) {
-                        Ok(AnthropicEvent::ThinkingStart) => {
-                            in_thinking = true;
-                            yield Ok("<think>".to_string());
-                        }
-                        Ok(AnthropicEvent::Thinking(t)) => yield Ok(t),
-                        Ok(AnthropicEvent::Text(t)) => {
-                            if in_thinking {
-                                in_thinking = false;
-                                yield Ok(format!("</think>{t}"));
-                            } else {
-                                yield Ok(t);
-                            }
+                        Ok(AnthropicEvent::ThinkingStart) => {}
+                        Ok(AnthropicEvent::Thinking(t)) => yield Ok(ModelEvent::ReasoningDelta(t)),
+                        Ok(AnthropicEvent::Text(t)) => yield Ok(ModelEvent::TextDelta(t)),
+                        Ok(AnthropicEvent::ToolStart { index, id, name, initial }) => { calls.insert(index, (id, name, initial, String::new())); }
+                        Ok(AnthropicEvent::ToolArguments { index, fragment }) => { if let Some(call) = calls.get_mut(&index) { call.3.push_str(&fragment); } }
+                        Ok(AnthropicEvent::ToolStop { index }) => if let Some((id, name, initial, raw)) = calls.remove(&index) {
+                            let arguments = if raw.trim().is_empty() { initial } else { serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null) };
+                            yield Ok(ModelEvent::ToolCall(ToolCall { id, name, arguments, transport: ToolCallTransport::Native }));
+                        },
+                        Ok(AnthropicEvent::Usage { input_tokens, output_tokens }) => yield Ok(ModelEvent::Usage { input_tokens, output_tokens }),
+                        Ok(AnthropicEvent::Finished { reason, output_tokens }) => {
+                            yield Ok(ModelEvent::Usage { input_tokens: 0, output_tokens });
+                            yield Ok(ModelEvent::Finished { reason });
                         }
                         Ok(AnthropicEvent::Other) => {}
                         Err(e) => { yield Err(e); return; }
                     }
                 }
             }
-            // Stream ended while still inside a thinking block (no text block
-            // followed to close it): emit the dangling </think>.
-            if let Some(close) = close_reasoning(&mut in_thinking) { yield Ok(close); }
         };
         Ok(Box::pin(stream))
     }
@@ -212,7 +232,7 @@ mod tests {
     use crate::model::ChatMessage;
 
     fn req(messages: Vec<ChatMessage>, summary: Option<&str>) -> ChatRequest {
-        ChatRequest { model: "claude".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None }
+        ChatRequest { model: "claude".into(), messages, summary: summary.map(|s| s.into()), max_tokens: None, tools: Vec::new() }
     }
 
     #[test]
@@ -358,11 +378,22 @@ mod tests {
     }
 
     #[test]
+    fn parse_event_extracts_fragmented_tool_input() {
+        let start = r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"c1","name":"demo.pick"}}"#;
+        assert_eq!(parse_anthropic_event(start).unwrap(), AnthropicEvent::ToolStart { index: 1, id: "c1".into(), name: "demo.pick".into(), initial: serde_json::Value::Null });
+        let delta = r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"x\":2}"}}"#;
+        assert_eq!(parse_anthropic_event(delta).unwrap(), AnthropicEvent::ToolArguments { index: 1, fragment: "{\"x\":2}".into() });
+        let seeded = r#"{"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"c2","name":"demo.pick","input":{"x":3}}}"#;
+        assert!(matches!(parse_anthropic_event(seeded).unwrap(), AnthropicEvent::ToolStart { initial, .. } if initial["x"] == 3));
+    }
+
+    #[test]
     fn message_with_image_uses_content_blocks_array() {
         let r = req(vec![ChatMessage {
             role: Role::User,
             content: "what is this?".into(),
             images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
         }], None);
         let b = anthropic_body(&r);
         let parts = b["messages"][0]["content"].as_array().unwrap();
@@ -379,6 +410,7 @@ mod tests {
             role: Role::User,
             content: "".into(),
             images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
         }], None);
         let b = anthropic_body(&r);
         let parts = b["messages"][0]["content"].as_array().unwrap();
@@ -392,6 +424,7 @@ mod tests {
             role: Role::User,
             content: "what is this?".into(),
             images: vec!["data:image/png;base64,AAA".into()],
+            ..Default::default()
         }], Some("earlier"));
         let b = anthropic_body(&r);
         let parts = b["messages"][0]["content"].as_array().unwrap();
