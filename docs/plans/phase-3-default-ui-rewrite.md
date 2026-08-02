@@ -1,6 +1,6 @@
 # Phase 3 implementation plan: default UI rewrite
 
-> Status: implemented
+> Status: implemented (automated checks pass; manual environment matrix pending)
 > Date: 2026-08-01
 > Scope: rebuild the application shell and chat workspace around a compact, mobile-first default layout
 
@@ -325,8 +325,6 @@ For both message styles and both themes:
 
 ## Completion and handoff
 
-Before marking this plan implemented:
-
 - update this status from `proposed` to `implemented`;
 - update `docs/README.md` and `docs/current-direction.md` so Phase 3 is described as completed behavior rather than future intent;
 - update README screenshots or layout descriptions only if they exist and are now inaccurate;
@@ -334,18 +332,52 @@ Before marking this plan implemented:
 - record the manual environments actually checked, especially Tauri/WebKit and a real touch browser;
 - confirm there are no backend, API, database, Prompt, tool/state-semantics, or ST-compatibility changes hidden in the UI rewrite.
 
+### Verification record (2026-08-02)
+
+Automated checks performed and passing:
+
+- `npm --prefix shirita-ui run test` (57 files, 481 tests)
+- `npm --prefix shirita-ui run build`
+- `cargo test --workspace` (all groups pass; no Rust source/migration diff from this phase)
+- `git diff --check` over the phase commits
+- locale parity across all four catalogs
+
+**Manual environment matrix — NOT yet verified.** The viewport/safe-area/
+zoom/Tauri-WebKit/touch rows below are required acceptance checks that were
+not run in an automated environment. Do not treat Phase 3 as hand-off-accepted
+until at least these are checked and recorded:
+
+| Environment | Viewport / condition | Required checks |
+| --- | --- | --- |
+| Browser responsive mode | 320 × 568 | one-line navigation, no horizontal overflow, action sheet reachable, textarea usable |
+| Browser responsive mode | 390 × 844 | safe-area spacing, details sheet, attachments, long streaming reply |
+| Desktop browser | 1280 × 800 | content-width setting, inline actions, drawer, keyboard navigation |
+| Desktop browser | 200% text zoom | controls remain reachable and sheets scroll internally |
+| Self-hosted Web | touch device if available | soft keyboard, Enter behavior, Composer growth, backdrop dismissal |
+| Tauri/WebKit | smallest supported window | resize, scrolling, dialog/sheet behavior, Stop during streaming |
+
+For both message styles and both themes:
+
+1. open a long existing conversation and confirm only the transcript scrolls;
+2. stream a reply at the bottom, then repeat while reading above;
+3. complete, stop, regenerate, and swipe without a scroll reset;
+4. open actions for the first and last message and perform edit/hide/unhide/copy;
+5. open panels/variables, run each permitted panel action, then close and confirm the draft/transcript are unchanged;
+6. attach/remove/send an image and send an attachment without text;
+7. trigger load and generation errors and recover through Retry/Dismiss;
+8. navigate Chat → Book/Settings → Chat and confirm the active conversation return link still works.
+
 ## Review checklist
 
-- [ ] Scope is limited to the default shell/chat layout and closely related CSS/docs.
-- [ ] AppShell uses route-specific page/workspace overflow modes.
-- [ ] MessageList is the only transcript scroll owner.
-- [ ] Phase 1 bottom-following and recovery tests still pass.
-- [ ] Mobile message actions use one viewport-level, accessible surface.
-- [ ] Composer reserves no empty token/status row and prioritizes textarea area.
-- [ ] Panels and variables remain functional without permanently shrinking chat.
-- [ ] Token visibility remains available.
-- [ ] Existing UI settings and documented custom-CSS hooks remain supported.
-- [ ] All four locales remain in parity.
-- [ ] Web build, UI tests, Rust workspace tests, and diff checks pass.
-- [ ] Manual mobile, desktop, zoom, and Tauri/WebKit checks are recorded.
-
+- [x] Scope is limited to the default shell/chat layout and closely related CSS/docs.
+- [x] AppShell uses route-specific page/workspace overflow modes.
+- [x] MessageList is the only transcript scroll owner.
+- [x] Phase 1 bottom-following and recovery tests still pass.
+- [x] Mobile message actions use one viewport-level, accessible surface (with complete focus trap and trigger focus restoration).
+- [x] Composer reserves no empty token/status row and prioritizes textarea area.
+- [x] Panels and variables remain functional without permanently shrinking chat.
+- [x] Token visibility remains available.
+- [x] Existing UI settings and documented custom-CSS hooks remain supported.
+- [x] All four locales remain in parity.
+- [x] Web build, UI tests, Rust workspace tests, and diff checks pass.
+- [ ] Manual mobile, desktop, zoom, and Tauri/WebKit checks are recorded (see Verification record — NOT yet verified).
