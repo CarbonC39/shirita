@@ -110,6 +110,7 @@ const zhHant: MessageSchema = {
     forkNotice: '已分叉對話 — 這是一個獨立副本。',
     retry: '重試',
     dismiss: '關閉',
+    details: '詳情',
   },
   composer: {
     attach: '附件',

@@ -117,6 +117,7 @@ const en = {
     forkNotice: 'Forked conversation — this is an independent copy.',
     retry: 'Retry',
     dismiss: 'Dismiss',
+    details: 'Details',
   },
   composer: {
     attach: 'Attach',

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { setActivePinia, createPinia } from 'pinia'
@@ -25,6 +25,9 @@ describe('ChatView', () => {
       schema: [{ name: 'hp', type: 'number', initial: 100, scope: 'template' }],
       values: { hp: 100 },
     } as never)
+  })
+  afterEach(() => {
+    document.body.innerHTML = ''
   })
 
   it('loads messages on mount', async () => {
@@ -154,14 +157,100 @@ describe('ChatView', () => {
     expect(sendSpy).toHaveBeenCalledWith('s1', 'hello', [], expect.any(AbortSignal))
   })
 
-  it('shows the variables panel from session state', async () => {
+  it('renders the three-region workspace markers', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     const router = makeRouter()
     router.push('/chat/s1')
     await router.isReady()
     const wrapper = mount(ChatView, { global: { plugins: [router] } })
     await flushPromises()
-    expect(wrapper.find('[data-test="variables-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="chat-bar"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="transcript-region"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="composer-region"]').exists()).toBe(true)
+  })
+
+  it('shows a details trigger when session state declares variables', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.find('[data-test="details-trigger"]').exists()).toBe(true)
+  })
+
+  it('opens details showing panels and grouped variables', async () => {
+    vi.spyOn(client, 'getSessionPanels').mockResolvedValue([
+      { id: 'F', name: 'Status', html: '<b>hi</b>', css: '', caps: {}, min_messages: 0 },
+    ])
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.find('[data-test="details-trigger"]').trigger('click')
+    await flushPromises()
+    const dialog = document.querySelector('[data-test="details-dialog"]')
+    expect(dialog).not.toBeNull()
+    expect(dialog?.textContent).toContain('Status')
+    expect(dialog?.textContent).toContain('hp')
+  })
+
+  it('closes details via the close button and returns focus to the trigger', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+    const trigger = wrapper.find('[data-test="details-trigger"]')
+    await trigger.trigger('click')
+    await flushPromises()
+    const closeBtn = document.querySelector('[data-test="details-close"]') as HTMLButtonElement | null
+    expect(closeBtn).not.toBeNull()
+    closeBtn?.click()
+    await flushPromises()
+    expect(document.querySelector('[data-test="details-dialog"]')).toBeNull()
+    expect((trigger.element as HTMLElement) === document.activeElement).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('closes details on Escape', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    await wrapper.find('[data-test="details-trigger"]').trigger('click')
+    await flushPromises()
+    const dialog = document.querySelector('[data-test="details-dialog"]') as HTMLElement | null
+    dialog?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-test="details-dialog"]')).toBeNull()
+  })
+
+  it('opening and closing details keeps the draft and message list intact', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([{
+      id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    const textarea = wrapper.find('textarea')
+    await textarea.setValue('draft text')
+    const listBefore = wrapper.findAll('[data-test="msg-row"]').length
+    await wrapper.find('[data-test="details-trigger"]').trigger('click')
+    await flushPromises()
+    await document.querySelector('[data-test="details-close"]')?.dispatchEvent(new Event('click'))
+    await flushPromises()
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('draft text')
+    expect(wrapper.findAll('[data-test="msg-row"]').length).toBe(listBefore)
   })
 
   it('shows the character name in the header from identity', async () => {
@@ -178,7 +267,7 @@ describe('ChatView', () => {
     expect(wrapper.text()).toContain('Neo')
   })
 
-  it('renders a panel for each session panel returned by the endpoint', async () => {
+  it('shows a details trigger when a session panel exists', async () => {
     vi.spyOn(client, 'getSessionPanels').mockResolvedValue([
       { id: 'F', name: 'Status', html: '<b>hi</b>', css: '', caps: {}, min_messages: 0 },
     ])
@@ -188,11 +277,13 @@ describe('ChatView', () => {
     await router.isReady()
     const w = mount(ChatView, { global: { plugins: [router] } })
     await flushPromises()
-    expect(w.find('[data-test="panel-stack"]').exists()).toBe(true)
-    expect(w.html()).toContain('Status')
+    expect(w.find('[data-test="details-trigger"]').exists()).toBe(true)
   })
 
   it('hides a panel until the chat reaches its min_messages threshold', async () => {
+    // No variables declared either — the trigger must depend only on a
+    // visible panel, which is withheld by the min_messages threshold.
+    vi.spyOn(client, 'getSessionState').mockResolvedValue({ schema: [], values: {} } as never)
     vi.spyOn(client, 'getSession').mockResolvedValue({ id: 's1', active_leaf_id: null, mounted_packs: ['p1'] } as never)
     vi.spyOn(client, 'getPack').mockResolvedValue({
       id: 'p1', name: 'Alice', identity: { display_name: null, avatar: null },
@@ -217,7 +308,7 @@ describe('ChatView', () => {
     await router.isReady()
     const w = mount(ChatView, { global: { plugins: [router] } })
     await flushPromises()
-    expect(w.find('[data-test="panel-stack"]').exists()).toBe(false)
+    expect(w.find('[data-test="details-trigger"]').exists()).toBe(false)
   })
 
   it('shows a panel once the chat reaches its min_messages threshold', async () => {
@@ -245,7 +336,7 @@ describe('ChatView', () => {
     await router.isReady()
     const w = mount(ChatView, { global: { plugins: [router] } })
     await flushPromises()
-    expect(w.find('[data-test="panel-stack"]').exists()).toBe(true)
+    expect(w.find('[data-test="details-trigger"]').exists()).toBe(true)
   })
 
   it('prefers $assistant_name and $avatar overrides over the resolved identity', async () => {

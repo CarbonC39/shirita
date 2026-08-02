@@ -110,6 +110,7 @@ const ja: MessageSchema = {
     forkNotice: 'フォークされた会話 — これは独立したコピーです。',
     retry: '再試行',
     dismiss: '閉じる',
+    details: '詳細',
   },
   composer: {
     attach: '添付',

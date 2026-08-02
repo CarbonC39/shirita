@@ -11,9 +11,8 @@ import { getSessionState, getSessionIdentity, getSessionPanels, applyStateUpdate
 import type { SessionState, Identity, SessionPanel, PanelAction } from '../api/types'
 import MessageList from '../components/MessageList.vue'
 import Composer from '../components/Composer.vue'
-import VariablesPanel from '../components/VariablesPanel.vue'
-import PanelView from '../components/PanelView.vue'
-import { ArrowLeft, X } from 'lucide-vue-next'
+import ChatDetailsDrawer from '../components/ChatDetailsDrawer.vue'
+import { ArrowLeft, Info, X } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 
 const { t } = useI18n()
@@ -26,6 +25,18 @@ const settings = useSettingsStore()
 
 const sessionId = route.params.id as string
 const showForkNotice = ref(route.query.forked === '1')
+
+// Session-information drawer (panels + variables). Trigger only when there is
+// something to show; focus returns to it when the drawer closes.
+const detailsOpen = ref(false)
+const detailsTrigger = ref<HTMLButtonElement | null>(null)
+function openDetails() {
+  detailsOpen.value = true
+}
+function closeDetails() {
+  detailsOpen.value = false
+  detailsTrigger.value?.focus()
+}
 
 // Rough running total of the active branch, for context budgeting.
 const convoTokens = computed(() =>
@@ -74,6 +85,8 @@ const panels = ref<SessionPanel[]>([])
 const visiblePanels = computed(() =>
   panels.value.filter((p) => chat.messages.length >= (p.min_messages ?? 0)),
 )
+// Details trigger shows only when there is panel or variable content to show.
+const hasDetails = computed(() => visiblePanels.value.length > 0 || sessionState.value.schema.length > 0)
 async function loadPanels() {
   try {
     panels.value = await getSessionPanels(sessionId)
@@ -227,63 +240,79 @@ async function handleDelete(id: string) {
 </script>
 
 <template>
-  <div
-    class="app-chat-column flex flex-col h-full"
-  >
-    <div class="flex items-center gap-2 pt-4 pb-2 min-w-0">
+  <div class="app-chat-column flex flex-col h-full min-h-0">
+    <!-- compact chat bar -->
+    <div data-test="chat-bar" class="app-chat-bar flex items-center gap-2 px-3 sm:px-5 pt-2 pb-2 min-w-0 shrink-0">
       <router-link to="/" class="text-muted hover:text-ink shrink-0" :aria-label="$t('chat.back')"><ArrowLeft :size="18" /></router-link>
       <img v-if="avatar" :src="avatar" class="w-6 h-6 rounded-full object-cover shrink-0" alt="" />
       <span class="font-semibold text-ink truncate">{{ headerName }}</span>
+      <button
+        v-if="hasDetails"
+        ref="detailsTrigger"
+        data-test="details-trigger"
+        class="ml-auto shrink-0 text-muted hover:text-ink p-1 -m-1"
+        :aria-label="$t('chat.details')"
+        :title="$t('chat.details')"
+        @click="openDetails"
+      >
+        <Info :size="18" :stroke-width="1.8" />
+      </button>
     </div>
 
-    <div v-if="showForkNotice" class="flex items-center justify-between bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5 text-[13px] text-ink">
+    <!-- transient fork notice (space only while present) -->
+    <div v-if="showForkNotice" class="shrink-0 flex items-center justify-between bg-primary/10 border border-primary/30 rounded-lg px-3 py-1.5 mx-3 sm:mx-5 mb-1 text-[13px] text-ink">
       <span>{{ $t('chat.forkNotice') }}</span>
       <button class="text-muted hover:text-ink" :aria-label="$t('common.close')" @click="showForkNotice = false"><X :size="14" /></button>
     </div>
 
-    <div v-if="visiblePanels.length" data-test="panel-stack" class="flex flex-col gap-2 py-2">
-      <details v-for="p in visiblePanels" :key="p.id" open class="rounded-xl border border-line bg-card/50 overflow-hidden">
-        <summary class="cursor-pointer select-none px-3 py-2 text-[12px] font-semibold text-muted">{{ p.name }}</summary>
-        <div class="px-2 pb-2">
-          <PanelView :html="p.html" :css="p.css" :values="sessionState.values" @action="onPanelAction(p, $event)" />
-        </div>
-      </details>
-    </div>
-
-    <!-- Initial load failure: nothing cached to fall back on, offer a retry. -->
-    <div v-if="chat.error && chat.messages.length === 0" data-test="load-error" class="flex flex-col items-center gap-2 py-10 text-center">
-      <p class="text-coral text-sm">{{ chat.error }}</p>
-      <button class="btn" data-test="retry-load" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
-    </div>
-    <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm pt-12 text-center">{{ $t('common.loading') }}</p>
-
-    <template v-else>
-      <!-- Refresh failure with a cached transcript: keep messages visible. -->
-      <div v-if="chat.error" data-test="refresh-error" class="flex items-center justify-between gap-2 rounded-lg border border-coral/30 bg-coral/10 px-3 py-1.5 text-[13px] text-ink">
-        <span>{{ chat.error }}</span>
-        <button class="shrink-0 text-muted hover:text-ink" data-test="retry-refresh" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
+    <!-- transcript: the only flexible, vertically scrolling region -->
+    <div data-test="transcript-region" class="app-transcript-region flex-1 min-h-0 flex flex-col">
+      <!-- Initial load failure: nothing cached to fall back on, offer a retry. -->
+      <div v-if="chat.error && chat.messages.length === 0" data-test="load-error" class="flex flex-col items-center gap-2 py-10 text-center">
+        <p class="text-coral text-sm">{{ chat.error }}</p>
+        <button class="btn" data-test="retry-load" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
       </div>
-      <MessageList
-        :messages="chat.displayed"
-        :all-messages="chat.messages"
-        :style="ui.messageStyle"
-        :is-streaming="chat.isStreaming"
-        :streaming-text="chat.streamingText"
-        :streaming-error="chat.streamingError"
-        :identity="effectiveIdentity"
-        :tokens="convoTokens"
-        @copy="handleCopy"
-        @regenerate="handleRegenerate"
-        @fork="handleFork"
-        @edit-save="handleEditSave"
-        @toggle-hidden="handleToggleHidden"
-        @delete="handleDelete"
-        @swipe="handleSwipe"
-        @dismiss-streaming-error="chat.clearStreamingError()"
-      />
-    </template>
+      <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm pt-12 text-center">{{ $t('common.loading') }}</p>
 
-    <VariablesPanel :schema="sessionState.schema" :values="sessionState.values" />
-    <Composer ref="composerRef" :disabled="chat.isStreaming" :streaming="chat.isStreaming" @send="handleSend" @stop="handleStop" />
+      <template v-else>
+        <!-- Refresh failure with a cached transcript: keep messages visible. -->
+        <div v-if="chat.error" data-test="refresh-error" class="shrink-0 flex items-center justify-between gap-2 rounded-lg border border-coral/30 bg-coral/10 px-3 py-1.5 mx-3 sm:mx-5 mb-1 text-[13px] text-ink">
+          <span>{{ chat.error }}</span>
+          <button class="shrink-0 text-muted hover:text-ink" data-test="retry-refresh" @click="chat.retryLoad()">{{ $t('chat.retry') }}</button>
+        </div>
+        <MessageList
+          :messages="chat.displayed"
+          :all-messages="chat.messages"
+          :style="ui.messageStyle"
+          :is-streaming="chat.isStreaming"
+          :streaming-text="chat.streamingText"
+          :streaming-error="chat.streamingError"
+          :identity="effectiveIdentity"
+          :tokens="convoTokens"
+          @copy="handleCopy"
+          @regenerate="handleRegenerate"
+          @fork="handleFork"
+          @edit-save="handleEditSave"
+          @toggle-hidden="handleToggleHidden"
+          @delete="handleDelete"
+          @swipe="handleSwipe"
+          @dismiss-streaming-error="chat.clearStreamingError()"
+        />
+      </template>
+    </div>
+
+    <!-- composer -->
+    <div data-test="composer-region" class="app-composer-region shrink-0">
+      <Composer ref="composerRef" :disabled="chat.isStreaming" :streaming="chat.isStreaming" @send="handleSend" @stop="handleStop" />
+    </div>
+
+    <ChatDetailsDrawer
+      :open="detailsOpen"
+      :panels="visiblePanels"
+      :schema="sessionState.schema"
+      :values="sessionState.values"
+      @close="closeDetails"
+      @panel-action="onPanelAction"
+    />
   </div>
 </template>
