@@ -43,6 +43,10 @@ export interface AgentSettingsView {
     max_random_integer_span: number
     max_math_expression_bytes: number
     max_math_parse_depth: number
+    max_response_workspace_bytes: number
+    max_response_patch_ops: number
+    max_response_patch_search_bytes: number
+    max_response_patch_replace_bytes: number
   }
   tools: AgentToolSpec[]
 }
