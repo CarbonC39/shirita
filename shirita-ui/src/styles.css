@@ -202,4 +202,46 @@ input[type='number'] {
   .md-think-summary {
     @apply cursor-pointer select-none text-[12px] uppercase tracking-wide text-muted/80 mb-1;
   }
+
+  /* --- Structural layout hooks -------------------------------------------- */
+  /* The default shell and chat workspace are described by these named classes.
+     Internal Tailwind utilities are NOT a compatibility API; these hooks are.
+     Custom CSS targets the hooks; see README's Custom CSS section. */
+  .app-shell {
+    @apply h-dvh;
+  }
+  .app-topbar {
+    @apply shrink-0;
+  }
+  /* Chat workspace: compact bar / transcript / composer. The transcript region
+     is the ONLY flexible, vertically scrolling area on the chat route; the
+     shell's route host is overflow-hidden for workspace mode, and MessageList's
+     own scroller owns the scroll. */
+  .app-chat-column {
+    @apply h-full min-h-0;
+  }
+  .app-chat-bar {
+    @apply shrink-0;
+  }
+  .app-transcript-region {
+    @apply min-h-0 flex-1 overflow-hidden;
+  }
+  /* MessageList's scroller is the single transcript scroll owner on chat. */
+  .app-transcript-scroller {
+    @apply min-h-0 overflow-y-auto;
+  }
+  .app-composer-region {
+    @apply shrink-0;
+  }
+  .app-composer {
+    /* The composer never reserves vertical space for status rows. */
+  }
+  .app-composer-textarea {
+    @apply max-h-[min(40dvh,12rem)] min-h-4 overflow-y-auto;
+  }
+  /* Message-action sheet and chat-details surface: viewport-level overlays. */
+  .app-message-action-sheet,
+  .app-chat-details {
+    @apply z-50;
+  }
 }

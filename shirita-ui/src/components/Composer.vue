@@ -120,8 +120,7 @@ function onKeydown(e: KeyboardEvent) {
         data-test="composer-textarea"
         class="app-composer-textarea flex-1 resize-none rounded-xl border border-line px-3.5 py-2.5 text-[15px] leading-relaxed
                focus:outline-none focus:border-primary/50 placeholder:text-muted/60
-               disabled:bg-surface disabled:text-muted/50 overflow-y-auto"
-        :style="{ maxHeight: 'min(40dvh, 12rem)', minHeight: '16px' }"
+               disabled:bg-surface disabled:text-muted/50"
         @keydown="onKeydown"
         @input="autosize"
       />

@@ -154,4 +154,14 @@ describe('AppShell', () => {
     const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
     expect(wrapper.find('footer').exists()).toBe(false)
   })
+
+  it('exposes the documented shell hooks in the DOM contract', async () => {
+    const router = makeRouter()
+    router.push('/')
+    await router.isReady()
+    const wrapper = mount(AppShell, { global: { plugins: plugins(router) } })
+    // The app shell and top bar are the documented extension hooks.
+    expect(wrapper.find('[data-app="shell"].app-shell').exists()).toBe(true)
+    expect(wrapper.find('header.app-topbar').exists()).toBe(true)
+  })
 })

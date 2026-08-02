@@ -163,7 +163,7 @@ const streamingMsg = computed<Message | null>(() => {
 </script>
 
 <template>
-  <div ref="scroller" data-test="message-scroll" class="flex-1 overflow-y-auto px-3 sm:px-5 py-4">
+  <div ref="scroller" data-test="message-scroll" class="app-transcript-scroller flex-1 min-h-0 overflow-y-auto px-3 sm:px-5 py-4">
     <p v-if="visibleMessages.length === 0 && !streamingMsg && !streamingError" class="text-muted text-sm text-center pt-12">
       {{ $t('chat.empty') }}
     </p>

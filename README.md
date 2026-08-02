@@ -82,12 +82,33 @@ shirita/
 - **Media library** — uploaded images tagged by kind (`avatar` / `background`), with an in-browser square cropper for avatars; content-addressed dedup via SHA-256 hashing
 - **Composer attachments** — attach images to chat messages (resolved as data URLs in the prompt)
 - **i18n** — English, 简体中文, 繁體中文, 日本語 (vue-i18n v10, locale switcher in settings)
-- **Custom CSS** — injected from a live-editable textarea with stable hooks (`.app-chat-column`, `.app-message[data-role]`, `.app-composer`, `[data-app=shell]`); cached in localStorage to prevent FOUC
+- **Custom CSS** — injected from a live-editable textarea; cached in localStorage to prevent FOUC. See [Custom CSS hooks](#custom-css-hooks)
 - **Provider isolation** — each provider source (OpenAI, Anthropic, Ollama, Google, OpenRouter, Mistral, DeepSeek, Groq, xAI, Cohere, Together, Perplexity) keeps its own API key, base URL, and model selection — switching never clobbers the others. Model listing endpoint normalizes vendor-specific responses
 - **Book (library) UI** — manage templates, packs, and definitions in a unified book view with stack-based drill-down navigation (BookNavigator), section components (TemplateSection, PackSection, DefinitionSection), and local-override editing
 - **Desktop notifications** — Tauri plugin sends native OS notifications
 - **HTTP Basic Auth** — optional outer auth layer for public deployments, gating the entire app (UI HTML/JS + API)
 - **PWA support** — mobile/PWA icons and manifest for install-to-homescreen
+
+### Custom CSS hooks
+
+Custom CSS is injected from Settings → Appearance → Custom CSS and cached in
+localStorage to prevent a flash of unstyled content. The **supported
+compatibility surface** is these stable hooks — internal Tailwind utility
+classes are **not** a compatibility API and may change between releases.
+
+| Hook | What it targets |
+|------|-----------------|
+| `[data-app="shell"]` / `.app-shell` | the application shell root |
+| `.app-topbar` | the single compact top navigation bar |
+| `.app-chat-column` | the chat workspace column |
+| `.app-chat-bar` | the compact chat header row (back, identity, details trigger) |
+| `.app-transcript-region` | the transcript wrapper (never scrolls itself) |
+| `.app-transcript-scroller` | MessageList's scroller — the only transcript scroll owner |
+| `.app-composer-region` | the composer region |
+| `.app-composer` / `.app-composer-textarea` | the composer surface and its textarea |
+| `.app-message[data-role]` | a message row (`user` / `assistant`) |
+| `.app-message-action-sheet` | the viewport-level mobile message action sheet |
+| `.app-chat-details` | the session-information drawer overlay |
 
 ---
 

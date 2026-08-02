@@ -169,6 +169,25 @@ describe('ChatView', () => {
     expect(wrapper.find('[data-test="composer-region"]').exists()).toBe(true)
   })
 
+  it('exposes the documented chat-workspace hooks in the DOM contract', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([{
+      id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    expect(wrapper.find('.app-chat-column').exists()).toBe(true)
+    expect(wrapper.find('.app-chat-bar').exists()).toBe(true)
+    expect(wrapper.find('.app-transcript-region').exists()).toBe(true)
+    expect(wrapper.find('.app-composer-region').exists()).toBe(true)
+    // Message rows carry the documented .app-message hook and role data attr.
+    expect(wrapper.find('.app-message[data-role="user"]').exists()).toBe(true)
+  })
+
   it('keeps MessageList as the only transcript scroller (workspace region does not scroll)', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([{
       id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
