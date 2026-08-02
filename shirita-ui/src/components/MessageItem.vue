@@ -32,7 +32,8 @@ const emit = defineEmits<{
   'toggle-hidden': []
   delete: []
   swipe: [delta: -1 | 1]
-  'open-actions': []
+  /** Emitted with the trigger button so MessageList can restore focus to it. */
+  'open-actions': [trigger: HTMLElement]
 }>()
 
 const { t } = useI18n()
@@ -180,7 +181,7 @@ watch(
         class="sm:hidden flex items-center gap-1 mt-1.5 ml-1 text-muted hover:text-ink text-[12px]"
         :aria-label="$t('chat.options')"
         :title="$t('chat.options')"
-        @click="emit('open-actions')"
+        @click="emit('open-actions', $event.currentTarget as HTMLElement)"
       >
         <MoreHorizontal :size="16" :stroke-width="1.8" />
         <span>{{ $t('chat.options') }}</span>
@@ -247,7 +248,7 @@ watch(
       class="sm:hidden flex items-center gap-1 mt-2 pl-[34px] text-muted hover:text-ink text-[12px]"
       :aria-label="$t('chat.options')"
       :title="$t('chat.options')"
-      @click="emit('open-actions')"
+      @click="emit('open-actions', $event.currentTarget as HTMLElement)"
     >
       <MoreHorizontal :size="16" :stroke-width="1.8" />
       <span>{{ $t('chat.options') }}</span>

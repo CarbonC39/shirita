@@ -95,4 +95,27 @@ describe('MessageActionsSheet', () => {
     expect(w2.emitted('action')).toBeFalsy()
     w2.unmount()
   })
+
+  it('traps Tab focus within the sheet so it never escapes to the page', async () => {
+    mountSheet({ message: makeMsg({ role: 'assistant' }) })
+    const dialog = document.querySelector('[data-test="action-dialog"]') as HTMLElement
+    // Focus the last action (delete), then Tab: focus cycles to the first
+    // focusable inside the sheet rather than leaving it.
+    const buttons = Array.from(dialog.querySelectorAll('button'))
+    const last = buttons[buttons.length - 1]
+    last.focus()
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    const active = document.activeElement as HTMLElement
+    expect(dialog.contains(active)).toBe(true)
+  })
+
+  it('traps Shift+Tab from the first focusable to the last', async () => {
+    mountSheet({ message: makeMsg({ role: 'assistant' }) })
+    const dialog = document.querySelector('[data-test="action-dialog"]') as HTMLElement
+    const buttons = Array.from(dialog.querySelectorAll('button'))
+    buttons[0].focus()
+    dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    const active = document.activeElement as HTMLElement
+    expect(dialog.contains(active)).toBe(true)
+  })
 })

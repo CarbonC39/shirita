@@ -32,13 +32,20 @@ const emit = defineEmits<{
 // One viewport-level action sheet per transcript. MessageList owns the
 // selected message and forwards its actions with the id attached.
 const actionTarget = ref<Message | null>(null)
+const actionTrigger = ref<HTMLElement | null>(null)
 const editingId = ref<string | null>(null)
 
-function openActions(msg: Message) {
+function openActions(msg: Message, trigger: HTMLElement) {
+  actionTrigger.value = trigger
   actionTarget.value = msg
 }
 function closeActions() {
+  const trigger = actionTrigger.value
   actionTarget.value = null
+  actionTrigger.value = null
+  // Restore focus to the More-actions button that opened the sheet so
+  // keyboard users don't lose their place in the transcript.
+  nextTick(() => trigger?.focus())
 }
 function runSheetAction(key: MessageActionKey) {
   const m = actionTarget.value
@@ -186,7 +193,7 @@ const streamingMsg = computed<Message | null>(() => {
       @toggle-hidden="emit('toggle-hidden', msg.id)"
       @delete="emit('delete', msg.id)"
       @swipe="(d) => emit('swipe', msg.id, d)"
-      @open-actions="openActions(msg)"
+      @open-actions="(t) => openActions(msg, t)"
     />
 
     <MessageItem

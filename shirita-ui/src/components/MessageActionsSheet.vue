@@ -40,17 +40,45 @@ function swipe(delta: -1 | 1) {
   emit('close')
 }
 
+function focusables(): HTMLElement[] {
+  const el = sheetRef.value
+  if (!el) return []
+  const sel = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+  return Array.from(el.querySelectorAll<HTMLElement>(sel))
+}
+
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     emit('close')
+    return
+  }
+  if (e.key !== 'Tab') return
+  // Complete minimal focus trap: Tab/Shift+Tab cycle within the sheet so
+  // keyboard users never fall through into the background page.
+  const list = focusables()
+  if (list.length === 0) return
+  const first = list[0]
+  const last = list[list.length - 1]
+  const from = document.activeElement as HTMLElement | null
+  if (e.shiftKey) {
+    if (from === first || !sheetRef.value?.contains(from)) {
+      e.preventDefault()
+      last.focus()
+    }
+  } else if (from === last || !sheetRef.value?.contains(from)) {
+    e.preventDefault()
+    first.focus()
   }
 }
 
 watch(
   () => props.message.id,
   () => {
-    nextTick(() => sheetRef.value?.focus())
+    nextTick(() => {
+      const list = focusables()
+      ;(list[0] ?? sheetRef.value)?.focus()
+    })
   },
   { immediate: true },
 )

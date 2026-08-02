@@ -162,6 +162,23 @@ describe('MessageList', () => {
       document.body.innerHTML = ''
     })
 
+    it('restores focus to the More-actions trigger when the sheet closes', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'a1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
+        attachTo: document.body,
+      })
+      const trigger = wrapper.find('[data-test="more-actions-btn"]').element as HTMLElement
+      await wrapper.find('[data-test="more-actions-btn"]').trigger('click')
+      await flushPromises()
+      expect(document.querySelector('[data-test="message-action-sheet"]')).not.toBeNull()
+      ;(document.querySelector('[data-test="action-backdrop"]') as HTMLElement).click()
+      await flushPromises()
+      expect(document.querySelector('[data-test="message-action-sheet"]')).toBeNull()
+      expect(document.activeElement).toBe(trigger)
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    })
+
     it('closes the sheet when its selected message disappears', async () => {
       const wrapper = mount(MessageList, {
         props: { messages: [makeMsg({ id: 'a1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
