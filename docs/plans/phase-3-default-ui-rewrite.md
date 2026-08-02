@@ -1,7 +1,7 @@
 # Phase 3 implementation plan: default UI rewrite
 
-> Status: proposed implementation plan for review  
-> Date: 2026-08-01  
+> Status: implemented
+> Date: 2026-08-01
 > Scope: rebuild the application shell and chat workspace around a compact, mobile-first default layout
 
 ## Goal

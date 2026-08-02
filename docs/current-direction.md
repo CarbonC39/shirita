@@ -51,14 +51,14 @@ UI 重写前只处理会持续妨碍使用或可能造成错误理解的缺陷�
 - 保留 Shirita 原生 JSON/ZIP bundle；`/api/import` 仅接受三种显式原生格式。
 - 是否提供一次性独立转换器，留到删除范围明确后决定。
 
-### 3. 默认 UI 重写
+### 3. 默认 UI 重写 — 已完成
 
-- 重建 AppShell、ChatView、MessageList 和 Composer 的布局边界。
-- 聊天页使用单一、明确的消息滚动容器。
-- 移动端使用紧凑导航和独立的消息操作方式。
-- Token 信息保留，但不应通过空白占位持续压缩输入框。
-- 状态、Panel 和次要信息避免永久侵占聊天主区域。
-- 自定义 CSS 是扩展能力，不能替代默认布局的正确性。
+- 已重建 AppShell、ChatView、MessageList 和 Composer 的布局边界。
+- 聊天页使用单一、明确的消息滚动容器（MessageList 是唯一 transcript 滚动所有者）。
+- 移动端使用紧凑单行导航和 viewport 级消息操作面板；会话信息（Panel/变量）移入抽屉。
+- Token 信息保留，且不再通过空白占位压缩输入框。
+- 状态、Panel 和次要信息不再永久侵占聊天主区域。
+- 自定义 CSS 是扩展能力，文档化的语义 hook 是唯一兼容表面，内部 Tailwind 类不是兼容 API。
 
 ### 4. 后续核心规范化
 
