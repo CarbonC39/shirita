@@ -516,6 +516,144 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stop_during_provider_streaming_aborts_the_run() {
+        struct Infinite;
+        #[async_trait]
+        impl ModelProvider for Infinite {
+            async fn stream_chat(
+                &self,
+                _req: ChatRequest,
+            ) -> crate::Result<BoxStream<'static, crate::Result<ModelEvent>>> {
+                // Usage events are surfaced to the caller, so the test can fire
+                // Stop once a few have arrived; plain text is private working
+                // output and is never yielded, so it could not drive the timer.
+                Ok(Box::pin(futures::stream::repeat_with(|| {
+                    Ok(ModelEvent::Usage {
+                        input_tokens: 1,
+                        output_tokens: 1,
+                    })
+                })))
+            }
+        }
+        let (handle, token) = crate::conversation::StopHandle::new();
+        let stream = run(
+            Arc::new(Infinite),
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            token,
+            run_state(),
+        );
+        let events = async move {
+            let mut events = Vec::new();
+            futures::pin_mut!(stream);
+            while let Some(event) = stream.next().await {
+                events.push(event);
+                if events.len() >= 3 {
+                    handle.stop();
+                }
+            }
+            events
+        };
+        let events = events.await;
+        assert!(events.iter().any(|e| matches!(e, HarnessEvent::Stopped { .. })));
+    }
+
+    struct SlowTool;
+    #[async_trait]
+    impl crate::tools::ToolHandler for SlowTool {
+        async fn execute(&self, _call: &ToolCall) -> crate::tools::ToolExecution {
+            std::future::pending::<()>().await;
+            unreachable!()
+        }
+    }
+    fn slow_registry() -> Arc<ToolRegistry> {
+        Arc::new(
+            crate::tools::ToolRegistry::builder()
+                .register(
+                    crate::tools::ToolSpec {
+                        name: "slow.tool".into(),
+                        description: String::new(),
+                        input_schema: serde_json::json!({}),
+                        output_schema: None,
+                        source: crate::tools::ToolSource::Builtin,
+                        required: false,
+                    },
+                    Arc::new(SlowTool),
+                )
+                .unwrap()
+                .build(),
+        )
+    }
+
+    #[tokio::test]
+    async fn stop_during_tool_execution_is_cooperative() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([vec![
+            ModelEvent::ToolCall(ToolCall {
+                id: "s".into(),
+                name: "slow.tool".into(),
+                arguments: serde_json::json!({}),
+                transport: ToolCallTransport::Native,
+            }),
+        ]]))));
+        let mut settings = AgentSettings::default();
+        settings.enabled_tools = vec!["slow.tool".into()];
+        let (handle, token) = crate::conversation::StopHandle::new();
+        let stream = run(
+            provider,
+            request(),
+            settings,
+            true,
+            slow_registry(),
+            token,
+            run_state(),
+        );
+        let events = async move {
+            let mut events = Vec::new();
+            futures::pin_mut!(stream);
+            while let Some(event) = stream.next().await {
+                events.push(event);
+                if events.iter().any(|e| matches!(e, HarnessEvent::ToolStarted { .. })) {
+                    handle.stop();
+                }
+            }
+            events
+        };
+        let events = events.await;
+        assert!(events.iter().any(|e| matches!(e, HarnessEvent::Stopped { .. })));
+    }
+
+    #[tokio::test]
+    async fn stop_between_rounds_prevents_the_next_round() {
+        let (provider, seen) = recording(vec![vec![ModelEvent::ToolCall(replace_call("hi"))]]);
+        let (handle, token) = crate::conversation::StopHandle::new();
+        let stream = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            token,
+            run_state(),
+        );
+        let events = async move {
+            let mut events = Vec::new();
+            futures::pin_mut!(stream);
+            while let Some(event) = stream.next().await {
+                events.push(event);
+                if events.iter().any(|e| matches!(e, HarnessEvent::WorkspaceChanged { .. })) {
+                    handle.stop();
+                }
+            }
+            events
+        };
+        let events = events.await;
+        assert!(events.iter().any(|e| matches!(e, HarnessEvent::Stopped { .. })));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn truncated_xml_gets_an_unfinished_retry() {
         let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
             vec![ModelEvent::TextDelta(r#"<tool_call id="f" name="shirita.run.finish">{"response":"cut"#.into())],
