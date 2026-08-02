@@ -95,7 +95,7 @@ pub async fn send(
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
-            SendEvent::Activity { round, message } => json!({ "type": "activity", "round": round, "message": message }),
+            SendEvent::Activity { round } => json!({ "type": "activity", "round": round }),
             SendEvent::RunStart { run_id } => json!({ "type": "run_start", "run_id": run_id }),
             SendEvent::ToolStart { call_id, name } => json!({ "type": "tool_start", "call_id": call_id, "name": name }),
             SendEvent::ToolResult { call_id, name, status } => json!({ "type": "tool_result", "call_id": call_id, "name": name, "status": status }),
@@ -146,7 +146,7 @@ pub async fn regenerate_message(
         }
         let payload = match ev {
             SendEvent::Delta(text) => json!({ "type": "delta", "text": text }),
-            SendEvent::Activity { round, message } => json!({ "type": "activity", "round": round, "message": message }),
+            SendEvent::Activity { round } => json!({ "type": "activity", "round": round }),
             SendEvent::RunStart { run_id } => json!({ "type": "run_start", "run_id": run_id }),
             SendEvent::ToolStart { call_id, name } => json!({ "type": "tool_start", "call_id": call_id, "name": name }),
             SendEvent::ToolResult { call_id, name, status } => json!({ "type": "tool_result", "call_id": call_id, "name": name, "status": status }),

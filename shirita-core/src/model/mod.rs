@@ -26,11 +26,22 @@ pub struct ChatMessage {
     pub images: Vec<String>,
     pub tool_calls: Vec<ToolCall>,
     pub tool_result: Option<ToolResult>,
+    /// A round-control message (workspace snapshot, mutation receipt, or the
+    /// unfinished instruction). Adapters must keep these in-sequence after Tool
+    /// results rather than promoting them to a provider-global system field.
+    pub control: bool,
 }
 
 impl Default for ChatMessage {
     fn default() -> Self {
-        Self { role: Role::User, content: String::new(), images: Vec::new(), tool_calls: Vec::new(), tool_result: None }
+        Self {
+            role: Role::User,
+            content: String::new(),
+            images: Vec::new(),
+            tool_calls: Vec::new(),
+            tool_result: None,
+            control: false,
+        }
     }
 }
 

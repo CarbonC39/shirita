@@ -166,6 +166,14 @@ pub fn run(
             for call in &calls {
                 if stop.is_cancelled() { run_state.status = RunStatus::Stopped; yield HarnessEvent::Stopped { run: run_state.clone() }; return; }
                 yield HarnessEvent::ToolStarted { call: call.clone() };
+                if call.name == "shirita.run.finish" && preceding_failed {
+                    // The fence still holds: finish is not executed when an
+                    // earlier call in this round failed recoverably.
+                    let skipped = crate::tools::rejected(call, "finish_skipped");
+                    yield HarnessEvent::ToolFinished { result: skipped.result.clone() };
+                    results.push(skipped.result);
+                    break;
+                }
                 let timed = tokio::time::timeout(std::time::Duration::from_millis(settings.tool_timeout_ms), registry.execute(call, &settings.enabled_tools));
                 let execution = tokio::select! {
                     biased;
@@ -178,6 +186,24 @@ pub fn run(
                         },
                     }
                 };
+                if call.name == "shirita.run.finish" {
+                    // Terminal fence by name: later calls are never executed,
+                    // whether this finish validates or not.
+                    match execution.control {
+                        ToolControl::Finish { response } => {
+                            // The single ToolFinished is emitted after commit
+                            // validation with the final result.
+                            pending_finish = Some((call.clone(), response));
+                        }
+                        _ => {
+                            // Invalid finish arguments: a recoverable failure;
+                            // the fence still holds.
+                            yield HarnessEvent::ToolFinished { result: execution.result.clone() };
+                            results.push(execution.result);
+                        }
+                    }
+                    break;
+                }
                 match execution.control {
                     ToolControl::Status { message, user_visible } if user_visible && settings.show_user_status => {
                         yield HarnessEvent::ToolFinished { result: execution.result.clone() };
@@ -210,19 +236,7 @@ pub fn run(
                         }
                         results.push(result);
                     }
-                    ToolControl::Finish { response } => {
-                        if preceding_failed {
-                            // The fence still holds: finish is not executed, but
-                            // later calls are never run either. Report it.
-                            let skipped = crate::tools::rejected(call, "finish_skipped");
-                            yield HarnessEvent::ToolFinished { result: skipped.result.clone() };
-                            results.push(skipped.result);
-                        } else {
-                            pending_finish = Some((call.clone(), response));
-                            yield HarnessEvent::ToolFinished { result: execution.result.clone() };
-                        }
-                        break;
-                    }
+                    ToolControl::Finish { .. } => unreachable!("finish is handled by name before the match"),
                     ToolControl::None => {
                         yield HarnessEvent::ToolFinished { result: execution.result.clone() };
                         preceding_failed |= execution.result.status != ToolResultStatus::Ok;
@@ -233,6 +247,18 @@ pub fn run(
             if let Some((finish_call, response)) = pending_finish {
                 match commit_finish(&mut run_state.workspace, response) {
                     Ok(committed) => {
+                        let result = ToolResult {
+                            call_id: finish_call.id.clone(),
+                            name: finish_call.name.clone(),
+                            status: ToolResultStatus::Ok,
+                            output: serde_json::json!({
+                                "committed": true,
+                                "revision": run_state.workspace.revision,
+                                "bytes": committed.len()
+                            }),
+                            error_code: None,
+                        };
+                        yield HarnessEvent::ToolFinished { result: result.clone() };
                         run_state.status = RunStatus::Completed;
                         yield HarnessEvent::Finished { response: committed, run: run_state.clone() };
                         return;
@@ -308,6 +334,11 @@ fn commit_finish(
 ) -> Result<String, &'static str> {
     match response {
         Some(text) => {
+            // One-shot finish atomically replaces the workspace, so it must
+            // obey the response-workspace ceiling, not just the arg ceiling.
+            if text.len() > crate::agent::MAX_RESPONSE_WORKSPACE_BYTES {
+                return Err("response_too_large");
+            }
             workspace.text = text;
             workspace.revision = workspace.revision.saturating_add(1);
             Ok(workspace.text.clone())
@@ -341,6 +372,7 @@ fn inject_workspace_snapshot(
     let message = ChatMessage {
         role: Role::System,
         content: snapshot,
+        control: true,
         ..Default::default()
     };
     if first_round {
@@ -430,12 +462,14 @@ fn append_round(
         request.messages.push(ChatMessage {
             role: Role::System,
             content: receipt,
+            control: true,
             ..Default::default()
         });
     }
     request.messages.push(ChatMessage {
         role: Role::System,
         content: unfinished.to_string(),
+        control: true,
         ..Default::default()
     });
 }
@@ -1126,5 +1160,101 @@ mod tests {
             .messages
             .iter()
             .any(|m| m.role == Role::Assistant && !m.tool_calls.is_empty()));
+    }
+
+    #[tokio::test]
+    async fn invalid_finish_still_forms_the_terminal_fence() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![
+                ModelEvent::ToolCall(ToolCall {
+                    id: "f".into(),
+                    name: "shirita.run.finish".into(),
+                    arguments: serde_json::json!({"response": 123}),
+                    transport: ToolCallTransport::Native,
+                }),
+                ModelEvent::ToolCall(ToolCall {
+                    id: "r2".into(),
+                    name: "shirita.random.number".into(),
+                    arguments: serde_json::json!({"min": 1, "max": 2}),
+                    transport: ToolCallTransport::Native,
+                }),
+            ],
+            vec![ModelEvent::ToolCall(finish_call("ok"))],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        // The invalid finish is a recoverable failure AND the fence: the call
+        // after it must never execute.
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolStarted { call } if call.name == "shirita.random.number"
+        )));
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolFinished { result } if result.name == "shirita.run.finish" && result.error_code.as_deref() == Some("invalid_arguments")
+        )));
+        // Round 2 recovers with a valid finish.
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "ok"
+        )));
+    }
+
+    #[tokio::test]
+    async fn finish_emits_one_committed_result_after_validation() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![ModelEvent::ToolCall(replace_call("x"))],
+            vec![ModelEvent::ToolCall(finish_call_workspace())],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        let finish_results: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                HarnessEvent::ToolFinished { result } if result.name == "shirita.run.finish" => {
+                    Some(result.clone())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(finish_results.len(), 1);
+        assert_eq!(
+            finish_results[0].output,
+            serde_json::json!({"committed": true, "revision": 1, "bytes": 1})
+        );
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "x"
+        )));
+    }
+
+    #[test]
+    fn commit_finish_rejects_oversized_one_shot_without_mutation() {
+        let mut ws = ResponseWorkspace::default();
+        let big = "x".repeat(crate::agent::MAX_RESPONSE_WORKSPACE_BYTES + 1);
+        assert_eq!(
+            commit_finish(&mut ws, Some(big)).unwrap_err(),
+            "response_too_large"
+        );
+        assert_eq!(ws.text, "");
+        assert_eq!(ws.revision, 0);
     }
 }

@@ -7,10 +7,10 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, sync::Arc};
 
 use crate::agent::{
-    MAX_FINISH_RESPONSE_BYTES, MAX_MATH_EXPRESSION_BYTES, MAX_MATH_PARSE_DEPTH,
-    MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS, MAX_RESPONSE_PATCH_OPS,
-    MAX_RESPONSE_PATCH_SEARCH_BYTES, MAX_RESPONSE_WORKSPACE_BYTES, MAX_STATUS_MESSAGE_BYTES,
-    MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_RESULT_BYTES, ResponsePatchOperation,
+    MAX_MATH_EXPRESSION_BYTES, MAX_MATH_PARSE_DEPTH, MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS,
+    MAX_RESPONSE_PATCH_OPS, MAX_RESPONSE_PATCH_REPLACE_BYTES, MAX_RESPONSE_PATCH_SEARCH_BYTES,
+    MAX_RESPONSE_WORKSPACE_BYTES, MAX_STATUS_MESSAGE_BYTES, MAX_TOOL_ARGUMENT_BYTES,
+    MAX_TOOL_RESULT_BYTES, ResponsePatchOperation,
 };
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -251,7 +251,7 @@ impl ToolHandler for FinishTool {
                 let Some(s) = value
                     .as_str()
                     .map(str::trim)
-                    .filter(|s| !s.is_empty() && s.len() <= MAX_FINISH_RESPONSE_BYTES)
+                    .filter(|s| !s.is_empty() && s.len() <= MAX_RESPONSE_WORKSPACE_BYTES)
                 else {
                     return rejected(call, "invalid_arguments");
                 };
@@ -300,6 +300,7 @@ impl ToolHandler for PatchResponseTool {
         }
         let mut operations = Vec::with_capacity(ops.len());
         let mut search_bytes = 0usize;
+        let mut replace_bytes = 0usize;
         for op in ops {
             let (Some(search), Some(replace)) = (
                 op.get("search").and_then(Value::as_str),
@@ -311,12 +312,15 @@ impl ToolHandler for PatchResponseTool {
                 return rejected(call, "invalid_arguments");
             }
             search_bytes = search_bytes.saturating_add(search.len());
+            replace_bytes = replace_bytes.saturating_add(replace.len());
             operations.push(ResponsePatchOperation {
                 search: search.to_string(),
                 replace: replace.to_string(),
             });
         }
-        if search_bytes > MAX_RESPONSE_PATCH_SEARCH_BYTES {
+        if search_bytes > MAX_RESPONSE_PATCH_SEARCH_BYTES
+            || replace_bytes > MAX_RESPONSE_PATCH_REPLACE_BYTES
+        {
             return rejected(call, "response_too_large");
         }
         ok(

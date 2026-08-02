@@ -5,10 +5,11 @@ use serde::Serialize;
 
 use shirita_core::agent::{
     AgentSettings, HARD_MAX_ROUNDS, HARD_MAX_TOOL_CALLS, HARD_MAX_TOOL_TIMEOUT_MS,
-    MAX_AGENT_PROMPT_BYTES, MAX_FINISH_RESPONSE_BYTES, MAX_MATH_EXPRESSION_BYTES,
-    MAX_MATH_PARSE_DEPTH, MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS,
-    MAX_RESPONSE_PATCH_OPS, MAX_RESPONSE_PATCH_SEARCH_BYTES, MAX_RESPONSE_WORKSPACE_BYTES,
-    MAX_STATUS_MESSAGE_BYTES, MAX_TOOL_ARGUMENT_BYTES, MAX_TOOL_RESULT_BYTES, MAX_XML_ROUND_BYTES,
+    MAX_AGENT_PROMPT_BYTES, MAX_MATH_EXPRESSION_BYTES, MAX_MATH_PARSE_DEPTH,
+    MAX_RANDOM_INTEGER_SPAN, MAX_RANDOM_ITEMS, MAX_RESPONSE_PATCH_OPS,
+    MAX_RESPONSE_PATCH_REPLACE_BYTES, MAX_RESPONSE_PATCH_SEARCH_BYTES,
+    MAX_RESPONSE_WORKSPACE_BYTES, MAX_STATUS_MESSAGE_BYTES, MAX_TOOL_ARGUMENT_BYTES,
+    MAX_TOOL_RESULT_BYTES, MAX_XML_ROUND_BYTES,
 };
 use shirita_core::{builtin_tool_registry, ToolSpec};
 
@@ -32,6 +33,7 @@ pub struct AgentLimits {
     max_response_workspace_bytes: usize,
     max_response_patch_ops: usize,
     max_response_patch_search_bytes: usize,
+    max_response_patch_replace_bytes: usize,
 }
 
 #[derive(Serialize)]
@@ -56,7 +58,9 @@ fn limits() -> AgentLimits {
         hard_max_tool_timeout_ms: HARD_MAX_TOOL_TIMEOUT_MS,
         max_tool_argument_bytes: MAX_TOOL_ARGUMENT_BYTES,
         max_tool_result_bytes: MAX_TOOL_RESULT_BYTES,
-        max_finish_response_bytes: MAX_FINISH_RESPONSE_BYTES,
+        // One-shot finish(response) atomically replaces the workspace, so its
+        // ceiling is the response-workspace ceiling, not the legacy 1 MiB bound.
+        max_finish_response_bytes: MAX_RESPONSE_WORKSPACE_BYTES,
         max_xml_round_bytes: MAX_XML_ROUND_BYTES,
         max_agent_prompt_bytes: MAX_AGENT_PROMPT_BYTES,
         max_status_message_bytes: MAX_STATUS_MESSAGE_BYTES,
@@ -67,6 +71,7 @@ fn limits() -> AgentLimits {
         max_response_workspace_bytes: MAX_RESPONSE_WORKSPACE_BYTES,
         max_response_patch_ops: MAX_RESPONSE_PATCH_OPS,
         max_response_patch_search_bytes: MAX_RESPONSE_PATCH_SEARCH_BYTES,
+        max_response_patch_replace_bytes: MAX_RESPONSE_PATCH_REPLACE_BYTES,
     }
 }
 

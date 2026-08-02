@@ -83,6 +83,12 @@ pub fn anthropic_body(req: &ChatRequest) -> serde_json::Value {
     let mut messages: Vec<serde_json::Value> = Vec::new();
     for m in &req.messages {
         match m.role {
+            // Round-control system messages (workspace snapshot, receipts, the
+            // unfinished instruction) must stay in-sequence after Tool results,
+            // not be promoted into the provider-global system field.
+            Role::System if m.control => {
+                messages.push(json!({ "role": "user", "content": anthropic_content(m) }))
+            }
             Role::System => {
                 if !system.is_empty() {
                     system.push_str("\n\n");
@@ -254,6 +260,91 @@ mod tests {
         assert_eq!(b["messages"].as_array().unwrap().len(), 1);
         assert_eq!(b["messages"][0]["role"], "user");
         assert_eq!(b["messages"][0]["content"], "hi");
+    }
+
+    #[test]
+    fn round_control_system_messages_stay_in_sequence_after_tool_results() {
+        let r = req(
+            vec![
+                ChatMessage {
+                    role: Role::System,
+                    content: "harness".into(),
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: Role::User,
+                    content: "hello".into(),
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: Role::Assistant,
+                    content: String::new(),
+                    tool_calls: vec![ToolCall {
+                        id: "c1".into(),
+                        name: "demo.pick".into(),
+                        arguments: serde_json::json!({}),
+                        transport: ToolCallTransport::Native,
+                    }],
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: Role::User,
+                    tool_result: Some(crate::tools::ToolResult {
+                        call_id: "c1".into(),
+                        name: "demo.pick".into(),
+                        status: crate::tools::ToolResultStatus::Ok,
+                        output: serde_json::json!({"x": 1}),
+                        error_code: None,
+                    }),
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: Role::System,
+                    content: "SHIRITA_RESPONSE_WORKSPACE snapshot".into(),
+                    control: true,
+                    ..Default::default()
+                },
+                ChatMessage {
+                    role: Role::System,
+                    content: "Continue working".into(),
+                    control: true,
+                    ..Default::default()
+                },
+            ],
+            None,
+        );
+        let b = anthropic_body(&r);
+        // The harness prompt stays in the global system field; the round-control
+        // messages do NOT.
+        let system = b["system"].as_str().unwrap();
+        assert!(system.contains("harness"));
+        assert!(!system.contains("SHIRITA_RESPONSE_WORKSPACE"));
+        assert!(!system.contains("Continue working"));
+        // Control messages stay in-sequence as user content after the tool result.
+        let msgs = b["messages"].as_array().unwrap();
+        let tool_result_idx = msgs
+            .iter()
+            .position(|m| m["content"].is_array() && m["content"][0]["type"] == "tool_result")
+            .unwrap();
+        let snapshot_idx = msgs
+            .iter()
+            .position(|m| {
+                m["content"]
+                    .as_str()
+                    .is_some_and(|c| c.contains("SHIRITA_RESPONSE_WORKSPACE"))
+            })
+            .unwrap();
+        let continue_idx = msgs
+            .iter()
+            .position(|m| {
+                m["content"]
+                    .as_str()
+                    .is_some_and(|c| c.contains("Continue working"))
+            })
+            .unwrap();
+        assert!(tool_result_idx < snapshot_idx && snapshot_idx < continue_idx);
+        assert_eq!(msgs[snapshot_idx]["role"], "user");
+        assert_eq!(msgs[continue_idx]["role"], "user");
     }
 
     #[test]

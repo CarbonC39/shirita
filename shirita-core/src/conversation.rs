@@ -430,7 +430,7 @@ fn resolve_display(path: &[&Message], full: &str, cleaned: &str) -> Option<Strin
 pub enum SendEvent {
     /// A text increment.
     Delta(String),
-    Activity { round: u32, message: String },
+    Activity { round: u32 },
     RunStart { run_id: String },
     ToolStart { call_id: String, name: String },
     ToolResult { call_id: String, name: String, status: String },
@@ -478,7 +478,7 @@ fn native_tools_supported(map: &serde_json::Map<String, serde_json::Value>, sour
 }
 
 enum RunStreamEvent {
-    Delta(String), Activity { round: u32, message: String }, Status(String),
+    Delta(String), Activity { round: u32 }, Status(String),
     RunStart { run_id: String }, Finish { run_id: String },
     ToolStart { call_id: String, name: String }, ToolResult { call_id: String, name: String, status: String },
     WorkspaceChanged { revision: u64 },
@@ -498,7 +498,7 @@ fn generation_stream(
                 match event {
                     crate::agent_loop::HarnessEvent::RoundStarted { run } if settings.show_activity => {
                         if run.round == 1 { yield RunStreamEvent::RunStart { run_id: run.id.clone() }; }
-                        yield RunStreamEvent::Activity { round: run.round, message: format!("Agent round {}", run.round) }
+                        yield RunStreamEvent::Activity { round: run.round }
                     },
                     crate::agent_loop::HarnessEvent::ToolStarted { call } if settings.show_activity => yield RunStreamEvent::ToolStart { call_id: call.id, name: call.name },
                     crate::agent_loop::HarnessEvent::ToolFinished { result } if settings.show_activity => yield RunStreamEvent::ToolResult { call_id: result.call_id, name: result.name, status: format!("{:?}", result.status).to_lowercase() },
@@ -697,7 +697,7 @@ pub fn send_message(
         let (full, stopped) = loop {
             match run.next().await {
                 Some(RunStreamEvent::Delta(text)) => yield SendEvent::Delta(text),
-                Some(RunStreamEvent::Activity { round, message }) => yield SendEvent::Activity { round, message },
+                Some(RunStreamEvent::Activity { round }) => yield SendEvent::Activity { round },
                 Some(RunStreamEvent::RunStart { run_id }) => yield SendEvent::RunStart { run_id },
                 Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
                 Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },
@@ -806,7 +806,7 @@ pub fn regenerate(
         let (full, stopped) = loop {
             match run.next().await {
                 Some(RunStreamEvent::Delta(text)) => yield SendEvent::Delta(text),
-                Some(RunStreamEvent::Activity { round, message }) => yield SendEvent::Activity { round, message },
+                Some(RunStreamEvent::Activity { round }) => yield SendEvent::Activity { round },
                 Some(RunStreamEvent::RunStart { run_id }) => yield SendEvent::RunStart { run_id },
                 Some(RunStreamEvent::Finish { run_id }) => yield SendEvent::Finish { run_id },
                 Some(RunStreamEvent::ToolStart { call_id, name }) => yield SendEvent::ToolStart { call_id, name },

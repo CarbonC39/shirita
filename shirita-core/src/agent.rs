@@ -24,6 +24,8 @@ pub const MAX_RESPONSE_WORKSPACE_BYTES: usize = 256 * 1024;
 pub const MAX_RESPONSE_PATCH_OPS: usize = 16;
 /// Total bytes across all `search` strings in one patch batch.
 pub const MAX_RESPONSE_PATCH_SEARCH_BYTES: usize = 8 * 1024;
+/// Total bytes across all `replace` strings in one patch batch.
+pub const MAX_RESPONSE_PATCH_REPLACE_BYTES: usize = 8 * 1024;
 
 pub const DEFAULT_SYSTEM_PROMPT: &str = r#"You are operating inside Shirita's text-generation harness.
 Use the registered tools when they help you produce the response requested by the user and the conversation prompt. Tool schemas are authoritative.
