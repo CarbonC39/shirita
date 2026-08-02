@@ -11,6 +11,7 @@ This index separates current documentation from historical design artifacts. Whe
 - [Phase 2 implementation plan](plans/phase-2-remove-st-compatibility.md) — implemented deletion boundary and task sequence for removing SillyTavern compatibility
 - [Phase 3 implementation plan](plans/phase-3-default-ui-rewrite.md) — implemented responsive shell and chat-workspace rewrite
 - [Phase 4 implementation plan](plans/phase-4-rp-agent-harness-foundation.md) — proposed minimal RP Agent harness, Tool loop, and layered settings
+- [Phase 5 implementation plan](plans/phase-5-rp-agent-runtime-and-mcp.md) — proposed response-centered RP Agent completion and MCP Tool integration
 - [Architecture](../ARCHITECTURE.md) — current implementation architecture; update it alongside structural code changes
 
 ## Reference
