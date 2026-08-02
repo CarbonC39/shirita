@@ -687,8 +687,8 @@ Before completion, update README/current direction/architecture/module docs; doc
 - [x] Replace and batch-patch mutations are revisioned, bounded, atomic, and recoverable.
 - [x] Response handlers are stateless; only the run applies typed workspace controls.
 - [x] Finish supports workspace commit and simple one-shot submission.
-- [ ] Phase 5A passes before MCP work begins (automated gate green; live `gemma-4-e4b` gate and desktop checks pending).
-- [ ] Native/XML capability-result-edit-finish works with the selected small model (live check pending).
+- [x] Phase 5A passes before MCP work begins (automated gate green; live `gemma-4-e4b` gate passed on 2026-08-02; packaged-desktop check still pending).
+- [x] Native/XML capability-result-edit-finish works with the selected small model.
 - [x] Multi-Tool rounds are ordered, results appear only in later rounds, and finish is a tested terminal fence.
 - [x] Recoverable failures before finish cannot commit a stale or partially edited workspace.
 - [x] Provider, Tool-call, final-response, and MCP streaming boundaries are explicit and tested (MCP part deferred to 5B).
@@ -705,4 +705,10 @@ Before completion, update README/current direction/architecture/module docs; doc
 - [x] Verification is recorded honestly.
 - [x] Prompt composition remains Phase 6 and the cleanup endpoint.
 
-Implementation note (2026-08-02): Phase 5A automated verification passes — the full Rust workspace suite (including a pre-existing, unrelated parallel-env race in two `config` tests that passes single-threaded), all UI tests, and the production UI build. The response workspace, replace/patch controls, finish commit + one-shot path, canonical snapshot overlay, response-control compaction, unified failures, Stop boundaries, and the run-scoped activity/status UI are implemented and committed. Live-provider verification against `gemma-4-e4b`, packaged Tauri/WebKit checks, and all Phase 5B MCP work remain open.
+Implementation note (2026-08-02): Phase 5A automated verification passes — the full Rust workspace suite (including a pre-existing, unrelated parallel-env race in two `config` tests that passes single-threaded), all UI tests, and the production UI build. The response workspace, replace/patch controls, finish commit + one-shot path, canonical snapshot overlay, response-control compaction, unified failures, Stop boundaries, and the run-scoped activity/status UI are implemented and committed.
+
+Live acceptance gate passed against the real model on 2026-08-02. Environment: `llama-swap` (llama.cpp) OpenAI-compatible server at `http://localhost:8080/v1`, model `gemma-4-e4b` (reported `gemma-4-E4B-it-Q4_K_M.gguf`), driven by `cargo run --release --example live_gate` (kept in `shirita-core/examples/` for reproducibility). All five scenarios reached a valid finish: native capability(math)→edit(replace)→finish; native one-shot `finish(response)`; XML capability(math)→edit(replace)→finish; native multi-tool single round (math + random.choose) with next-round results; and XML one-shot `finish(response)`.
+
+The live gate caught one real defect: with the XML transport, a retained capability call was serialized back into the next round as a native `tool_calls` field rather than the `<tool_call>` XML the model wrote, so the small model stopped continuing after a capability result (round-limit failure). Fixed by rendering retained calls into `<tool_call>` blocks in the assistant transcript for XML transport (`xml_tools::render_xml_tool_call` + `append_round`), with a round-trip test. After the fix, the XML capability-result-edit-finish flow completes.
+
+Packaged Tauri/WebKit checks and all Phase 5B MCP work remain open.

@@ -87,6 +87,17 @@ pub(crate) fn safe_json(value: &Value) -> String {
         .replace('>', "\\u003e")
 }
 
+/// Serialize a normalized Tool call back into the XML protocol text so an XML
+/// model sees its own `<tool_call>` block in the next round's context.
+pub fn render_xml_tool_call(call: &ToolCall) -> String {
+    format!(
+        "<tool_call id={} name={}>\n{}\n</tool_call>",
+        safe_json(&Value::String(call.id.clone())),
+        safe_json(&Value::String(call.name.clone())),
+        safe_json(&call.arguments),
+    )
+}
+
 pub fn render_xml_tool_result(result: &ToolResult) -> String {
     let payload =
         json!({"status": result.status, "output": result.output, "error_code": result.error_code});
@@ -136,6 +147,26 @@ mod tests {
         assert!(parse_xml_tool_round("<tool_call name=\"x.y\">{}").is_err());
         assert!(parse_xml_tool_round("<tool_call id=\"a\" name=\"x.y\">{}</tool_call><tool_call id=\"a\" name=\"x.y\">{}</tool_call>").is_err());
     }
+    #[test]
+    fn tool_call_renders_back_to_the_xml_protocol() {
+        let call = crate::tools::ToolCall {
+            id: "a".into(),
+            name: "x.y".into(),
+            arguments: json!({"k": "v"}),
+            transport: crate::tools::ToolCallTransport::Xml,
+        };
+        let s = render_xml_tool_call(&call);
+        assert!(s.contains("<tool_call id=\"a\" name=\"x.y\">"));
+        assert!(s.contains("{\"k\":\"v\"}"));
+        assert!(s.ends_with("</tool_call>"));
+        // Rendering round-trips through the parser used by the next round.
+        let parsed = parse_xml_tool_round(&s).unwrap();
+        assert_eq!(parsed.calls.len(), 1);
+        assert_eq!(parsed.calls[0].id, "a");
+        assert_eq!(parsed.calls[0].name, "x.y");
+        assert_eq!(parsed.calls[0].arguments, json!({"k": "v"}));
+    }
+
     #[test]
     fn result_escapes_protocol_breakout() {
         let x = ToolResult {

@@ -13,7 +13,9 @@ use crate::models::message::Role;
 use crate::tools::{
     ToolCall, ToolCallTransport, ToolControl, ToolRegistry, ToolResult, ToolResultStatus,
 };
-use crate::xml_tools::{parse_xml_tool_round, render_xml_tool_result, xml_protocol_prompt};
+use crate::xml_tools::{
+    parse_xml_tool_round, render_xml_tool_call, render_xml_tool_result, xml_protocol_prompt,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum HarnessEvent {
@@ -386,12 +388,28 @@ fn append_round(
         }
     }
     if !working.is_empty() || !retained_calls.is_empty() {
-        request.messages.push(ChatMessage {
-            role: Role::Assistant,
-            content: working.to_string(),
-            tool_calls: retained_calls,
-            ..Default::default()
-        });
+        if transport == ToolCallTransport::Xml {
+            // XML models read the protocol from text: render each retained call
+            // back into its own <tool_call> block instead of a structured
+            // native tool_calls field, so the model sees the transcript it wrote.
+            let mut content = working.to_string();
+            for call in &retained_calls {
+                content.push('\n');
+                content.push_str(&render_xml_tool_call(call));
+            }
+            request.messages.push(ChatMessage {
+                role: Role::Assistant,
+                content,
+                ..Default::default()
+            });
+        } else {
+            request.messages.push(ChatMessage {
+                role: Role::Assistant,
+                content: working.to_string(),
+                tool_calls: retained_calls,
+                ..Default::default()
+            });
+        }
     }
     for result in retained_results {
         if transport == ToolCallTransport::Native {
