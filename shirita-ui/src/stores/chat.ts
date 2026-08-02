@@ -23,6 +23,9 @@ export interface AgentRunView {
   events: AgentActivityEvent[]
 }
 
+/** Bounded transient event history per run; older events are collapsed away. */
+export const MAX_AGENT_EVENTS = 50
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([])
   const activeLeafId = ref<string | null>(null)
@@ -31,18 +34,29 @@ export const useChatStore = defineStore('chat', () => {
   const isStreaming = ref(false)
   const streamingText = ref('')
   const streamingError = ref<string | null>(null)
-  const agentActivity = ref<string | null>(null)
-  const agentStatus = ref<string | null>(null)
   const generationUsage = ref<{ input_tokens: number; output_tokens: number } | null>(null)
   const activeSessionId = ref<string | null>(null)
 
   // Run-scoped transient Agent view: rebuilt on every send/regenerate from
   // structured SSE events, never persisted, and never fed from localized strings.
-  const MAX_AGENT_EVENTS = 50
   const agentRun = ref<AgentRunView>({ runId: null, phase: 'running', round: 0, responseRevision: 0, events: [] })
   function pushAgentEvent(kind: AgentActivityEvent['kind'], message: string) {
     agentRun.value.events = [...agentRun.value.events, { kind, message }].slice(-MAX_AGENT_EVENTS)
   }
+  // Display derives from the structured run view; there is no second source of
+  // truth. `agentStatus` is the most recent user-visible status line;
+  // `agentActivity` is the latest tool/round/workspace line.
+  const agentStatus = computed(() => {
+    const events = agentRun.value.events
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (events[i].kind === 'status') return events[i].message
+    }
+    return null
+  })
+  const agentActivity = computed(() => {
+    const last = agentRun.value.events[agentRun.value.events.length - 1]
+    return last ? last.message : null
+  })
   // Track which message is being regenerated so we can hide it from the
   // active path while the new sibling streams in.
   const regeneratingMsgId = ref<string | null>(null)
@@ -91,8 +105,6 @@ export const useChatStore = defineStore('chat', () => {
     isStreaming.value = true
     streamingText.value = ''
     streamingError.value = null
-    agentActivity.value = null
-    agentStatus.value = null
     generationUsage.value = null
     agentRun.value = { runId: null, phase: 'running', round: 0, responseRevision: 0, events: [] }
     try {
@@ -108,29 +120,29 @@ export const useChatStore = defineStore('chat', () => {
         else if (event.type === 'activity') {
           agentRun.value.round = event.round
           agentRun.value.phase = 'running'
-          agentActivity.value = event.message
-          pushAgentEvent('round', event.message)
+          pushAgentEvent('round', `Round ${event.round}`)
         }
         else if (event.type === 'tool_start') {
-          agentActivity.value = event.name
           pushAgentEvent('tool', event.name)
         }
         else if (event.type === 'tool_result') {
-          agentActivity.value = `${event.name}: ${event.status}`
           pushAgentEvent('tool', `${event.name}: ${event.status}`)
         }
         else if (event.type === 'workspace_mutation') {
           agentRun.value.responseRevision = event.revision
-          agentActivity.value = `response revision ${event.revision}`
-          pushAgentEvent('workspace', `response revision ${event.revision}`)
+          pushAgentEvent('workspace', `response revised to revision ${event.revision}`)
         }
         else if (event.type === 'status') {
-          agentStatus.value = event.message
           pushAgentEvent('status', event.message)
         }
         else if (event.type === 'usage') addUsage(event.input_tokens, event.output_tokens)
         else if (event.type === 'finish') agentRun.value.phase = 'finished'
         else if (event.type === 'done') {
+          // Success clears the activity surface deterministically; usage stays
+          // observable. The run keeps its identity for the store but nothing is
+          // rendered while phase === 'finished'.
+          agentRun.value.phase = 'finished'
+          agentRun.value.events = []
           streamingText.value = ''
           await loadMessages(sessionId)
           const s = useSettingsStore()
@@ -165,7 +177,6 @@ export const useChatStore = defineStore('chat', () => {
       }
     } finally {
       isStreaming.value = false
-      agentActivity.value = null
       activeAbort = null
     }
   }
@@ -237,10 +248,10 @@ export const useChatStore = defineStore('chat', () => {
     const sid = activeSessionId.value
     await abortSession(sid)
     activeAbort?.abort()
-    // The backend persists the partial reply when it honors the stop, but the
-    // hard abort above discards the in-flight `stopped` event that would have
-    // reloaded the transcript. Reload explicitly so the user sees what was
-    // saved instead of a reply that silently disappears until next navigation.
+    // The backend persists the partial reply when it honors the stop (ordinary
+    // mode) or discards the run's workspace (Agent mode); the hard abort above
+    // may discard the in-flight `stopped` event that would have reloaded the
+    // transcript. Reload explicitly so the user sees the actual saved state.
     await loadMessages(sid)
   }
 

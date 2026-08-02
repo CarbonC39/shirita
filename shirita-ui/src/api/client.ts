@@ -185,7 +185,7 @@ export type SseEvent =
   | { type: 'delta'; text: string }
   | { type: 'done'; message_id: string }
   | { type: 'stopped'; message_id?: string }
-  | { type: 'activity'; round: number; message: string }
+  | { type: 'activity'; round: number }
   | { type: 'run_start'; run_id: string }
   | { type: 'tool_start'; call_id: string; name: string }
   | { type: 'tool_result'; call_id: string; name: string; status: string }

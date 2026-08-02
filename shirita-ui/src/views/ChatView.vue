@@ -275,10 +275,15 @@ async function handleDelete(id: string) {
       <p v-else-if="chat.loading && chat.messages.length === 0" class="text-muted text-sm pt-12 text-center">{{ $t('common.loading') }}</p>
 
       <template v-else>
-        <div v-if="chat.generationUsage || (chat.isStreaming && (chat.agentStatus || chat.agentActivity))" data-test="agent-activity" class="shrink-0 px-3 sm:px-5 pb-1 text-[12px] text-muted" aria-live="polite">
-          <span v-if="chat.agentStatus" class="text-ink">{{ chat.agentStatus }}</span>
-          <span v-else-if="chat.agentActivity">{{ chat.agentActivity }}</span>
-          <span v-if="chat.generationUsage" class="ml-2">{{ chat.generationUsage.input_tokens }} in / {{ chat.generationUsage.output_tokens }} out</span>
+        <div v-if="chat.agentRun && chat.agentRun.phase !== 'finished' && (chat.agentRun.events.length || chat.agentRun.responseRevision)" data-test="agent-activity" class="shrink-0 px-3 sm:px-5 pb-1 text-[12px] text-muted leading-4" aria-live="polite">
+          <div v-for="ev in chat.agentRun.events.slice(-2)" :key="`${ev.kind}-${ev.message}-${chat.agentRun.events.length}`" class="truncate">
+            <span v-if="ev.kind === 'status'" class="text-ink">{{ ev.message }}</span>
+            <span v-else class="text-muted">{{ ev.message }}</span>
+          </div>
+          <span v-if="chat.agentRun.responseRevision" class="ml-1">rev {{ chat.agentRun.responseRevision }}</span>
+        </div>
+        <div v-if="chat.generationUsage" data-test="agent-usage" class="shrink-0 px-3 sm:px-5 pb-1 text-[12px] text-muted">
+          {{ chat.generationUsage.input_tokens }} in / {{ chat.generationUsage.output_tokens }} out
         </div>
         <!-- Refresh failure with a cached transcript: keep messages visible. -->
         <div v-if="chat.error" data-test="refresh-error" class="shrink-0 flex items-center justify-between gap-2 rounded-lg border border-coral/30 bg-coral/10 px-3 py-1.5 mx-3 sm:mx-5 mb-1 text-[13px] text-ink">

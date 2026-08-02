@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
-import { useChatStore } from './chat'
+import { MAX_AGENT_EVENTS, useChatStore } from './chat'
 import * as client from '../api/client'
 import type { Message } from '../api/types'
 
@@ -98,7 +98,7 @@ describe('chat store', () => {
 
   it('tracks Agent activity, status, and usage without appending them to reply text', async () => {
     async function* stream(): AsyncGenerator<client.SseEvent> {
-      yield { type: 'activity', round: 1, message: 'Using shirita.math.evaluate' }
+      yield { type: 'activity', round: 1 }
       yield { type: 'status', message: 'Checking the scene' }
       yield { type: 'usage', input_tokens: 12, output_tokens: 3 }
       yield { type: 'error', message: 'unfinished' }
@@ -116,7 +116,7 @@ describe('chat store', () => {
   it('builds a run-scoped AgentRunView from structured events', async () => {
     async function* stream(): AsyncGenerator<client.SseEvent> {
       yield { type: 'run_start', run_id: 'run-1' }
-      yield { type: 'activity', round: 1, message: 'Agent round 1' }
+      yield { type: 'activity', round: 1 }
       yield { type: 'tool_start', call_id: 'a', name: 'shirita.math.evaluate' }
       yield { type: 'workspace_mutation', revision: 1 }
       yield { type: 'workspace_mutation', revision: 2 }
@@ -134,6 +134,38 @@ describe('chat store', () => {
     expect(store.agentRun?.events.map((e) => e.kind)).toEqual([
       'round', 'tool', 'workspace', 'workspace',
     ])
+  })
+
+  it('clears the activity surface deterministically on success but keeps usage', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      yield { type: 'run_start', run_id: 'run-1' }
+      yield { type: 'tool_start', call_id: 'a', name: 'shirita.math.evaluate' }
+      yield { type: 'usage', input_tokens: 10, output_tokens: 4 }
+      yield { type: 'done', message_id: 'm1' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+
+    const store = useChatStore()
+    await store.send('s1', 'hi')
+
+    expect(store.agentRun?.phase).toBe('finished')
+    expect(store.agentRun?.events).toEqual([])
+    expect(store.generationUsage).toEqual({ input_tokens: 10, output_tokens: 4 })
+  })
+
+  it('caps the run event history at the declared bound', async () => {
+    async function* stream(): AsyncGenerator<client.SseEvent> {
+      for (let i = 0; i < MAX_AGENT_EVENTS + 20; i++) {
+        yield { type: 'tool_start', call_id: `c${i}`, name: `tool.${i}` }
+      }
+      yield { type: 'error', message: 'end' }
+    }
+    vi.spyOn(client, 'sendMessage').mockReturnValue(stream())
+
+    const store = useChatStore()
+    await store.send('s1', 'hi')
+
+    expect(store.agentRun?.events.length).toBe(MAX_AGENT_EVENTS)
   })
 
   it('sendMessage catches fetch errors', async () => {
