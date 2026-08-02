@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Copy, RefreshCw, GitFork, Pencil, EyeOff, Eye, ChevronLeft, ChevronRight, Check, X, Trash2 } from 'lucide-vue-next'
+import { ChevronLeft, ChevronRight, Check, X, MoreHorizontal } from 'lucide-vue-next'
 import type { Message, Identity } from '../api/types'
 import MessageContent from './MessageContent.vue'
 import { containsHtmlCard } from '../utils/markdown'
 import { useMediaStore } from '../stores/media'
 import { formatTokens } from '../utils/tokens'
 import { assetUrl } from '../api/client'
+import { actionsFor, type MessageActionKey } from '../utils/messageActions'
 
 const props = withDefaults(defineProps<{
   message: Message
@@ -18,21 +19,41 @@ const props = withDefaults(defineProps<{
   identity?: Identity
   /** Running token estimate for the whole conversation; shown only on the last message. */
   tokens?: number
-}>(), { siblingCount: 1, siblingIndex: 0 })
+  /** When true, open this message's inline editor (driven by the action sheet). */
+  forceEdit?: boolean
+}>(), { siblingCount: 1, siblingIndex: 0, forceEdit: false })
 
 const emit = defineEmits<{
   copy: [text: string]
   regenerate: []
   fork: []
   'edit-save': [text: string]
+  'edit-cancel': []
   'toggle-hidden': []
   delete: []
   swipe: [delta: -1 | 1]
+  'open-actions': []
 }>()
 
 const { t } = useI18n()
 const isAssistant = computed(() => props.message.role === 'assistant')
 const isUser = computed(() => props.message.role === 'user')
+const inlineActions = computed(() => actionsFor(props.message.role))
+
+function inlineLabel(key: MessageActionKey): string {
+  if (key === 'toggle-hidden') return t(props.message.is_hidden ? 'chat.unhide' : 'chat.hide')
+  return t(inlineActions.value.find((a) => a.key === key)?.labelKey ?? '')
+}
+function runInline(key: MessageActionKey) {
+  switch (key) {
+    case 'copy': emit('copy', props.message.raw_content); break
+    case 'regenerate': emit('regenerate'); break
+    case 'fork': emit('fork'); break
+    case 'edit': startEdit(); break
+    case 'toggle-hidden': emit('toggle-hidden'); break
+    case 'delete': emit('delete'); break
+  }
+}
 
 // Read a string value from snapshot_state, guarding type.
 function stateStr(key: string): string | undefined {
@@ -74,7 +95,12 @@ const editing = ref(false)
 const draft = ref('')
 function startEdit() { draft.value = props.message.raw_content; editing.value = true }
 function saveEdit() { editing.value = false; emit('edit-save', draft.value) }
-function cancelEdit() { editing.value = false }
+function cancelEdit() { editing.value = false; emit('edit-cancel') }
+// The action sheet can ask a specific message to open its inline editor.
+watch(
+  () => props.forceEdit,
+  (on) => { if (on) startEdit() },
+)
 </script>
 
 <template>
@@ -125,7 +151,7 @@ function cancelEdit() { editing.value = false }
       <div
         v-if="!editing"
         data-test="message-actions"
-        :class="['flex flex-wrap items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
+        :class="['max-sm:hidden flex flex-wrap items-center gap-1.5 mt-1.5 ml-1 text-muted', isUser ? 'justify-end' : '']"
       >
         <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
           <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
@@ -133,26 +159,32 @@ function cancelEdit() { editing.value = false }
           <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" :aria-label="$t('chat.nextVariation')" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
         </span>
         <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-        <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :aria-label="$t('chat.regenerate')" :title="$t('chat.regenerate')" @click="emit('regenerate')">
-          <RefreshCw :size="15" :stroke-width="1.8" />
-        </button>
-        <button v-if="isAssistant" class="hover:text-ink" :aria-label="$t('chat.fork')" :title="$t('chat.fork')" @click="emit('fork')">
-          <GitFork :size="15" :stroke-width="1.8" />
-        </button>
-        <button data-test="copy-btn" class="hover:text-ink" :aria-label="$t('chat.copy')" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
-          <Copy :size="15" :stroke-width="1.8" />
-        </button>
-        <button data-test="edit-btn" class="hover:text-ink" :aria-label="$t('chat.edit')" :title="$t('chat.edit')" @click="startEdit">
-          <Pencil :size="15" :stroke-width="1.8" />
-        </button>
-        <button data-test="hide-btn" class="hover:text-ink" :aria-label="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
-          <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
-        </button>
-        <button data-test="delete-btn" class="hover:text-coral" :aria-label="$t('chat.delete')" :title="$t('chat.delete')" @click="emit('delete')">
-          <Trash2 :size="15" :stroke-width="1.8" />
+        <button
+          v-for="a in inlineActions"
+          :key="a.key"
+          :data-test="a.testId"
+          class="hover:text-ink"
+          :class="a.key === 'delete' ? 'hover:text-coral' : ''"
+          :aria-label="inlineLabel(a.key)"
+          :title="inlineLabel(a.key)"
+          @click="runInline(a.key)"
+        >
+          <component :is="a.icon" :size="15" :stroke-width="1.8" />
         </button>
         <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
       </div>
+      <!-- mobile: explicit More actions trigger opens the viewport-level sheet -->
+      <button
+        v-if="!editing && !isStreaming"
+        data-test="more-actions-btn"
+        class="sm:hidden flex items-center gap-1 mt-1.5 ml-1 text-muted hover:text-ink text-[12px]"
+        :aria-label="$t('chat.options')"
+        :title="$t('chat.options')"
+        @click="emit('open-actions')"
+      >
+        <MoreHorizontal :size="16" :stroke-width="1.8" />
+        <span>{{ $t('chat.options') }}</span>
+      </button>
     </div>
   </div>
 
@@ -188,32 +220,37 @@ function cancelEdit() { editing.value = false }
         />
       </template>
     </div>
-    <div v-if="!editing" data-test="message-actions" class="flex flex-wrap items-center gap-1.5 mt-2 pl-[34px] text-muted">
+    <div v-if="!editing" data-test="message-actions" class="max-sm:hidden flex flex-wrap items-center gap-1.5 mt-2 pl-[34px] text-muted">
       <span v-if="hasSwipes" data-test="swipe-indicator" class="flex items-center gap-1 text-[12px]">
         <button data-test="swipe-prev" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) <= 0" :aria-label="$t('chat.previousVariation')" @click="emit('swipe', -1)"><ChevronLeft :size="14" :stroke-width="2.2" /></button>
         <span>{{ (siblingIndex ?? 0) + 1 }}/{{ siblingCount }}</span>
         <button data-test="swipe-next" class="hover:text-ink disabled:opacity-30" :disabled="(siblingIndex ?? 0) >= (siblingCount ?? 1) - 1" :aria-label="$t('chat.nextVariation')" @click="emit('swipe', 1)"><ChevronRight :size="14" :stroke-width="2.2" /></button>
       </span>
       <span v-if="hasSwipes" class="w-px h-3.5 bg-line" />
-      <button v-if="isAssistant" data-test="regenerate-btn" class="hover:text-ink" :aria-label="$t('chat.regenerate')" :title="$t('chat.regenerate')" @click="emit('regenerate')">
-        <RefreshCw :size="15" :stroke-width="1.8" />
-      </button>
-      <button v-if="isAssistant" class="hover:text-ink" :aria-label="$t('chat.fork')" :title="$t('chat.fork')" @click="emit('fork')">
-        <GitFork :size="15" :stroke-width="1.8" />
-      </button>
-      <button data-test="copy-btn" class="hover:text-ink" :aria-label="$t('chat.copy')" :title="$t('chat.copy')" @click="emit('copy', message.raw_content)">
-        <Copy :size="15" :stroke-width="1.8" />
-      </button>
-      <button data-test="edit-btn" class="hover:text-ink" :aria-label="$t('chat.edit')" :title="$t('chat.edit')" @click="startEdit">
-        <Pencil :size="15" :stroke-width="1.8" />
-      </button>
-      <button data-test="hide-btn" class="hover:text-ink" :aria-label="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" :title="message.is_hidden ? $t('chat.unhide') : $t('chat.hide')" @click="emit('toggle-hidden')">
-        <component :is="message.is_hidden ? EyeOff : Eye" :size="15" :stroke-width="1.8" />
-      </button>
-      <button data-test="delete-btn" class="hover:text-coral" :aria-label="$t('chat.delete')" :title="$t('chat.delete')" @click="emit('delete')">
-        <Trash2 :size="15" :stroke-width="1.8" />
+      <button
+        v-for="a in inlineActions"
+        :key="a.key"
+        :data-test="a.testId"
+        class="hover:text-ink"
+        :class="a.key === 'delete' ? 'hover:text-coral' : ''"
+        :aria-label="inlineLabel(a.key)"
+        :title="inlineLabel(a.key)"
+        @click="runInline(a.key)"
+      >
+        <component :is="a.icon" :size="15" :stroke-width="1.8" />
       </button>
       <span v-if="tokens !== undefined" data-test="convo-tokens" class="ml-auto text-[11.5px] tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(tokens) }, tokens) }}</span>
     </div>
+    <button
+      v-if="!editing && !isStreaming"
+      data-test="more-actions-btn"
+      class="sm:hidden flex items-center gap-1 mt-2 pl-[34px] text-muted hover:text-ink text-[12px]"
+      :aria-label="$t('chat.options')"
+      :title="$t('chat.options')"
+      @click="emit('open-actions')"
+    >
+      <MoreHorizontal :size="16" :stroke-width="1.8" />
+      <span>{{ $t('chat.options') }}</span>
+    </button>
   </div>
 </template>

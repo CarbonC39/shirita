@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { Message, Identity } from '../api/types'
 import { siblings } from '../utils/tree'
 import MessageItem from './MessageItem.vue'
+import MessageActionsSheet from './MessageActionsSheet.vue'
+import type { MessageActionKey } from '../utils/messageActions'
 
 const props = defineProps<{
   messages: Message[]        // the active path (displayed)
@@ -26,6 +28,48 @@ const emit = defineEmits<{
   swipe: [id: string, delta: -1 | 1]
   'dismiss-streaming-error': []
 }>()
+
+// One viewport-level action sheet per transcript. MessageList owns the
+// selected message and forwards its actions with the id attached.
+const actionTarget = ref<Message | null>(null)
+const editingId = ref<string | null>(null)
+
+function openActions(msg: Message) {
+  actionTarget.value = msg
+}
+function closeActions() {
+  actionTarget.value = null
+}
+function runSheetAction(key: MessageActionKey) {
+  const m = actionTarget.value
+  if (!m) return
+  switch (key) {
+    case 'copy': emit('copy', m.raw_content); break
+    case 'regenerate': emit('regenerate', m.id); break
+    case 'fork': emit('fork', m.id); break
+    case 'toggle-hidden': emit('toggle-hidden', m.id); break
+    case 'delete': emit('delete', m.id); break
+    case 'edit':
+      // Open this message's inline editor via the forceEdit signal.
+      editingId.value = m.id
+      closeActions()
+      break
+  }
+}
+function runSheetSwipe(delta: -1 | 1) {
+  const m = actionTarget.value
+  if (m) {
+    emit('swipe', m.id, delta)
+    closeActions()
+  }
+}
+function handleEditSave(id: string, text: string) {
+  editingId.value = null
+  emit('edit-save', id, text)
+}
+function handleEditCancel() {
+  editingId.value = null
+}
 
 // Scroll anchoring: the transcript auto-follows the bottom only while the user
 // is at or near it (within FOLLOW_THRESHOLD px). Scrolling up above the
@@ -84,6 +128,20 @@ function sibInfo(msg: Message) {
   const sibs = siblings(props.allMessages ?? props.messages, msg)
   return { index: sibs.findIndex((s) => s.id === msg.id), count: sibs.length }
 }
+// Sibling info for the sheet's selected message (variation count/arrows).
+const sheetSib = computed(() => {
+  const m = actionTarget.value
+  if (!m) return { index: 0, count: 1 }
+  return sibInfo(m)
+})
+// If the selected message disappears from the transcript, close the sheet.
+watch(
+  () => props.messages,
+  () => {
+    const m = actionTarget.value
+    if (m && !props.messages.some((x) => x.id === m.id)) actionTarget.value = null
+  },
+)
 
 const streamingMsg = computed<Message | null>(() => {
   if (!props.streamingText) return null
@@ -119,13 +177,16 @@ const streamingMsg = computed<Message | null>(() => {
       :sibling-index="sibInfo(msg).index"
       :sibling-count="sibInfo(msg).count"
       :tokens="msg.id === lastVisibleId ? tokens : undefined"
+      :force-edit="editingId === msg.id"
       @copy="emit('copy', $event)"
       @regenerate="emit('regenerate', msg.id)"
       @fork="emit('fork', msg.id)"
-      @edit-save="(t) => emit('edit-save', msg.id, t)"
+      @edit-save="(t) => handleEditSave(msg.id, t)"
+      @edit-cancel="handleEditCancel"
       @toggle-hidden="emit('toggle-hidden', msg.id)"
       @delete="emit('delete', msg.id)"
       @swipe="(d) => emit('swipe', msg.id, d)"
+      @open-actions="openActions(msg)"
     />
 
     <MessageItem
@@ -142,5 +203,15 @@ const streamingMsg = computed<Message | null>(() => {
         {{ $t('chat.dismiss') }}
       </button>
     </div>
+
+    <MessageActionsSheet
+      v-if="actionTarget"
+      :message="actionTarget"
+      :sibling-index="sheetSib.index"
+      :sibling-count="sheetSib.count"
+      @action="runSheetAction"
+      @swipe="runSheetSwipe"
+      @close="closeActions"
+    />
   </div>
 </template>

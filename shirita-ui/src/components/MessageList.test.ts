@@ -118,6 +118,66 @@ describe('MessageList', () => {
     expect(wrapper.text()).not.toContain('Assistant')
   })
 
+  describe('message action sheet', () => {
+    it('opens the viewport-level sheet when More actions is triggered', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'm1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
+        attachTo: document.body,
+      })
+      await wrapper.find('[data-test="more-actions-btn"]').trigger('click')
+      await flushPromises()
+      const sheet = document.querySelector('[data-test="message-action-sheet"]')
+      expect(sheet).not.toBeNull()
+      expect(sheet?.parentElement).toBe(document.body)
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    })
+
+    it('emits regenerate with the selected message id from the sheet', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'a1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
+        attachTo: document.body,
+      })
+      await wrapper.find('[data-test="more-actions-btn"]').trigger('click')
+      await flushPromises()
+      ;(document.querySelector('[data-test="message-action-sheet"] [data-test="regenerate-btn"]') as HTMLElement).click()
+      expect(wrapper.emitted('regenerate')![0]).toEqual(['a1'])
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    })
+
+    it('opens the correct message editor when edit is chosen from the sheet', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'a1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
+        attachTo: document.body,
+      })
+      await wrapper.find('[data-test="more-actions-btn"]').trigger('click')
+      await flushPromises()
+      ;(document.querySelector('[data-test="message-action-sheet"] [data-test="edit-btn"]') as HTMLElement).click()
+      await flushPromises()
+      // The inline editor for that message is now open; the sheet closed.
+      expect(document.querySelector('[data-test="message-action-sheet"]')).toBeNull()
+      expect(wrapper.find('[data-test="edit-area"]').exists()).toBe(true)
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    })
+
+    it('closes the sheet when its selected message disappears', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'a1', role: 'assistant', raw_content: 'hi' })], style: 'bubble' },
+        attachTo: document.body,
+      })
+      await wrapper.find('[data-test="more-actions-btn"]').trigger('click')
+      await flushPromises()
+      expect(document.querySelector('[data-test="message-action-sheet"]')).not.toBeNull()
+      await wrapper.setProps({ messages: [] })
+      await flushPromises()
+      expect(document.querySelector('[data-test="message-action-sheet"]')).toBeNull()
+      wrapper.unmount()
+      document.body.innerHTML = ''
+    })
+  })
+
   describe('scroll anchoring', () => {
     const scrollSel = '[data-test="message-scroll"]'
 
