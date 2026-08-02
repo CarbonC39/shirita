@@ -169,6 +169,24 @@ describe('ChatView', () => {
     expect(wrapper.find('[data-test="composer-region"]').exists()).toBe(true)
   })
 
+  it('keeps MessageList as the only transcript scroller (workspace region does not scroll)', async () => {
+    vi.spyOn(client, 'listMessages').mockResolvedValue([{
+      id: 'm1', session_id: 's1', parent_id: null, role: 'user' as const,
+      raw_content: 'hello', display_content: null, is_hidden: false, is_anchor: false, attachments: [],
+      snapshot_state: {}, created_at: '2025-01-01T00:00:00Z',
+    }])
+    const router = makeRouter()
+    router.push('/chat/s1')
+    await router.isReady()
+    const wrapper = mount(ChatView, { global: { plugins: [router] } })
+    await flushPromises()
+    const transcript = wrapper.find('[data-test="transcript-region"]').element as HTMLElement
+    // The workspace region must not itself be the vertical scroll owner.
+    expect(transcript.classList.contains('overflow-y-auto')).toBe(false)
+    // Exactly one transcript scroller is mounted (MessageList's).
+    expect(wrapper.findAll('[data-test="message-scroll"]')).toHaveLength(1)
+  })
+
   it('shows a details trigger when session state declares variables', async () => {
     vi.spyOn(client, 'listMessages').mockResolvedValue([])
     const router = makeRouter()

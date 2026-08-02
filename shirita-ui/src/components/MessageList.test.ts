@@ -214,5 +214,34 @@ describe('MessageList', () => {
       await flushPromises()
       expect(el.scrollTop).toBe(100)
     })
+
+    it('keeps one stable scroller node across empty, streaming, and populated states', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [], style: 'bubble' },
+      })
+      const first = wrapper.find(scrollSel).element
+      await wrapper.setProps({ isStreaming: true, streamingText: 'growing...' })
+      await flushPromises()
+      await wrapper.setProps({ isStreaming: false, streamingText: '' })
+      await flushPromises()
+      await wrapper.setProps({ messages: [makeMsg({ id: 'm1', role: 'user', raw_content: 'hi' })] })
+      await flushPromises()
+      // The scroller node is not replaced across state transitions.
+      expect(wrapper.find(scrollSel).element).toBe(first)
+      expect(wrapper.findAll(scrollSel)).toHaveLength(1)
+    })
+
+    it('does not replace the scroller node when non-scroll props change', async () => {
+      const wrapper = mount(MessageList, {
+        props: { messages: [makeMsg({ id: 'm1', role: 'user', raw_content: 'hi' })], style: 'bubble' },
+      })
+      const first = wrapper.find(scrollSel).element
+      const identity = { assistant: { name: 'Neo', avatar: '' }, user: { name: 'Me', avatar: '' } }
+      await wrapper.setProps({ identity })
+      await wrapper.setProps({ style: 'flat' })
+      await wrapper.setProps({ tokens: 42 })
+      await flushPromises()
+      expect(wrapper.find(scrollSel).element).toBe(first)
+    })
   })
 })
