@@ -15,7 +15,7 @@ import {
 } from "../api/client";
 import type { AgentSettings, AgentSettingsView, Definition, RegexScope } from "../api/types";
 import { metaToRule, scopeFlagsToMeta } from "../utils/regexRule";
-import { providerKey, type ProviderField } from "../utils/providerKeys";
+import { defaultProviderBaseUrls, providerKey, type ProviderField } from "../utils/providerKeys";
 import { fallbackModels } from "../api/modelCatalog";
 import SliderControl from "../components/SliderControl.vue";
 import RegexRuleEditor from "../components/RegexRuleEditor.vue";
@@ -82,22 +82,6 @@ const sourceLabels: Record<string, string> = {
     custom: "Custom…",
 };
 
-const defaultBaseUrls: Record<string, string> = {
-    openai: "https://api.openai.com/v1",
-    anthropic: "https://api.anthropic.com/v1",
-    google: "https://generativelanguage.googleapis.com/v1beta",
-    openrouter: "https://openrouter.ai/api/v1",
-    mistral: "https://api.mistral.ai/v1",
-    deepseek: "https://api.deepseek.com/v1",
-    groq: "https://api.groq.com/openai/v1",
-    xai: "https://api.x.ai/v1",
-    cohere: "https://api.cohere.ai/v1",
-    together: "https://api.together.xyz/v1",
-    perplexity: "https://api.perplexity.ai",
-    ollama: "http://localhost:11434/v1",
-    custom: "",
-};
-
 // Local providers like Ollama don't check the API key at all; gating the
 // live /models fetch on a non-empty key (needed for hosted providers, where
 // an empty key would just 401) would otherwise leave Ollama users stuck on
@@ -126,7 +110,7 @@ const providerSource = computed({
         set("provider_source", v);
         // Seed this source's base URL only if it has none saved yet.
         if (!get(providerKey(v, "base_url")))
-            set(providerKey(v, "base_url"), defaultBaseUrls[v] || "");
+            set(providerKey(v, "base_url"), defaultProviderBaseUrls[v] || "");
     },
 });
 const providerBaseUrl = computed({
