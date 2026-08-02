@@ -1002,4 +1002,111 @@ mod tests {
             HarnessEvent::Finished { response, .. } if response == "xml draft"
         )));
     }
+
+    #[tokio::test]
+    async fn calls_after_the_finish_fence_are_never_executed() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![
+                ModelEvent::ToolCall(replace_call("hi")),
+                ModelEvent::ToolCall(finish_call_workspace()),
+                ModelEvent::ToolCall(ToolCall {
+                    id: "late".into(),
+                    name: "shirita.random.number".into(),
+                    arguments: serde_json::json!({"min": 1, "max": 2}),
+                    transport: ToolCallTransport::Native,
+                }),
+            ],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "hi"
+        )));
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::ToolStarted { call } if call.name == "shirita.random.number"
+        )));
+    }
+
+    #[tokio::test]
+    async fn duplicate_finish_calls_in_a_round_are_ignored() {
+        let provider = Arc::new(Scripted(Mutex::new(VecDeque::from([
+            vec![
+                ModelEvent::ToolCall(replace_call("x")),
+                ModelEvent::ToolCall(finish_call_workspace()),
+                ModelEvent::ToolCall(ToolCall {
+                    id: "f2".into(),
+                    name: "shirita.run.finish".into(),
+                    arguments: serde_json::json!({"response": "ignored"}),
+                    transport: ToolCallTransport::Native,
+                }),
+            ],
+        ]))));
+        let events = run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        assert!(events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "x"
+        )));
+        assert!(!events.iter().any(|e| matches!(
+            e,
+            HarnessEvent::Finished { response, .. } if response == "ignored"
+        )));
+    }
+
+    #[tokio::test]
+    async fn capability_results_are_visible_only_in_the_next_round() {
+        let (provider, seen) = recording(vec![
+            vec![ModelEvent::ToolCall(ToolCall {
+                id: "m".into(),
+                name: "shirita.math.evaluate".into(),
+                arguments: serde_json::json!({"expression": "1+2"}),
+                transport: ToolCallTransport::Native,
+            })],
+            vec![ModelEvent::ToolCall(finish_call("done"))],
+        ]);
+        run(
+            provider,
+            request(),
+            AgentSettings::default(),
+            true,
+            Arc::new(crate::tools::builtin_tool_registry()),
+            StopToken::never(),
+            run_state(),
+        )
+        .collect::<Vec<_>>()
+        .await;
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        let req2 = &seen[1];
+        // The capability call/result is retained (not compacted) and present in
+        // the round-2 request: results become model-visible only next round.
+        assert!(req2
+            .messages
+            .iter()
+            .any(|m| m.tool_result.as_ref().is_some_and(|r| r.name == "shirita.math.evaluate")));
+        assert!(req2
+            .messages
+            .iter()
+            .any(|m| m.role == Role::Assistant && !m.tool_calls.is_empty()));
+    }
 }

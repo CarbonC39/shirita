@@ -1,7 +1,7 @@
 # Phase 5 implementation plan: response-centered RP Agent runtime and MCP Tools
 
-> Status: proposed implementation plan for review  
-> Date: 2026-08-02  
+> Status: Phase 5A implemented; Phase 5B not started
+> Date: 2026-08-02
 > Scope: complete the Phase 4 Agent foundation around a mutable response workspace, then connect explicitly configured MCP Tools to the same runtime
 
 ## Goal
@@ -678,29 +678,31 @@ Keep live prompts and results short for low-memory hardware. Record exact enviro
 
 Before completion, update README/current direction/architecture/module docs; document response visibility, MCP revision/transports, stdio execution location, HTTP auth limitations, secrets, policies, and limits; record live Web/Tauri checks; and leave state Tools, response persistence, metadata Tools, broader plugins, and MCP non-Tool capabilities as future work.
 
-- [ ] Shirita is treated as an RP platform with a neutral text-generation harness, not a coding Agent.
-- [ ] The response workspace is the run's explicit working object.
-- [ ] Every provider round receives exactly one complete current workspace snapshot.
-- [ ] No model-facing response read Tool or accumulated historical snapshot duplicates the canonical text.
-- [ ] Snapshot format, placement, and native/XML transcript compaction are locked by exact fixtures.
-- [ ] Ordinary output never mutates the response implicitly.
-- [ ] Replace and batch-patch mutations are revisioned, bounded, atomic, and recoverable.
-- [ ] Response handlers are stateless; only the run applies typed workspace controls.
-- [ ] Finish supports workspace commit and simple one-shot submission.
-- [ ] Phase 5A passes before MCP work begins.
-- [ ] Native/XML capability-result-edit-finish works with the selected small model.
-- [ ] Multi-Tool rounds are ordered, results appear only in later rounds, and finish is a tested terminal fence.
-- [ ] Recoverable failures before finish cannot commit a stale or partially edited workspace.
-- [ ] Provider, Tool-call, final-response, and MCP streaming boundaries are explicit and tested.
-- [ ] Stop and finish prevent all later calls/rounds.
-- [ ] Activity/status is structured, transient, compact, run-scoped, and gated.
+- [x] Shirita is treated as an RP platform with a neutral text-generation harness, not a coding Agent.
+- [x] The response workspace is the run's explicit working object.
+- [x] Every provider round receives exactly one complete current workspace snapshot.
+- [x] No model-facing response read Tool or accumulated historical snapshot duplicates the canonical text.
+- [x] Snapshot format, placement, and native/XML transcript compaction are locked by exact fixtures.
+- [x] Ordinary output never mutates the response implicitly.
+- [x] Replace and batch-patch mutations are revisioned, bounded, atomic, and recoverable.
+- [x] Response handlers are stateless; only the run applies typed workspace controls.
+- [x] Finish supports workspace commit and simple one-shot submission.
+- [ ] Phase 5A passes before MCP work begins (automated gate green; live `gemma-4-e4b` gate and desktop checks pending).
+- [ ] Native/XML capability-result-edit-finish works with the selected small model (live check pending).
+- [x] Multi-Tool rounds are ordered, results appear only in later rounds, and finish is a tested terminal fence.
+- [x] Recoverable failures before finish cannot commit a stale or partially edited workspace.
+- [x] Provider, Tool-call, final-response, and MCP streaming boundaries are explicit and tested (MCP part deferred to 5B).
+- [x] Stop and finish prevent all later calls/rounds.
+- [x] Activity/status is structured, transient, compact, run-scoped, and gated.
 - [ ] MCP supports stdio and Streamable HTTP for Tools only.
 - [ ] MCP Tools share the immutable registry/executor with built-ins.
 - [ ] Tool identities cannot overwrite handlers.
 - [ ] Configuration/secrets are typed, validated, redacted, and revalidated.
 - [ ] Disabled/allow/ask policies do not prescribe Tool purpose.
-- [ ] Limits are centralized with no hidden retries or constraints.
-- [ ] Agent-off and prior chat/runtime behavior remain intact.
-- [ ] Desktop and self-hosted modes share behavior.
-- [ ] Verification is recorded honestly.
-- [ ] Prompt composition remains Phase 6 and the cleanup endpoint.
+- [x] Limits are centralized with no hidden retries or constraints.
+- [x] Agent-off and prior chat/runtime behavior remain intact.
+- [ ] Desktop and self-hosted modes share behavior (packaged-desktop check pending).
+- [x] Verification is recorded honestly.
+- [x] Prompt composition remains Phase 6 and the cleanup endpoint.
+
+Implementation note (2026-08-02): Phase 5A automated verification passes — the full Rust workspace suite (including a pre-existing, unrelated parallel-env race in two `config` tests that passes single-threaded), all UI tests, and the production UI build. The response workspace, replace/patch controls, finish commit + one-shot path, canonical snapshot overlay, response-control compaction, unified failures, Stop boundaries, and the run-scoped activity/status UI are implemented and committed. Live-provider verification against `gemma-4-e4b`, packaged Tauri/WebKit checks, and all Phase 5B MCP work remain open.
