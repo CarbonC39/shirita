@@ -80,4 +80,49 @@ describe('Composer', () => {
     await wrapper.vm.$nextTick()
     expect((wrapper.find('[data-test="send-btn"]').element as HTMLButtonElement).disabled).toBe(false)
   })
+
+  it('reserves no token/status row for an empty draft', () => {
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    expect(wrapper.find('[data-test="draft-tokens"]').exists()).toBe(false)
+  })
+
+  it('shows draft-token info for non-empty text without replacing the send control', async () => {
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    await wrapper.find('textarea').setValue('hello world')
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('[data-test="draft-tokens"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="send-btn"]').exists()).toBe(true)
+    expect(wrapper.find('textarea').exists()).toBe(true)
+  })
+
+  it('resets the textarea height to its minimum after send', async () => {
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    const ta = wrapper.find('textarea').element as HTMLTextAreaElement
+    ta.style.height = '120px'
+    await wrapper.find('textarea').setValue('a message')
+    await wrapper.find('[data-test="send-btn"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    // Empty after send: autosize clamps back to the natural row height.
+    expect((wrapper.find('textarea').element as HTMLTextAreaElement).value).toBe('')
+    expect(Number.parseFloat((wrapper.find('textarea').element as HTMLTextAreaElement).style.height)).toBeLessThan(120)
+  })
+
+  it('keeps the textarea as the flexible element in the main control row', () => {
+    const wrapper = mount(Composer, { props: { disabled: false } })
+    const ta = wrapper.find('textarea')
+    expect(ta.attributes('class')).toContain('flex-1')
+    // A stable hook exists for styling the textarea without utility strings.
+    expect(ta.classes()).toContain('app-composer-textarea')
+  })
+
+  it('keeps Stop in the same control slot as Send without changing Composer width', () => {
+    const send = mount(Composer, { props: { disabled: false } })
+    const stop = mount(Composer, { props: { disabled: false, streaming: true } })
+    expect(send.find('[data-test="send-btn"]').exists()).toBe(true)
+    expect(stop.find('[data-test="stop-btn"]').exists()).toBe(true)
+    expect(stop.find('[data-test="send-btn"]').exists()).toBe(false)
+    // Both occupy the same flex row; neither forces a width change.
+    expect(send.find('textarea').classes()).toContain('flex-1')
+    expect(stop.find('textarea').classes()).toContain('flex-1')
+  })
 })

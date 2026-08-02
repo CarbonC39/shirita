@@ -25,12 +25,13 @@ const hasText = computed(() => text.value.trim().length > 0)
 const canSend = computed(() => hasText.value || pending.value.length > 0)
 const draftTokens = computed(() => estimateTokens(text.value))
 
-// Auto-grow the textarea to fit its content up to a max height (~7 rows).
+// Auto-grow the textarea to fit its content, clamped by the CSS max-height
+// (`min(40dvh, 12rem)`); above that it scrolls internally.
 function autosize() {
   const el = textarea.value
   if (!el) return
   el.style.height = 'auto'
-  el.style.height = `${Math.min(el.scrollHeight, 200)}px`
+  el.style.height = `${el.scrollHeight}px`
 }
 
 function pickFile() {
@@ -116,9 +117,11 @@ function onKeydown(e: KeyboardEvent) {
         :disabled="disabled"
         rows="1"
         :placeholder="$t('composer.placeholder')"
-        class="flex-1 resize-none rounded-xl border border-line px-3.5 py-2.5 text-[15px] leading-relaxed
+        data-test="composer-textarea"
+        class="app-composer-textarea flex-1 resize-none rounded-xl border border-line px-3.5 py-2.5 text-[15px] leading-relaxed
                focus:outline-none focus:border-primary/50 placeholder:text-muted/60
-               disabled:bg-surface disabled:text-muted/50 max-h-[200px]"
+               disabled:bg-surface disabled:text-muted/50 overflow-y-auto"
+        :style="{ maxHeight: 'min(40dvh, 12rem)', minHeight: '16px' }"
         @keydown="onKeydown"
         @input="autosize"
       />
@@ -146,8 +149,9 @@ function onKeydown(e: KeyboardEvent) {
         <ArrowUp :size="18" />
       </button>
     </div>
-    <div class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pt-1 h-[18px]">
-      <span v-if="hasText" class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
+    <!-- Draft-token info: only when the draft is non-empty; never an empty row. -->
+    <div v-if="hasText" class="mx-auto w-full max-w-[820px] pl-[42px] pr-[46px] pt-1">
+      <span data-test="draft-tokens" class="text-[11px] text-muted tabular-nums">{{ $t('common.tokensEstimate', { tokens: formatTokens(draftTokens) }, draftTokens) }}</span>
     </div>
   </div>
 </template>
