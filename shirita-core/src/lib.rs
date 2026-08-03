@@ -13,6 +13,7 @@ pub mod hashing;
 pub mod html_patch;
 pub mod identity;
 pub mod keyword;
+pub mod mcp;
 pub mod model;
 pub mod models;
 pub mod panels;
@@ -77,6 +78,10 @@ pub use state::{
 pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
 pub use summarize::run as run_summary;
+pub use mcp::{
+    McpCallResult, McpServerConfig, McpSession, McpToolDef, McpTransportConfig,
+    MCP_PROTOCOL_VERSION,
+};
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
 pub use tools::{builtin_tool_registry, ToolCall, ToolCallTransport, ToolControl, ToolExecution, ToolRegistry, ToolResult, ToolResultStatus, ToolSource, ToolSpec};
 pub use xml_tools::{parse_xml_tool_round, render_xml_tool_result, xml_protocol_prompt, XmlRound};

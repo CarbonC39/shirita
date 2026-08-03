@@ -16,6 +16,9 @@ pub enum Error {
 
     #[error("config error: {0}")]
     Config(String),
+
+    #[error("mcp error: {0}")]
+    Mcp(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

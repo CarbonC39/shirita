@@ -24,7 +24,7 @@ rand = "0.8"
 tracing.workspace = true
 base64 = "0.22"
 sha2 = "0.10"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "process", "io-util"] }
 
 [dev-dependencies]
 tempfile = "3"
