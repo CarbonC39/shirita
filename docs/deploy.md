@@ -53,6 +53,15 @@ has no built-in login. For anything beyond a trusted LAN, put a reverse proxy
 with its own authentication (and TLS) in front, or restrict access by network
 (VPN / firewall). Do not expose it directly to the internet unauthenticated.
 
+## MCP servers
+
+Configured MCP servers (stdio / Streamable HTTP) run on the Shirita server or
+container, not the browser device. In self-hosted mode the container must be
+able to launch the configured stdio executables and reach the configured HTTP
+endpoints. Conversations are a single-tenant data domain (they carry no owner),
+so the Agent authorize/deny routes are gated by the shared authenticated API
+token; per-conversation ownership must be added before any multi-tenancy.
+
 ## Releases
 
 Pushing a `v*` tag runs three workflows: `docker.yml` (publishes

@@ -62,9 +62,33 @@ impl HttpSession {
         Err(Error::Mcp(format!("mcp http response id mismatch (wanted {id})")))
     }
 
-    /// Send a JSON-RPC notification; the response body is drained and ignored.
+    /// Send a JSON-RPC notification. Unlike requests, a notification's response
+    /// may be a success with an empty body (the MCP spec does not require a JSON
+    /// response for notifications), so it is drained but not parsed.
     pub async fn notify(&self, message: &Value) -> Result<()> {
-        let _ = self.post(message).await?;
+        let mut builder = self
+            .client
+            .post(&self.url)
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json, text/event-stream");
+        for (key, value) in &self.headers {
+            builder = builder.header(key, value);
+        }
+        if let Some(sid) = self.session_id.lock().await.as_ref() {
+            builder = builder.header("Mcp-Session-Id", sid);
+        }
+        let response = builder
+            .body(message.to_string())
+            .send()
+            .await
+            .map_err(|e| Error::Mcp(format!("mcp http notification failed: {e}")))?;
+        if !response.status().is_success() {
+            return Err(Error::Mcp(format!(
+                "mcp http notification returned {}",
+                response.status()
+            )));
+        }
+        let _ = read_bounded_body(response, crate::mcp::MCP_MAX_HTTP_BODY_BYTES).await?;
         Ok(())
     }
 
@@ -160,12 +184,29 @@ pub(crate) fn validate_header_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Redirects stay on the original origin so configured secret headers are never
-/// forwarded to a cross-host target.
-fn same_origin_redirect_policy(original: &str) -> reqwest::redirect::Policy {
+/// Max same-origin redirects before the request fails (a same-origin redirect
+/// loop cannot run to the request timeout).
+const MAX_REDIRECTS: usize = 3;
+
+/// Whether a redirect to `url` should be followed: only same-origin, and only
+/// within the count bound. Cross-origin redirects stop so configured secret
+/// headers are never forwarded to a different host.
+pub(crate) fn should_follow_redirect(
+    original_origin: &(String, String, Option<u16>),
+    url: &str,
+    previous_count: usize,
+) -> bool {
+    previous_count < MAX_REDIRECTS && origin_of(url) == *original_origin
+}
+
+/// Redirects stay on the original origin (so configured secret headers are
+/// never forwarded to a cross-host target) and are bounded in count so a
+/// same-origin redirect loop fails at the declared limit rather than running to
+/// the request timeout.
+pub(crate) fn same_origin_redirect_policy(original: &str) -> reqwest::redirect::Policy {
     let original_origin = origin_of(original);
     reqwest::redirect::Policy::custom(move |attempt| {
-        if origin_of(attempt.url().as_str()) == original_origin {
+        if should_follow_redirect(&original_origin, attempt.url().as_str(), attempt.previous().len()) {
             attempt.follow()
         } else {
             attempt.stop()

@@ -8,7 +8,8 @@
 use std::collections::HashMap;
 
 use serde_json::{Map, Value};
-use tokio::sync::{Mutex, oneshot};
+use std::sync::Mutex;
+use tokio::sync::oneshot;
 
 /// The outcome of an authorization wait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,9 +65,10 @@ struct PendingGuard<'a> {
 
 impl Drop for PendingGuard<'_> {
     fn drop(&mut self) {
-        // Best-effort: the pending mutex is uncontended at drop time, but use
-        // try_lock so a contended lock cannot block the async drop path.
-        if let Ok(mut pending) = self.broker.pending.try_lock() {
+        // The pending mutex is a std Mutex never held across an await, so a
+        // deterministic sync lock here cannot deadlock and never fails: the
+        // entry is always removed on timeout, Stop, or future drop.
+        if let Ok(mut pending) = self.broker.pending.lock() {
             pending.remove(&self.key);
         }
     }
@@ -112,7 +114,7 @@ impl AuthorizationBroker {
             preview,
             reply: Some(tx),
         };
-        self.pending.lock().await.insert(key, pending);
+        let _ = self.pending.lock().unwrap().insert(key, pending);
         match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1)), rx).await {
             Ok(Ok(decision)) => decision,
             // Sender dropped (caller cancelled) or internal timeout: the guard
@@ -130,7 +132,7 @@ impl AuthorizationBroker {
         decision: AuthorizationDecision,
     ) -> Option<PendingAuthorization> {
         let key = Self::key(run_id, call_id);
-        let mut pending = self.pending.lock().await;
+        let mut pending = self.pending.lock().unwrap();
         let mut entry = pending.remove(&key)?;
         if let Some(reply) = entry.reply.take() {
             let _ = reply.send(decision);
@@ -142,7 +144,7 @@ impl AuthorizationBroker {
     pub async fn pending_for_session(&self, session_id: &str) -> Vec<PendingAuthorizationInfo> {
         self.pending
             .lock()
-            .await
+            .unwrap()
             .values()
             .filter(|p| p.session_id == session_id)
             .map(|p| PendingAuthorizationInfo {

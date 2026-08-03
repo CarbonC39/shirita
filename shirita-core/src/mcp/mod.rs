@@ -51,6 +51,12 @@ pub const MCP_MAX_RESULT_TEXT_BYTES: usize = 64 * 1024;
 pub const MCP_MAX_CONFIG_ITEMS: usize = 64;
 /// Max bytes of one configured stdio arg / env value or HTTP header value.
 pub const MCP_MAX_CONFIG_ITEM_BYTES: usize = 8 * 1024;
+/// Max configured MCP servers (enforced on save).
+pub const MCP_MAX_CONFIGURED_SERVERS: usize = 16;
+/// Max enabled servers a single run may connect to (the rest are skipped).
+pub const MCP_MAX_ENABLED_SERVERS_PER_RUN: usize = 8;
+/// Max effective (policy-allowed) MCP Tools in a frozen run registry.
+pub const MCP_MAX_EFFECTIVE_TOOLS: usize = 128;
 
 /// Transport configuration for one MCP server. Stored typed and revalidated by
 /// the runtime at connection time; never trusted from the save route alone.

@@ -577,7 +577,7 @@ ask       visible, but this call waits for user authorization
 
 These are capability choices for RP generation, not a coding-Agent risk taxonomy.
 
-For `ask`, bind the request to authenticated conversation ownership plus frozen run/call/server/Tool/arguments; show only a bounded redacted preview; accept a decision once; reject stale/mismatched decisions; execute only frozen arguments; return `authorization_denied` on denial when continuation is possible; make Stop resolve the wait; and never turn a one-time decision into a stored policy.
+For `ask`, bind the request to the authenticated session plus frozen run/call/server/Tool/arguments; show only a bounded redacted preview; accept a decision once; reject stale/mismatched decisions; execute only frozen arguments; return `authorization_denied` on denial when continuation is possible; make Stop resolve the wait; and never turn a one-time decision into a stored policy. Ownership today is the authenticated single-tenant data domain (see the API section note); per-conversation ownership must be added before multi-tenancy.
 
 ### MCP UI and API
 
@@ -596,7 +596,7 @@ POST           /api/agent-runs/{run_id}/calls/{call_id}/approve
 POST           /api/agent-runs/{run_id}/calls/{call_id}/deny
 ```
 
-The generic settings endpoint is not the sole validation boundary. Run/call IDs do not authorize access without conversation ownership.
+The generic settings endpoint is not the sole validation boundary. Run/call IDs do not authorize access without conversation ownership. **Current boundary:** `chat_sessions` carry no `user_id`, so conversations form an authenticated single-tenant data domain; the authorize/pending routes sit behind the shared auth gate, which is the ownership boundary today. If multi-tenancy is introduced later, conversations must first gain an owner and these routes must re-check it before resolving decisions.
 
 ## Declared limits
 

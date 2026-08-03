@@ -27,8 +27,9 @@ async fn start_mock_http() -> MockHttpServer {
             };
             let list_calls = list_calls.clone();
             let loop_cursor = server_loop_cursor.clone();
+            let base = format!("http://{addr}");
             tokio::spawn(async move {
-                let _ = handle_http(&mut sock, &list_calls, &loop_cursor).await;
+                let _ = handle_http(&mut sock, &list_calls, &loop_cursor, &base).await;
             });
         }
     });
@@ -39,29 +40,38 @@ async fn handle_http(
     sock: &mut tokio::net::TcpStream,
     list_calls: &AtomicUsize,
     loop_cursor: &std::sync::atomic::AtomicBool,
+    base: &str,
 ) -> std::io::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 2048];
+    // Handle requests on one connection until the client closes it (so a
+    // connection-reusing redirect follow is answered by this same handler).
     loop {
-        let n = sock.read(&mut tmp).await?;
-        if n == 0 {
-            return Ok(());
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 2048];
+        loop {
+            let n = sock.read(&mut tmp).await?;
+            if n == 0 {
+                return Ok(());
+            }
+            buf.extend_from_slice(&tmp[..n]);
+            if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+            if buf.len() > 64 * 1024 {
+                return Ok(());
+            }
         }
-        buf.extend_from_slice(&tmp[..n]);
-        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-            break;
-        }
-        if buf.len() > 64 * 1024 {
-            return Ok(());
-        }
-    }
-    let header_end = buf
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .map(|i| i + 4)
-        .unwrap_or(buf.len());
-    let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
+        let header_end = buf
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|i| i + 4)
+            .unwrap_or(buf.len());
+        let headers = String::from_utf8_lossy(&buf[..header_end]).to_string();
+    let path = headers
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or("/");
     let content_length: usize = headers
         .lines()
         .find_map(|l| {
@@ -70,6 +80,8 @@ async fn handle_http(
                 .and_then(|v| v.trim().parse().ok())
         })
         .unwrap_or(0);
+    // Drain the full request body before responding so a redirect cannot reset
+    // the connection while the client is still writing.
     while buf.len() < header_end + content_length {
         let n = sock.read(&mut tmp).await?;
         if n == 0 {
@@ -77,13 +89,32 @@ async fn handle_http(
         }
         buf.extend_from_slice(&tmp[..n]);
     }
+    if path == "/redirect" {
+        // A single same-origin redirect to the MCP endpoint.
+        let resp = format!("HTTP/1.1 302 Found\r\nLocation: {base}/mcp\r\nContent-Length: 0\r\n\r\n");
+        sock.write_all(resp.as_bytes()).await?;
+        continue;
+    }
+    if path == "/loop" {
+        // A same-origin redirect loop (client must stop at its count limit).
+        let resp = format!("HTTP/1.1 302 Found\r\nLocation: {base}/loop\r\nContent-Length: 0\r\n\r\n");
+        sock.write_all(resp.as_bytes()).await?;
+        continue;
+    }
     let body = String::from_utf8_lossy(&buf[header_end..]).to_string();
     let value: Value = match serde_json::from_str(body.trim()) {
         Ok(v) => v,
         Err(_) => return Ok(()),
     };
     let response = match value.get("id") {
-        None => json!({}), // notification: no body
+        None => {
+            // A notification is acknowledged with an empty 202 body (the client
+            // must not require JSON for it).
+            let resp = "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n";
+            sock.write_all(resp.as_bytes()).await?;
+            sock.flush().await?;
+            continue;
+        }
         Some(id) => {
             let method = value.get("method").and_then(Value::as_str).unwrap_or("");
             let result = match method {
@@ -126,7 +157,7 @@ async fn handle_http(
     );
     sock.write_all(resp.as_bytes()).await?;
     sock.flush().await?;
-    Ok(())
+    }
 }
 
 #[tokio::test]
@@ -305,4 +336,22 @@ fn validate_rejects_bad_ids_and_remote_plain_http() {
         headers: vec![],
     };
     assert!(config.validate().is_ok());
+}
+
+
+#[test]
+fn redirect_policy_is_same_origin_and_bounded_in_count() {
+    use http::should_follow_redirect;
+    // original_origin is (scheme, host, port).
+    let origin = ("http".to_string(), "localhost".to_string(), Some(8080));
+    // Same-origin within the bound -> follow.
+    assert!(should_follow_redirect(&origin, "http://localhost:8080/mcp", 0));
+    assert!(should_follow_redirect(&origin, "http://localhost:8080/mcp", 2));
+    // Same-origin at/over the count bound -> stop (loop fails at the limit).
+    assert!(!should_follow_redirect(&origin, "http://localhost:8080/mcp", 3));
+    // Cross-origin (different host, port, or scheme) -> stop, never forward
+    // configured secret headers.
+    assert!(!should_follow_redirect(&origin, "http://evil.example/mcp", 0));
+    assert!(!should_follow_redirect(&origin, "http://localhost:9999/mcp", 0));
+    assert!(!should_follow_redirect(&origin, "https://localhost:8080/mcp", 0));
 }

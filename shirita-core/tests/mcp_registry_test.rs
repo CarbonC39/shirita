@@ -250,3 +250,44 @@ async fn ask_tool_approval_executes_the_frozen_call() {
     assert_eq!(exec.result.status, ToolResultStatus::Ok);
     assert_eq!(exec.result.output["ok"], true, "approved ask call executes the frozen arguments");
 }
+
+#[tokio::test]
+async fn broker_timeout_and_drop_clear_pending() {
+    use shirita_core::mcp::authorization::{
+        AuthorizationBroker, AuthorizationDecision,
+    };
+
+    let broker = std::sync::Arc::new(AuthorizationBroker::new());
+
+    // Internal timeout: the entry is cleared after the wait expires.
+    let decision = broker
+        .request_and_wait("r", "s", "server", "tool", "c1", serde_json::json!({}), 1)
+        .await;
+    assert_eq!(decision, AuthorizationDecision::Expired);
+    assert!(broker.pending_for_session("s").await.is_empty());
+
+    // Future drop (abort): spawn a waiter, let it register, then abort; the
+    // RAII guard clears the entry even while a decision was never delivered.
+    let broker_for_task = broker.clone();
+    let handle = tokio::spawn(async move {
+        broker_for_task
+            .request_and_wait("r", "s", "server", "tool", "c2", serde_json::json!({}), 5000)
+            .await
+    });
+    for _ in 0..100 {
+        if !broker.pending_for_session("s").await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!broker.pending_for_session("s").await.is_empty(), "waiter should register");
+    handle.abort();
+    let _ = handle.await;
+    for _ in 0..100 {
+        if broker.pending_for_session("s").await.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(broker.pending_for_session("s").await.is_empty(), "drop must clear the pending entry");
+}

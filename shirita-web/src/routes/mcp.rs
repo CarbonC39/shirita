@@ -16,7 +16,8 @@ use shirita_core::mcp::authorization::{
 };
 use shirita_core::mcp::{
     McpServerConfig, McpServerRecord, McpSession, McpToolDef, MCP_AUTHORIZATION_TIMEOUT_MS,
-    MCP_MAX_CONFIG_ITEM_BYTES, MCP_MAX_CONFIG_ITEMS, MCP_MAX_DISCOVERY_PAGES,
+    MCP_MAX_CONFIGURED_SERVERS, MCP_MAX_CONFIG_ITEM_BYTES, MCP_MAX_CONFIG_ITEMS,
+    MCP_MAX_DISCOVERY_PAGES, MCP_MAX_EFFECTIVE_TOOLS, MCP_MAX_ENABLED_SERVERS_PER_RUN,
     MCP_MAX_HTTP_BODY_BYTES, MCP_MAX_RESULT_TEXT_BYTES, MCP_MAX_STDIO_LINE_BYTES,
     MCP_MAX_TOOL_DESCRIPTION_BYTES, MCP_MAX_TOOL_NAME_BYTES, MCP_MAX_TOOLS_PER_SERVER,
     MCP_MAX_TOOL_SCHEMA_BYTES,
@@ -58,6 +59,9 @@ pub struct McpLimits {
     max_result_text_bytes: usize,
     max_config_items: usize,
     max_config_item_bytes: usize,
+    max_configured_servers: usize,
+    max_enabled_servers_per_run: usize,
+    max_effective_tools: usize,
 }
 
 pub async fn limits() -> Json<McpLimits> {
@@ -73,6 +77,9 @@ pub async fn limits() -> Json<McpLimits> {
         max_result_text_bytes: MCP_MAX_RESULT_TEXT_BYTES,
         max_config_items: MCP_MAX_CONFIG_ITEMS,
         max_config_item_bytes: MCP_MAX_CONFIG_ITEM_BYTES,
+        max_configured_servers: MCP_MAX_CONFIGURED_SERVERS,
+        max_enabled_servers_per_run: MCP_MAX_ENABLED_SERVERS_PER_RUN,
+        max_effective_tools: MCP_MAX_EFFECTIVE_TOOLS,
     })
 }
 
@@ -114,6 +121,10 @@ pub async fn create_server(
         config.id = format!("mcp-{}", uuid::Uuid::new_v4().simple());
     }
     config.validate().map_err(|_| StatusCode::BAD_REQUEST)?;
+    let count = state.storage.list_mcp_servers().await.map_err(internal)?.len();
+    if count >= MCP_MAX_CONFIGURED_SERVERS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let record = McpServerRecord {
         config,
         created_at: now(),

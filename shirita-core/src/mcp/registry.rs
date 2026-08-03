@@ -12,7 +12,10 @@ use crate::tools::{ToolRegistry, ToolSpec, ToolSource};
 use crate::Result;
 
 use super::authorization::AuthorizationBroker;
-use super::{McpAccess, McpPolicy, McpSession, McpToolHandler, mcp_tool_name, MCP_AUTHORIZATION_TIMEOUT_MS};
+use super::{
+    McpAccess, McpPolicy, McpSession, McpToolHandler, mcp_tool_name,
+    MCP_AUTHORIZATION_TIMEOUT_MS, MCP_MAX_EFFECTIVE_TOOLS, MCP_MAX_ENABLED_SERVERS_PER_RUN,
+};
 
 /// Read the effective MCP policy: the global `mcp.policy` setting, optionally
 /// overridden per conversation by `session.override_config.mcp_policy`.
@@ -47,7 +50,25 @@ pub async fn build_effective_tool_registry(
     }
     let policy = effective_mcp_policy(storage, session).await;
     let mut builder = crate::tools::builtin_tool_registry_builder();
+    let mut enabled_servers = 0usize;
+    let mut effective_tools = 0usize;
     for server in servers.iter().filter(|s| s.config.enabled) {
+        if enabled_servers >= MCP_MAX_ENABLED_SERVERS_PER_RUN {
+            tracing::warn!(
+                server = %server.config.id,
+                limit = MCP_MAX_ENABLED_SERVERS_PER_RUN,
+                "skipping MCP server: enabled-server limit reached"
+            );
+            continue;
+        }
+        if effective_tools >= MCP_MAX_EFFECTIVE_TOOLS {
+            tracing::warn!(
+                limit = MCP_MAX_EFFECTIVE_TOOLS,
+                "skipping remaining MCP servers: effective Tool limit reached"
+            );
+            break;
+        }
+        enabled_servers += 1;
         let session_handle = match McpSession::connect(&server.config).await {
             Ok(session) => Arc::new(tokio::sync::Mutex::new(session)),
             Err(e) => {
@@ -90,6 +111,8 @@ pub async fn build_effective_tool_registry(
             if let Err(e) = builder.register_owned(spec, Arc::new(handler)) {
                 // Collision or malformed name: never overwrite an existing handler.
                 tracing::warn!(server = %server.config.id, tool = %tool.name, error = %e, "mcp tool registration rejected");
+            } else {
+                effective_tools += 1;
             }
         }
     }
