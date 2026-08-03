@@ -34,6 +34,10 @@ pub struct ToolSpec {
     /// excluded from the user-facing capability checklist.
     #[serde(default)]
     pub selected: bool,
+    /// The execution waits for a user authorization decision; the loop must not
+    /// bound it with the ordinary Tool-call timeout.
+    #[serde(default)]
+    pub requires_authorization: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -430,6 +434,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: true,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(StatusTool),
         )
@@ -443,6 +448,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: true,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(FinishTool),
         )
@@ -456,6 +462,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: true,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(ReplaceResponseTool),
         )
@@ -479,6 +486,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: true,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(PatchResponseTool),
         )
@@ -495,6 +503,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: false,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(RandomNumberTool),
         )
@@ -511,6 +520,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source: source.clone(),
                 required: false,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(RandomChooseTool),
         )
@@ -525,6 +535,7 @@ pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
                 source,
                 required: false,
                 selected: false,
+                requires_authorization: false,
             },
             Arc::new(MathTool),
         )

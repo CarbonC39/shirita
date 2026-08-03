@@ -4,6 +4,7 @@
 //! redacted diagnostics. No Shirita auth, provider keys, cookies, or unrelated
 //! headers are ever forwarded; only the configured static headers are sent.
 
+use futures::StreamExt;
 use serde_json::Value;
 use tokio::sync::Mutex;
 
@@ -23,10 +24,19 @@ impl HttpSession {
         headers: &[(String, String)],
         timeout_ms: u64,
     ) -> Result<HttpSession> {
+        // Configured headers are validated against a routing/hop-by-hop
+        // denylist; Shirita's own auth is never forwarded automatically.
+        for (name, value) in headers {
+            validate_header_name(name)?;
+            if value.len() > crate::mcp::MCP_MAX_CONFIG_ITEM_BYTES {
+                return Err(Error::Mcp("mcp http header value too large".into()));
+            }
+        }
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(timeout_ms.max(1)))
-            // Bounded redirects; never follow to an arbitrary host.
-            .redirect(reqwest::redirect::Policy::limited(3))
+            // Redirects stay on the original origin so custom secret headers can
+            // never be forwarded to a cross-host target.
+            .redirect(same_origin_redirect_policy(url))
             .build()
             .map_err(|e| Error::Mcp(format!("mcp http client build failed: {e}")))?;
         validate_url(url).map_err(Error::Mcp)?;
@@ -89,10 +99,7 @@ impl HttpSession {
             .and_then(|v| v.to_str().ok())
             .unwrap_or("")
             .to_string();
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| Error::Mcp(format!("mcp http response read failed: {e}")))?;
+        let bytes = read_bounded_body(response, crate::mcp::MCP_MAX_HTTP_BODY_BYTES).await?;
         if content_type.contains("text/event-stream") {
             let text = String::from_utf8_lossy(&bytes);
             parse_sse(&text)
@@ -121,6 +128,73 @@ fn parse_sse(text: &str) -> Result<Value> {
         }
     }
     Err(Error::Mcp("mcp HTTP SSE stream contained no JSON-RPC message".into()))
+}
+
+/// Reject routing/hop-by-hop header names that must never come from user
+/// configuration (Shirita's own auth/session handling is applied separately).
+pub(crate) fn validate_header_name(name: &str) -> Result<()> {
+    let lower = name.to_ascii_lowercase();
+    const DENYLIST: &[&str] = &[
+        "host",
+        "content-length",
+        "connection",
+        "transfer-encoding",
+        "cookie",
+        "mcp-session-id",
+        "proxy-authorization",
+        "proxy-authenticate",
+        "upgrade",
+        "te",
+        "trailer",
+        "keep-alive",
+        "expect",
+    ];
+    if DENYLIST.contains(&lower.as_str()) {
+        return Err(Error::Mcp(format!(
+            "mcp http header '{name}' is reserved or hop-by-hop"
+        )));
+    }
+    if lower.len() > 256 {
+        return Err(Error::Mcp("mcp http header name too long".into()));
+    }
+    Ok(())
+}
+
+/// Redirects stay on the original origin so configured secret headers are never
+/// forwarded to a cross-host target.
+fn same_origin_redirect_policy(original: &str) -> reqwest::redirect::Policy {
+    let original_origin = origin_of(original);
+    reqwest::redirect::Policy::custom(move |attempt| {
+        if origin_of(attempt.url().as_str()) == original_origin {
+            attempt.follow()
+        } else {
+            attempt.stop()
+        }
+    })
+}
+
+fn origin_of(url: &str) -> (String, String, Option<u16>) {
+    let parsed = reqwest::Url::parse(url).unwrap_or_else(|_| reqwest::Url::parse("http://localhost").unwrap());
+    (
+        parsed.scheme().to_string(),
+        parsed.host_str().unwrap_or("").to_string(),
+        parsed.port(),
+    )
+}
+
+/// Read a response body up to a byte cap so a malicious server cannot make us
+/// buffer an unbounded payload.
+async fn read_bounded_body(response: reqwest::Response, cap: usize) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| Error::Mcp(format!("mcp http body read failed: {e}")))?;
+        if out.len().saturating_add(chunk.len()) > cap {
+            return Err(Error::Mcp("mcp http response body exceeded the declared limit".into()));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
 }
 
 fn parse_url_has_credentials(url: &str) -> bool {

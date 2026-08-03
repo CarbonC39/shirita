@@ -32,6 +32,41 @@ impl Drop for StdioSession {
     }
 }
 
+/// Read one newline-framed message up to `cap` bytes so a chatty or malicious
+/// server cannot make us buffer an unbounded line.
+async fn read_bounded_line<R: tokio::io::AsyncBufRead + Unpin>(
+    reader: &mut R,
+    out: &mut String,
+    cap: usize,
+) -> std::io::Result<usize> {
+    out.clear();
+    let mut total = 0usize;
+    loop {
+        let buf = reader.fill_buf().await?;
+        if buf.is_empty() {
+            break;
+        }
+        let newline_pos = buf.iter().position(|&b| b == b'\n');
+        let newline_len = newline_pos.map(|i| i + 1).unwrap_or(buf.len());
+        if total.saturating_add(newline_len) > cap {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "stdio message exceeded the declared limit",
+            ));
+        }
+        let take = newline_len;
+        let text = std::str::from_utf8(&buf[..take])
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "non-utf8 stdio message"))?;
+        out.push_str(text);
+        reader.consume(take);
+        total += take;
+        if newline_pos.is_some() {
+            break; // consumed through the newline
+        }
+    }
+    Ok(total)
+}
+
 impl StdioSession {
     /// Spawn the configured executable and start draining stderr.
     pub async fn spawn(
@@ -112,9 +147,9 @@ impl StdioSession {
         stdin.flush().await.map_err(|e| Error::Mcp(format!("mcp stdio flush failed: {e}")))?;
         loop {
             let mut response_line = String::new();
-            let n = io.stdout.read_line(&mut response_line).await.map_err(|e| {
-                Error::Mcp(format!("mcp stdio read failed: {e}"))
-            })?;
+            let n = read_bounded_line(&mut io.stdout, &mut response_line, crate::mcp::MCP_MAX_STDIO_LINE_BYTES)
+                .await
+                .map_err(|e| Error::Mcp(format!("mcp stdio read failed: {e}")))?;
             if n == 0 {
                 return Err(Error::Mcp("mcp stdio stream closed before a response".into()));
             }

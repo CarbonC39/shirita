@@ -174,7 +174,24 @@ pub fn run(
                     results.push(skipped.result);
                     break;
                 }
-                let timed = tokio::time::timeout(std::time::Duration::from_millis(settings.tool_timeout_ms), registry.execute(call, &settings.enabled_tools));
+                // An `ask`-policy Tool waits for a user decision inside execute;
+                // that wait is governed by the authorization-wait timeout, not the
+                // ordinary Tool-call timeout, so the user has time to approve.
+                let requires_auth = registry
+                    .spec(&call.name)
+                    .map(|spec| spec.requires_authorization)
+                    .unwrap_or(false);
+                let exec_timeout_ms = if requires_auth {
+                    settings
+                        .tool_timeout_ms
+                        .saturating_add(crate::mcp::MCP_AUTHORIZATION_TIMEOUT_MS)
+                } else {
+                    settings.tool_timeout_ms
+                };
+                let timed = tokio::time::timeout(
+                    std::time::Duration::from_millis(exec_timeout_ms),
+                    registry.execute(call, &settings.enabled_tools),
+                );
                 let execution = tokio::select! {
                     biased;
                     _ = stop.cancelled() => { run_state.status = RunStatus::Stopped; yield HarnessEvent::Stopped { run: run_state.clone() }; return; }
@@ -632,6 +649,7 @@ mod tests {
                         source: crate::tools::ToolSource::Builtin,
                         required: false,
                         selected: false,
+                        requires_authorization: false,
                     },
                     Arc::new(SlowTool),
                 )

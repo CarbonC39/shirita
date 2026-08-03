@@ -12,7 +12,7 @@ use crate::tools::{ToolRegistry, ToolSpec, ToolSource};
 use crate::Result;
 
 use super::authorization::AuthorizationBroker;
-use super::{McpPolicy, McpSession, McpToolHandler, mcp_tool_name, MCP_AUTHORIZATION_TIMEOUT_MS};
+use super::{McpAccess, McpPolicy, McpSession, McpToolHandler, mcp_tool_name, MCP_AUTHORIZATION_TIMEOUT_MS};
 
 /// Read the effective MCP policy: the global `mcp.policy` setting, optionally
 /// overridden per conversation by `session.override_config.mcp_policy`.
@@ -75,6 +75,7 @@ pub async fn build_effective_tool_registry(
                 source: ToolSource::Mcp,
                 required: false,
                 selected: true,
+                requires_authorization: *access == McpAccess::Ask,
             };
             let handler = McpToolHandler {
                 server_id: server.config.id.clone(),

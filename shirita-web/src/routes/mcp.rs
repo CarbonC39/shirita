@@ -14,7 +14,13 @@ use serde_json::{json, Value};
 use shirita_core::mcp::authorization::{
     AuthorizationDecision, PendingAuthorizationInfo,
 };
-use shirita_core::mcp::{McpServerConfig, McpServerRecord, McpSession, McpToolDef};
+use shirita_core::mcp::{
+    McpServerConfig, McpServerRecord, McpSession, McpToolDef, MCP_AUTHORIZATION_TIMEOUT_MS,
+    MCP_MAX_CONFIG_ITEM_BYTES, MCP_MAX_CONFIG_ITEMS, MCP_MAX_DISCOVERY_PAGES,
+    MCP_MAX_HTTP_BODY_BYTES, MCP_MAX_RESULT_TEXT_BYTES, MCP_MAX_STDIO_LINE_BYTES,
+    MCP_MAX_TOOL_DESCRIPTION_BYTES, MCP_MAX_TOOL_NAME_BYTES, MCP_MAX_TOOLS_PER_SERVER,
+    MCP_MAX_TOOL_SCHEMA_BYTES,
+};
 
 use crate::AppState;
 
@@ -36,6 +42,38 @@ fn view(record: &McpServerRecord) -> McpServerView {
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339()
+}
+
+/// Declared MCP limits, exposed for the UI / operator documentation.
+#[derive(Serialize)]
+pub struct McpLimits {
+    authorization_timeout_ms: u64,
+    max_http_body_bytes: usize,
+    max_stdio_line_bytes: usize,
+    max_discovery_pages: u32,
+    max_tools_per_server: usize,
+    max_tool_name_bytes: usize,
+    max_tool_description_bytes: usize,
+    max_tool_schema_bytes: usize,
+    max_result_text_bytes: usize,
+    max_config_items: usize,
+    max_config_item_bytes: usize,
+}
+
+pub async fn limits() -> Json<McpLimits> {
+    Json(McpLimits {
+        authorization_timeout_ms: MCP_AUTHORIZATION_TIMEOUT_MS,
+        max_http_body_bytes: MCP_MAX_HTTP_BODY_BYTES,
+        max_stdio_line_bytes: MCP_MAX_STDIO_LINE_BYTES,
+        max_discovery_pages: MCP_MAX_DISCOVERY_PAGES,
+        max_tools_per_server: MCP_MAX_TOOLS_PER_SERVER,
+        max_tool_name_bytes: MCP_MAX_TOOL_NAME_BYTES,
+        max_tool_description_bytes: MCP_MAX_TOOL_DESCRIPTION_BYTES,
+        max_tool_schema_bytes: MCP_MAX_TOOL_SCHEMA_BYTES,
+        max_result_text_bytes: MCP_MAX_RESULT_TEXT_BYTES,
+        max_config_items: MCP_MAX_CONFIG_ITEMS,
+        max_config_item_bytes: MCP_MAX_CONFIG_ITEM_BYTES,
+    })
 }
 
 fn internal<E: std::fmt::Display>(e: E) -> StatusCode {

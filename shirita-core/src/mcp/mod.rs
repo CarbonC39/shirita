@@ -29,6 +29,29 @@ pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 /// expiring (Stop also resolves the wait).
 pub const MCP_AUTHORIZATION_TIMEOUT_MS: u64 = 120_000;
 
+// --- memory / resource limits (named, centralized, exposed) -----------------
+
+/// Max bytes of a single Streamable HTTP response body / SSE payload.
+pub const MCP_MAX_HTTP_BODY_BYTES: usize = 8 * 1024 * 1024;
+/// Max bytes of a single newline-framed stdio JSON-RPC message.
+pub const MCP_MAX_STDIO_LINE_BYTES: usize = 8 * 1024 * 1024;
+/// Max `tools/list` pages followed (guards a `nextCursor` loop).
+pub const MCP_MAX_DISCOVERY_PAGES: u32 = 16;
+/// Max Tools discovered per server (bound the frozen registry).
+pub const MCP_MAX_TOOLS_PER_SERVER: usize = 256;
+/// Max bytes of a discovered Tool name.
+pub const MCP_MAX_TOOL_NAME_BYTES: usize = 512;
+/// Max bytes of a discovered Tool description.
+pub const MCP_MAX_TOOL_DESCRIPTION_BYTES: usize = 16 * 1024;
+/// Max bytes of a discovered Tool input schema.
+pub const MCP_MAX_TOOL_SCHEMA_BYTES: usize = 64 * 1024;
+/// Max bytes of accumulated `tools/call` text content.
+pub const MCP_MAX_RESULT_TEXT_BYTES: usize = 64 * 1024;
+/// Max stdio args / env entries and HTTP header entries per server.
+pub const MCP_MAX_CONFIG_ITEMS: usize = 64;
+/// Max bytes of one configured stdio arg / env value or HTTP header value.
+pub const MCP_MAX_CONFIG_ITEM_BYTES: usize = 8 * 1024;
+
 /// Transport configuration for one MCP server. Stored typed and revalidated by
 /// the runtime at connection time; never trusted from the save route alone.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -181,12 +204,34 @@ impl McpServerConfig {
             return Err("mcp request timeout must be between 1 and 300000 ms".into());
         }
         match &self.transport {
-            McpTransportConfig::Stdio { command, .. } => {
+            McpTransportConfig::Stdio { command, args, env } => {
                 if command.trim().is_empty() {
                     return Err("stdio command is required".into());
                 }
+                if command.len() > MCP_MAX_CONFIG_ITEM_BYTES {
+                    return Err("stdio command too large".into());
+                }
+                if args.len() + env.len() > MCP_MAX_CONFIG_ITEMS {
+                    return Err(format!("stdio args/env exceed {MCP_MAX_CONFIG_ITEMS} items"));
+                }
+                for item in args.iter().chain(env.iter().map(|(k, _)| k)).chain(env.iter().map(|(_, v)| v)) {
+                    if item.len() > MCP_MAX_CONFIG_ITEM_BYTES {
+                        return Err("stdio arg/env value too large".into());
+                    }
+                }
             }
-            McpTransportConfig::StreamableHttp { url, .. } => http::validate_url(url)?,
+            McpTransportConfig::StreamableHttp { url, headers } => {
+                http::validate_url(url)?;
+                if headers.len() > MCP_MAX_CONFIG_ITEMS {
+                    return Err(format!("http headers exceed {MCP_MAX_CONFIG_ITEMS} items"));
+                }
+                for (name, value) in headers {
+                    http::validate_header_name(name).map_err(|e| e.to_string())?;
+                    if value.len() > MCP_MAX_CONFIG_ITEM_BYTES {
+                        return Err("http header value too large".into());
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -462,11 +507,21 @@ impl McpSession {
         Ok(())
     }
 
-    /// List tools with pagination (`cursor`/`nextCursor`).
+    /// List tools with pagination (`cursor`/`nextCursor`), bounded by declared
+    /// page/tool/name/description/schema limits and a duplicate-cursor check.
     pub async fn list_tools(&mut self) -> Result<Vec<McpToolDef>> {
         let mut tools = Vec::new();
         let mut cursor: Option<Value> = None;
+        let mut pages = 0u32;
+        let mut seen_cursors: std::collections::HashSet<String> = std::collections::HashSet::new();
         loop {
+            pages += 1;
+            if pages > MCP_MAX_DISCOVERY_PAGES {
+                return Err(Error::Mcp(format!(
+                    "{}: tools/list exceeded {MCP_MAX_DISCOVERY_PAGES} pages",
+                    self.server_id
+                )));
+            }
             let params = match &cursor {
                 Some(c) => json!({"cursor": c}),
                 None => json!({}),
@@ -477,26 +532,65 @@ impl McpSession {
                     let name = t
                         .get("name")
                         .and_then(Value::as_str)
-                        .ok_or_else(|| Error::Mcp(format!("{}: tools/list entry missing name", self.server_id)))?
+                        .ok_or_else(|| {
+                            Error::Mcp(format!("{}: tools/list entry missing name", self.server_id))
+                        })?
                         .to_string();
+                    if name.len() > MCP_MAX_TOOL_NAME_BYTES {
+                        return Err(Error::Mcp(format!(
+                            "{}: tool name exceeds {MCP_MAX_TOOL_NAME_BYTES} bytes",
+                            self.server_id
+                        )));
+                    }
                     let description = t
                         .get("description")
                         .and_then(Value::as_str)
                         .unwrap_or("")
                         .to_string();
+                    if description.len() > MCP_MAX_TOOL_DESCRIPTION_BYTES {
+                        return Err(Error::Mcp(format!(
+                            "{}: tool description exceeds {MCP_MAX_TOOL_DESCRIPTION_BYTES} bytes",
+                            self.server_id
+                        )));
+                    }
                     let input_schema = t
                         .get("inputSchema")
                         .cloned()
                         .unwrap_or_else(|| json!({"type": "object"}));
+                    if serde_json::to_vec(&input_schema)
+                        .map(|v| v.len())
+                        .unwrap_or(usize::MAX)
+                        > MCP_MAX_TOOL_SCHEMA_BYTES
+                    {
+                        return Err(Error::Mcp(format!(
+                            "{}: tool schema exceeds {MCP_MAX_TOOL_SCHEMA_BYTES} bytes",
+                            self.server_id
+                        )));
+                    }
                     tools.push(McpToolDef {
                         name,
                         description,
                         input_schema,
                     });
+                    if tools.len() > MCP_MAX_TOOLS_PER_SERVER {
+                        return Err(Error::Mcp(format!(
+                            "{}: exceeded {MCP_MAX_TOOLS_PER_SERVER} tools",
+                            self.server_id
+                        )));
+                    }
                 }
             }
             match res.get("nextCursor") {
-                Some(c) if !c.is_null() => cursor = Some(c.clone()),
+                Some(c) if !c.is_null() => {
+                    let cursor_key = serde_json::to_string(c).unwrap_or_default();
+                    if !seen_cursors.insert(cursor_key) {
+                        return Err(Error::Mcp(format!(
+                            "{}: tools/list cursor loop detected",
+                            self.server_id
+                        )));
+                    }
+                    cursor = Some(c.clone());
+                }
                 _ => break,
             }
         }
@@ -511,17 +605,39 @@ impl McpSession {
         let is_error = res.get("isError").and_then(Value::as_bool).unwrap_or(false);
         let mut text = String::new();
         let mut structured = None;
+        let mut unsupported: Vec<String> = Vec::new();
         if let Some(arr) = res.get("content").and_then(Value::as_array) {
             for block in arr {
-                if block.get("type").and_then(Value::as_str) == Some("text") {
-                    if let Some(t) = block.get("text").and_then(Value::as_str) {
-                        text.push_str(t);
+                match block.get("type").and_then(Value::as_str) {
+                    Some("text") => {
+                        if let Some(t) = block.get("text").and_then(Value::as_str) {
+                            if text.len().saturating_add(t.len()) > MCP_MAX_RESULT_TEXT_BYTES {
+                                return Err(Error::Mcp(format!(
+                                    "{}: tools/call text exceeds {MCP_MAX_RESULT_TEXT_BYTES} bytes",
+                                    self.server_id
+                                )));
+                            }
+                            text.push_str(t);
+                        }
                     }
+                    Some(other) => unsupported.push(other.to_string()),
+                    None => unsupported.push("unknown".into()),
                 }
             }
         }
         if let Some(s) = res.get("structuredContent") {
             structured = Some(s.clone());
+        }
+        // Non-text content (images, resources, embedded resources) is surfaced
+        // as a bounded safe description instead of being silently dropped.
+        if !unsupported.is_empty() {
+            let summary = format!("[unsupported content: {}]", unsupported.join(", "));
+            if text.is_empty() {
+                text = summary;
+            } else if text.len().saturating_add(summary.len()) <= MCP_MAX_RESULT_TEXT_BYTES {
+                text.push('\n');
+                text.push_str(&summary);
+            }
         }
         Ok(McpCallResult {
             is_error,

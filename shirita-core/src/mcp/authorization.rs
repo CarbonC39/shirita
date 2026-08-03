@@ -2,12 +2,12 @@
 //!
 //! A request is bound to the authenticated run (run_id + call_id + session),
 //! plus frozen server/Tool/arguments. It can be resolved exactly once; stale or
-//! mismatched decisions are rejected. Stop (dropping the waiter) resolves the
-//! wait without storing a policy.
+//! mismatched decisions are rejected. Timeout, Stop, or dropping the waiter
+//! removes the pending entry (RAII guard), so no zombie requests accumulate.
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 use tokio::sync::{Mutex, oneshot};
 
 /// The outcome of an authorization wait.
@@ -53,6 +53,25 @@ pub struct AuthorizationBroker {
     pending: Mutex<HashMap<String, PendingAuthorization>>,
 }
 
+/// RAII cleanup: removes the pending entry when the waiter future is dropped
+/// (outer Tool timeout, Stop, or any other cancellation), so no request is left
+/// behind waiting for a decision nobody will deliver. Idempotent: `resolve()`
+/// already removed the entry on approve/deny.
+struct PendingGuard<'a> {
+    broker: &'a AuthorizationBroker,
+    key: String,
+}
+
+impl Drop for PendingGuard<'_> {
+    fn drop(&mut self) {
+        // Best-effort: the pending mutex is uncontended at drop time, but use
+        // try_lock so a contended lock cannot block the async drop path.
+        if let Ok(mut pending) = self.broker.pending.try_lock() {
+            pending.remove(&self.key);
+        }
+    }
+}
+
 impl AuthorizationBroker {
     pub fn new() -> Self {
         Self::default()
@@ -62,9 +81,10 @@ impl AuthorizationBroker {
         format!("{run_id}:{call_id}")
     }
 
-    /// Register a pending request and wait for its one-time decision. A bounded
-    /// preview is derived from the frozen arguments. Expires if no decision
-    /// arrives within the timeout (or the waiter is cancelled, e.g. Stop).
+    /// Register a pending request and wait for its one-time decision. A bounded,
+    /// redacted preview is derived from the frozen arguments. Expires if no
+    /// decision arrives within the timeout; Stop or dropping the waiter (outer
+    /// timeout/cancellation) also resolves the wait and clears the entry.
     pub async fn request_and_wait(
         &self,
         run_id: &str,
@@ -75,8 +95,13 @@ impl AuthorizationBroker {
         arguments: Value,
         timeout_ms: u64,
     ) -> AuthorizationDecision {
+        let key = Self::key(run_id, call_id);
+        let _guard = PendingGuard {
+            broker: self,
+            key: key.clone(),
+        };
         let (tx, rx) = oneshot::channel();
-        let preview = bounded_preview(&arguments);
+        let preview = bounded_redacted_preview(&arguments);
         let pending = PendingAuthorization {
             run_id: run_id.to_string(),
             call_id: call_id.to_string(),
@@ -87,15 +112,12 @@ impl AuthorizationBroker {
             preview,
             reply: Some(tx),
         };
-        self.pending.lock().await.insert(Self::key(run_id, call_id), pending);
+        self.pending.lock().await.insert(key, pending);
         match tokio::time::timeout(std::time::Duration::from_millis(timeout_ms.max(1)), rx).await {
             Ok(Ok(decision)) => decision,
-            Ok(Err(_)) => {
-                // The sender was dropped (caller cancelled/stopped).
-                self.pending.lock().await.remove(&Self::key(run_id, call_id));
-                AuthorizationDecision::Expired
-            }
-            Err(_) => AuthorizationDecision::Expired,
+            // Sender dropped (caller cancelled) or internal timeout: the guard
+            // clears the pending entry either way.
+            Ok(Err(_)) | Err(_) => AuthorizationDecision::Expired,
         }
     }
 
@@ -134,13 +156,48 @@ impl AuthorizationBroker {
     }
 }
 
-/// A bounded, redacted preview of the arguments (compact JSON, capped at 512
-/// bytes) — never raw secrets or full argument dumps.
-fn bounded_preview(arguments: &Value) -> String {
-    let compact = serde_json::to_string(arguments).unwrap_or_else(|_| "{}".into());
-    if compact.len() > 512 {
-        format!("{}…", &compact[..512])
+const PREVIEW_MAX_CHARS: usize = 512;
+
+/// A bounded, redacted preview: sensitive object values are masked and the
+/// compact JSON is truncated on a character boundary (never a raw byte slice,
+/// which could panic mid-UTF-8).
+pub(crate) fn bounded_redacted_preview(arguments: &Value) -> String {
+    let redacted = redact(arguments);
+    let compact = serde_json::to_string(&redacted).unwrap_or_else(|_| "{}".into());
+    let truncated: String = compact.chars().take(PREVIEW_MAX_CHARS).collect();
+    if truncated.chars().count() < compact.chars().count() {
+        format!("{truncated}…")
     } else {
-        compact
+        truncated
     }
+}
+
+/// Recursively mask values under sensitive keys so secrets never reach the UI.
+fn redact(value: &Value) -> Value {
+    match value {
+        Value::Object(map) => {
+            let mut out = Map::with_capacity(map.len());
+            for (key, v) in map {
+                if is_sensitive_key(key) {
+                    out.insert(key.clone(), Value::String("[redacted]".into()));
+                } else {
+                    out.insert(key.clone(), redact(v));
+                }
+            }
+            Value::Object(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(redact).collect()),
+        other => other.clone(),
+    }
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "password", "token", "secret", "authorization", "auth", "cookie", "credentials",
+        "credential", "bearer", "api_key", "apikey", "access_key", "accesskey", "private_key",
+        "privatekey", "session", "passwd", "pw",
+    ]
+    .iter()
+    .any(|needle| key == *needle || key.ends_with(needle))
 }

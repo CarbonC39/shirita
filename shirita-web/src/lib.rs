@@ -153,6 +153,7 @@ pub fn app(state: AppState) -> Router {
         .route("/mcp/servers/{id}", get(routes::mcp::get_server).put(routes::mcp::update_server).delete(routes::mcp::delete_server))
         .route("/mcp/servers/{id}/test", post(routes::mcp::test_server))
         .route("/mcp/servers/{id}/refresh-tools", post(routes::mcp::refresh_tools))
+        .route("/mcp/limits", get(routes::mcp::limits))
         .route("/mcp/pending/{session_id}", get(routes::mcp::pending))
         .route("/agent-runs/{run_id}/calls/{call_id}/approve", post(routes::mcp::approve))
         .route("/agent-runs/{run_id}/calls/{call_id}/deny", post(routes::mcp::deny))
