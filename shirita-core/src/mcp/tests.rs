@@ -12,6 +12,7 @@ use super::*;
 struct MockHttpServer {
     addr: std::net::SocketAddr,
     loop_cursor: Arc<std::sync::atomic::AtomicBool>,
+    tool_count: Arc<AtomicUsize>,
 }
 
 async fn start_mock_http() -> MockHttpServer {
@@ -19,7 +20,9 @@ async fn start_mock_http() -> MockHttpServer {
     let addr = listener.local_addr().unwrap();
     let list_calls = Arc::new(AtomicUsize::new(0));
     let loop_cursor = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tool_count = Arc::new(AtomicUsize::new(2));
     let server_loop_cursor = loop_cursor.clone();
+    let server_tool_count = tool_count.clone();
     tokio::spawn(async move {
         loop {
             let Ok((mut sock, _)) = listener.accept().await else {
@@ -27,19 +30,21 @@ async fn start_mock_http() -> MockHttpServer {
             };
             let list_calls = list_calls.clone();
             let loop_cursor = server_loop_cursor.clone();
+            let tool_count = server_tool_count.clone();
             let base = format!("http://{addr}");
             tokio::spawn(async move {
-                let _ = handle_http(&mut sock, &list_calls, &loop_cursor, &base).await;
+                let _ = handle_http(&mut sock, &list_calls, &loop_cursor, &tool_count, &base).await;
             });
         }
     });
-    MockHttpServer { addr, loop_cursor }
+    MockHttpServer { addr, loop_cursor, tool_count }
 }
 
 async fn handle_http(
     sock: &mut tokio::net::TcpStream,
     list_calls: &AtomicUsize,
     loop_cursor: &std::sync::atomic::AtomicBool,
+    tool_count: &AtomicUsize,
     base: &str,
 ) -> std::io::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -124,8 +129,14 @@ async fn handle_http(
                     "serverInfo": {"name": "http-mock", "version": "1"},
                 }),
                 "tools/list" => {
+                    let count = tool_count.load(Ordering::SeqCst);
                     if loop_cursor.load(Ordering::SeqCst) {
                         json!({"tools": [], "nextCursor": "same"})
+                    } else if count > 2 {
+                        let tools: Vec<Value> = (0..count)
+                            .map(|i| json!({"name": format!("bulk_{i}"), "description": "bulk", "inputSchema": {"type": "object"}}))
+                            .collect();
+                        json!({"tools": tools})
                     } else if list_calls.fetch_add(1, Ordering::SeqCst) == 0 {
                         json!({"tools": [{"name": "http_add", "description": "Add", "inputSchema": {"type": "object"}}, {"name": "http_img", "description": "Image", "inputSchema": {"type": "object"}}], "nextCursor": "2"})
                     } else {
@@ -354,4 +365,121 @@ fn redirect_policy_is_same_origin_and_bounded_in_count() {
     assert!(!should_follow_redirect(&origin, "http://evil.example/mcp", 0));
     assert!(!should_follow_redirect(&origin, "http://localhost:9999/mcp", 0));
     assert!(!should_follow_redirect(&origin, "https://localhost:8080/mcp", 0));
+}
+
+#[tokio::test]
+async fn effective_tool_cap_limits_a_single_server_and_keeps_builtins() {
+    use std::collections::HashMap;
+    use crate::mcp::registry::build_effective_tool_registry;
+    use crate::models::session::Session;
+    use crate::mcp::{McpPolicy, McpAccess, McpServerConfig, McpServerRecord, McpTransportConfig, mcp_tool_name};
+    use crate::SqliteStorage;
+
+    let server = start_mock_http().await;
+    server.tool_count.store(200, Ordering::SeqCst);
+    let dir = tempfile::tempdir().unwrap();
+    let sqlite = SqliteStorage::connect(dir.path().join("cap.db").to_str().unwrap()).await.unwrap();
+    sqlite.run_migrations().await.unwrap();
+    let storage: std::sync::Arc<dyn crate::Storage> = std::sync::Arc::new(sqlite);
+    storage
+        .create_mcp_server(&McpServerRecord {
+            config: McpServerConfig {
+                id: "bulk".into(),
+                name: "bulk".into(),
+                enabled: true,
+                transport: McpTransportConfig::StreamableHttp {
+                    url: format!("http://{}/mcp", server.addr),
+                    headers: vec![],
+                },
+                request_timeout_ms: 5000,
+                has_secret: false,
+            },
+            created_at: "t".into(),
+            updated_at: "t".into(),
+        })
+        .await
+        .unwrap();
+    // Policy allows all 200 discovered tools.
+    let mut tools = HashMap::new();
+    for i in 0..200 {
+        tools.insert(mcp_tool_name("bulk", &format!("bulk_{i}")), McpAccess::Allow);
+    }
+    storage
+        .set_setting("mcp.policy", &serde_json::to_value(McpPolicy { tools }).unwrap())
+        .await
+        .unwrap();
+    let session = Session::new("cap-session");
+    storage.create_session(&session).await.unwrap();
+
+    let registry = build_effective_tool_registry(
+        storage.as_ref(),
+        &session,
+        std::sync::Arc::new(crate::mcp::authorization::AuthorizationBroker::new()),
+        "run-cap",
+    )
+    .await
+    .unwrap();
+    let mcp_tools = registry.specs().into_iter().filter(|s| s.source == crate::tools::ToolSource::Mcp).count();
+    assert_eq!(mcp_tools, 128, "effective MCP Tool cap must bind within a single server");
+    // Built-in tools are not counted toward the MCP cap and remain present.
+    assert!(registry.spec("shirita.run.finish").is_some());
+}
+
+#[tokio::test]
+async fn enabled_server_cap_limits_connections_per_run() {
+    use std::collections::HashMap;
+    use crate::mcp::registry::build_effective_tool_registry;
+    use crate::models::session::Session;
+    use crate::mcp::{McpPolicy, McpAccess, McpServerConfig, McpServerRecord, McpTransportConfig, mcp_tool_name};
+    use crate::SqliteStorage;
+
+    let dir = tempfile::tempdir().unwrap();
+    let sqlite = SqliteStorage::connect(dir.path().join("enabled.db").to_str().unwrap()).await.unwrap();
+    sqlite.run_migrations().await.unwrap();
+    let storage: std::sync::Arc<dyn crate::Storage> = std::sync::Arc::new(sqlite);
+    let mut tools = HashMap::new();
+    // 9 enabled servers; the per-run enabled-server cap is 8.
+    for i in 0..9 {
+        let mock = start_mock_http().await;
+        storage
+            .create_mcp_server(&McpServerRecord {
+                config: McpServerConfig {
+                    id: format!("srv{i}"),
+                    name: format!("srv{i}"),
+                    enabled: true,
+                    transport: McpTransportConfig::StreamableHttp {
+                        url: format!("http://{}/mcp", mock.addr),
+                        headers: vec![],
+                    },
+                    request_timeout_ms: 5000,
+                    has_secret: false,
+                },
+                created_at: "t".into(),
+                updated_at: "t".into(),
+            })
+            .await
+            .unwrap();
+        tools.insert(mcp_tool_name(&format!("srv{i}"), "http_add"), McpAccess::Allow);
+    }
+    storage
+        .set_setting("mcp.policy", &serde_json::to_value(McpPolicy { tools }).unwrap())
+        .await
+        .unwrap();
+    let session = Session::new("enabled-session");
+    storage.create_session(&session).await.unwrap();
+
+    let registry = build_effective_tool_registry(
+        storage.as_ref(),
+        &session,
+        std::sync::Arc::new(crate::mcp::authorization::AuthorizationBroker::new()),
+        "run-enabled",
+    )
+    .await
+    .unwrap();
+    let mut servers: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for spec in registry.specs().into_iter().filter(|s| s.source == crate::tools::ToolSource::Mcp) {
+        let prefix = spec.name.split('.').take(2).collect::<Vec<_>>().join(".");
+        servers.insert(prefix);
+    }
+    assert_eq!(servers.len(), 8, "at most 8 enabled servers may be connected per run");
 }

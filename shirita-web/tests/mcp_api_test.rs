@@ -132,3 +132,26 @@ async fn mcp_servers_crud_redacts_secrets_and_merges_updates() {
     let (status, _) = request(&state, "GET", "/api/mcp/servers/demo", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn mcp_server_creation_is_capped() {
+    let state = test_state().await;
+    for i in 0..16 {
+        let (status, _) = request(
+            &state,
+            "POST",
+            "/api/mcp/servers",
+            Some(server(&format!("s{i}"), "http://localhost:8080/mcp", "")),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "creating server s{i} should succeed");
+    }
+    let (status, _) = request(
+        &state,
+        "POST",
+        "/api/mcp/servers",
+        Some(server("s16", "http://localhost:8080/mcp", "")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "the 17th server must be rejected");
+}

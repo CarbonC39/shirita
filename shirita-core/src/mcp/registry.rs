@@ -84,6 +84,14 @@ pub async fn build_effective_tool_registry(
             }
         };
         for tool in tools {
+            if effective_tools >= MCP_MAX_EFFECTIVE_TOOLS {
+                tracing::warn!(
+                    limit = MCP_MAX_EFFECTIVE_TOOLS,
+                    server = %server.config.id,
+                    "stopping Tool registration: effective Tool limit reached"
+                );
+                break;
+            }
             let name = mcp_tool_name(&server.config.id, &tool.name);
             let Some(access) = policy.tools.get(&name) else {
                 continue; // default policy: disabled -> absent from the registry
