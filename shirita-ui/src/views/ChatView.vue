@@ -285,6 +285,19 @@ async function handleDelete(id: string) {
         <div v-if="chat.generationUsage" data-test="agent-usage" class="shrink-0 px-3 sm:px-5 pb-1 text-[12px] text-muted">
           {{ chat.generationUsage.input_tokens }} in / {{ chat.generationUsage.output_tokens }} out
         </div>
+        <div v-if="chat.pendingAuth.length" data-test="agent-auth" class="shrink-0 mx-3 sm:mx-5 mb-2 rounded-lg border border-line bg-surface px-3 py-2 text-[12px]">
+          <div v-for="p in chat.pendingAuth" :key="`${p.run_id}-${p.call_id}`" class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <span class="font-mono text-ink">{{ p.tool_name }}</span>
+              <span class="ml-1 text-muted">{{ $t('chat.requiresApproval') }}</span>
+              <div class="truncate text-muted">{{ p.preview }}</div>
+            </div>
+            <div class="flex gap-2 shrink-0">
+              <button class="btn" @click="chat.decideAuth(p.run_id, p.call_id, true)">{{ $t('common.approve') }}</button>
+              <button class="btn btn-ghost" @click="chat.decideAuth(p.run_id, p.call_id, false)">{{ $t('common.deny') }}</button>
+            </div>
+          </div>
+        </div>
         <!-- Refresh failure with a cached transcript: keep messages visible. -->
         <div v-if="chat.error" data-test="refresh-error" class="shrink-0 flex items-center justify-between gap-2 rounded-lg border border-coral/30 bg-coral/10 px-3 py-1.5 mx-3 sm:mx-5 mb-1 text-[13px] text-ink">
           <span>{{ chat.error }}</span>

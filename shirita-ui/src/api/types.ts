@@ -51,6 +51,44 @@ export interface AgentSettingsView {
   tools: AgentToolSpec[]
 }
 
+export type McpTransport =
+  | { transport: 'stdio'; command: string; args: string[]; env: [string, string][] }
+  | { transport: 'streamable_http'; url: string; headers: [string, string][] }
+
+export interface McpServerConfig {
+  id: string
+  name: string
+  enabled: boolean
+  transport: McpTransport
+  request_timeout_ms: number
+  has_secret?: boolean
+}
+
+export interface McpServerView extends McpServerConfig {
+  created_at: string
+  updated_at: string
+}
+
+export interface McpToolDef {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+}
+
+export type McpAccess = 'allow' | 'ask'
+
+export interface McpPolicy {
+  tools: Record<string, McpAccess>
+}
+
+export interface PendingAuthorization {
+  run_id: string
+  call_id: string
+  server_id: string
+  tool_name: string
+  preview: string
+}
+
 export interface Session {
   id: string
   name: string

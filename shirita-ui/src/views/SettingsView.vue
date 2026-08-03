@@ -23,6 +23,7 @@ import AssetPicker from "../components/AssetPicker.vue";
 import FullscreenEditor from "../components/FullscreenEditor.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import AgentSettingsEditor from "../components/AgentSettingsEditor.vue";
+import McpServerSettings from "../components/McpServerSettings.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import { Maximize2, Eye, EyeOff, Check, Languages } from "lucide-vue-next";
 import { ensureNotifyPermission } from "../utils/notify";
@@ -797,6 +798,15 @@ async function resetAgentSettingsToDefaults() {
             </section>
 
             <div v-if="agentView && agentDraft" class="border-t border-line my-6" />
+
+            <section class="mb-8" data-test="mcp-settings">
+                <h3 class="text-[13px] font-semibold text-ink/65 uppercase tracking-wide mb-4">
+                    {{ $t("settings.mcp") }}
+                </h3>
+                <McpServerSettings />
+            </section>
+
+            <div class="border-t border-line my-6" />
 
             <!-- Generation -->
             <section class="mb-8">

@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { Message } from '../api/types'
+import type { Message, PendingAuthorization } from '../api/types'
 import type { SseEvent } from '../api/client'
 import {
   listMessages, getSession, sendMessage, regenerateMessage,
   editMessage, deleteMessage, setActiveLeaf, forkSession, abortSession,
+  listPendingAuth, decideAuthorization,
 } from '../api/client'
 import { activePath } from '../utils/tree'
 import { notifyReplyDone } from '../utils/notify'
@@ -66,6 +67,29 @@ export const useChatStore = defineStore('chat', () => {
   // `abortActive()` (navigate-away) hard-aborts without surfacing an error.
   let activeAbort: AbortController | null = null
 
+  // Pending MCP `ask` authorizations for the active run, polled while streaming.
+  const pendingAuth = ref<PendingAuthorization[]>([])
+  let authPollTimer: ReturnType<typeof setInterval> | null = null
+  function startAuthPolling(sessionId: string) {
+    stopAuthPolling()
+    authPollTimer = setInterval(async () => {
+      try {
+        pendingAuth.value = await listPendingAuth(sessionId)
+      } catch { /* transient network hiccup */ }
+    }, 1500)
+  }
+  function stopAuthPolling() {
+    if (authPollTimer) { clearInterval(authPollTimer); authPollTimer = null }
+    pendingAuth.value = []
+  }
+  async function decideAuth(runId: string, callId: string, approve: boolean) {
+    try {
+      await decideAuthorization(runId, callId, approve)
+    } finally {
+      pendingAuth.value = pendingAuth.value.filter((p) => !(p.run_id === runId && p.call_id === callId))
+    }
+  }
+
   function addUsage(inputTokens: number, outputTokens: number) {
     const previous = generationUsage.value
     generationUsage.value = {
@@ -107,6 +131,7 @@ export const useChatStore = defineStore('chat', () => {
     streamingError.value = null
     generationUsage.value = null
     agentRun.value = { runId: null, phase: 'running', round: 0, responseRevision: 0, events: [] }
+    startAuthPolling(sessionId)
     try {
       for await (const event of stream) {
         if (event.type === 'delta') streamingText.value += event.text
@@ -178,6 +203,7 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isStreaming.value = false
       activeAbort = null
+      stopAuthPolling()
     }
   }
 
@@ -303,6 +329,7 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages, activeLeafId, displayed, loading, error,
     isStreaming, streamingText, streamingError, agentActivity, agentStatus, generationUsage, agentRun, activeSessionId,
+    pendingAuth, decideAuth,
     loadMessages, retryLoad, clearStreamingError,
     send, regenerate, switchLeaf, editMsg, toggleHidden, fork, remove, stop, abortActive,
   }

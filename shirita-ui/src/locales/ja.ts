@@ -2,6 +2,8 @@ import type { MessageSchema } from './en'
 
 const ja: MessageSchema = {
   common: {
+    approve: '承認',
+    deny: '拒否',
     save: '保存',
     cancel: 'キャンセル',
     delete: '削除',
@@ -86,6 +88,7 @@ const ja: MessageSchema = {
     probability: '確率 %',
   },
   chat: {
+    requiresApproval: '承認が必要です',
     back: '戻る',
     title: 'チャット',
     assistant: 'アシスタント',
@@ -191,6 +194,7 @@ const ja: MessageSchema = {
     add: '変数を追加',
   },
   settings: {
+    mcp: 'MCP ツール',
     title: '設定',
     language: '言語',
     identity: 'アイデンティティ',
@@ -295,6 +299,28 @@ const ja: MessageSchema = {
     regexHideDisabled: '無効を隠す',
     regexDelete: 'ルールを削除',
     regexDeleteConfirm: 'この正則ルールを削除しますか？この操作は元に戻せません。',
+  },
+  mcp: {
+    test: 'テスト',
+    testOk: '接続済み',
+    testFailed: '失敗',
+    refreshTools: 'ツールを更新',
+    discoveredTools: '検出されたツール',
+    disabled: '無効',
+    allow: '許可',
+    ask: '確認',
+    none: 'MCP サーバーはまだありません。',
+    addServer: 'MCP サーバーを追加',
+    serverId: 'サーバー ID',
+    serverName: '表示名',
+    enabled: '有効',
+    transport: 'トランスポート',
+    url: 'エンドポイント URL',
+    headers: '静的ヘッダー',
+    addHeader: 'ヘッダーを追加',
+    command: 'コマンド',
+    args: '引数（スペース区切り）',
+    timeoutMs: 'リクエストタイムアウト（ms）',
   },
 }
 

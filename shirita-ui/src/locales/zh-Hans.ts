@@ -2,6 +2,8 @@ import type { MessageSchema } from './en'
 
 const zhHans: MessageSchema = {
   common: {
+    approve: '批准',
+    deny: '拒绝',
     save: '保存',
     cancel: '取消',
     delete: '删除',
@@ -86,6 +88,7 @@ const zhHans: MessageSchema = {
     probability: '概率 %',
   },
   chat: {
+    requiresApproval: '需要你的批准',
     back: '返回',
     title: '对话',
     assistant: '助手',
@@ -191,6 +194,7 @@ const zhHans: MessageSchema = {
     add: '添加变量',
   },
   settings: {
+    mcp: 'MCP 工具',
     title: '设置',
     language: '语言',
     identity: '身份',
@@ -294,6 +298,28 @@ const zhHans: MessageSchema = {
     regexHideDisabled: '隐藏已禁用',
     regexDelete: '删除规则',
     regexDeleteConfirm: '删除这条正则规则？此操作无法撤销。',
+  },
+  mcp: {
+    test: '测试',
+    testOk: '已连接',
+    testFailed: '失败',
+    refreshTools: '刷新工具',
+    discoveredTools: '已发现的工具',
+    disabled: '禁用',
+    allow: '允许',
+    ask: '询问',
+    none: '尚无 MCP 服务器。',
+    addServer: '添加 MCP 服务器',
+    serverId: '服务器 ID',
+    serverName: '显示名称',
+    enabled: '启用',
+    transport: '传输方式',
+    url: '端点 URL',
+    headers: '静态请求头',
+    addHeader: '添加请求头',
+    command: '命令',
+    args: '参数（空格分隔）',
+    timeoutMs: '请求超时（毫秒）',
   },
 }
 

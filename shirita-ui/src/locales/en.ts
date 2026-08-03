@@ -5,6 +5,8 @@
 // (e.g. save: 'Save') and reject translations at compile time.
 const en = {
   common: {
+    approve: 'Approve',
+    deny: 'Deny',
     save: 'Save',
     cancel: 'Cancel',
     delete: 'Delete',
@@ -93,6 +95,7 @@ const en = {
     probability: 'Probability %',
   },
   chat: {
+    requiresApproval: 'requires your approval',
     back: 'Back',
     title: 'Chat',
     assistant: 'Assistant',
@@ -200,6 +203,7 @@ const en = {
     add: 'Add variable',
   },
   settings: {
+    mcp: 'MCP Tools',
     title: 'Settings',
     language: 'Language',
     identity: 'Identity',
@@ -304,6 +308,28 @@ const en = {
     regexHideDisabled: 'Hide disabled',
     regexDelete: 'Delete rule',
     regexDeleteConfirm: 'Delete this regex rule? This cannot be undone.',
+  },
+  mcp: {
+    test: 'Test',
+    testOk: 'Connected',
+    testFailed: 'Failed',
+    refreshTools: 'Refresh tools',
+    discoveredTools: 'Discovered tools',
+    disabled: 'Disabled',
+    allow: 'Allow',
+    ask: 'Ask',
+    none: 'No MCP servers yet.',
+    addServer: 'Add MCP server',
+    serverId: 'Server ID',
+    serverName: 'Display name',
+    enabled: 'Enabled',
+    transport: 'Transport',
+    url: 'Endpoint URL',
+    headers: 'Static headers',
+    addHeader: 'Add header',
+    command: 'Command',
+    args: 'Arguments (space-separated)',
+    timeoutMs: 'Request timeout (ms)',
   },
 }
 

@@ -15,6 +15,10 @@ import type {
   VarDecl,
   AgentSettings,
   AgentSettingsView,
+  McpServerConfig,
+  McpServerView,
+  McpToolDef,
+  PendingAuthorization,
 } from './types'
 
 // BASE (the embedded server origin, injected by Tauri / build-time for web) is
@@ -563,6 +567,56 @@ export function updateSessionAgentSettings(sessionId: string, settings: AgentSet
 
 export function resetSessionAgentSettings(sessionId: string): Promise<AgentSettingsView> {
   return writeAgentSettings(`/sessions/${sessionId}/agent-settings`, 'DELETE')
+}
+
+// --- MCP servers / authorization ------------------------------------------
+
+export function listMcpServers(): Promise<McpServerView[]> {
+  return apiGet<McpServerView[]>('/mcp/servers')
+}
+export function getMcpServer(id: string): Promise<McpServerView> {
+  return apiGet<McpServerView>(`/mcp/servers/${encodeURIComponent(id)}`)
+}
+async function writeMcpServer(
+  id: string | null,
+  method: 'POST' | 'PUT',
+  cfg: McpServerConfig,
+): Promise<McpServerView> {
+  const path = id ? `/mcp/servers/${encodeURIComponent(id)}` : '/mcp/servers'
+  const res = await apiFetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  })
+  if (!res.ok) throw new Error(`MCP server save failed: ${res.status}`)
+  return res.json()
+}
+export function createMcpServer(cfg: McpServerConfig): Promise<McpServerView> {
+  return writeMcpServer(null, 'POST', cfg)
+}
+export function updateMcpServer(id: string, cfg: McpServerConfig): Promise<McpServerView> {
+  return writeMcpServer(id, 'PUT', cfg)
+}
+export async function deleteMcpServer(id: string): Promise<void> {
+  const res = await apiFetch(`/mcp/servers/${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`MCP server delete failed: ${res.status}`)
+}
+export async function testMcpServer(id: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await apiFetch(`/mcp/servers/${encodeURIComponent(id)}/test`, { method: 'POST' })
+  if (!res.ok) throw new Error(`MCP server test failed: ${res.status}`)
+  return res.json()
+}
+export async function refreshMcpTools(id: string): Promise<{ ok: boolean; tools?: McpToolDef[]; error?: string }> {
+  const res = await apiFetch(`/mcp/servers/${encodeURIComponent(id)}/refresh-tools`, { method: 'POST' })
+  if (!res.ok) throw new Error(`MCP tools refresh failed: ${res.status}`)
+  return res.json()
+}
+export function listPendingAuth(sessionId: string): Promise<PendingAuthorization[]> {
+  return apiGet<PendingAuthorization[]>(`/mcp/pending/${encodeURIComponent(sessionId)}`)
+}
+export async function decideAuthorization(runId: string, callId: string, approve: boolean): Promise<void> {
+  const res = await apiFetch(`/agent-runs/${encodeURIComponent(runId)}/calls/${encodeURIComponent(callId)}/${approve ? 'approve' : 'deny'}`, { method: 'POST' })
+  if (!res.ok) throw new Error(`Authorization ${approve ? 'approve' : 'deny'} failed: ${res.status}`)
 }
 
 export async function testProviderConnection(): Promise<{ ok: boolean; error?: string }> {
