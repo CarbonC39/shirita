@@ -29,14 +29,7 @@ impl HttpSession {
             .redirect(reqwest::redirect::Policy::limited(3))
             .build()
             .map_err(|e| Error::Mcp(format!("mcp http client build failed: {e}")))?;
-        // Embedded credentials (user:pass@host) are rejected.
-        if parse_url_has_credentials(url) {
-            return Err(Error::Mcp("mcp http URL must not embed credentials".into()));
-        }
-        // Plain HTTP is only accepted for loopback hosts; HTTPS is normal.
-        if let Err(message) = plain_http_loopback_only(url) {
-            return Err(Error::Mcp(message));
-        }
+        validate_url(url).map_err(Error::Mcp)?;
         Ok(HttpSession {
             client,
             url: url.to_string(),
@@ -141,19 +134,22 @@ fn parse_url_has_credentials(url: &str) -> bool {
     authority.contains('@')
 }
 
-/// Plain `http://` is accepted only for loopback hosts; HTTPS is normal.
-fn plain_http_loopback_only(url: &str) -> std::result::Result<(), String> {
-    let Some(rest) = url.strip_prefix("http://") else {
-        return Ok(());
-    };
-    let host = rest.split(['/', ':', '?']).next().unwrap_or("");
-    let loopback = host == "localhost"
-        || host.starts_with("127.")
-        || host == "::1"
-        || host == "[::1]"
-        || host == "[::1]";
-    if !loopback {
-        return Err("plain http is only allowed for loopback hosts".into());
+/// Validate a Streamable HTTP endpoint URL: no embedded credentials, and plain
+/// `http://` only for loopback hosts (HTTPS is normal).
+pub(crate) fn validate_url(url: &str) -> std::result::Result<(), String> {
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("mcp http URL must use http or https".into());
+    }
+    if parse_url_has_credentials(url) {
+        return Err("mcp http URL must not embed credentials".into());
+    }
+    if let Some(rest) = url.strip_prefix("http://") {
+        let host = rest.split(['/', ':', '?']).next().unwrap_or("");
+        let loopback =
+            host == "localhost" || host.starts_with("127.") || host == "::1" || host == "[::1]";
+        if !loopback {
+            return Err("plain http is only allowed for loopback hosts".into());
+        }
     }
     Ok(())
 }

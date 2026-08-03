@@ -216,6 +216,31 @@ fn row_to_message(row: &SqliteRow) -> Result<Message> {
     })
 }
 
+fn mcp_record_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<crate::mcp::McpServerRecord> {
+    use sqlx::Row;
+    let id: String = row.try_get("id")?;
+    let name: String = row.try_get("name")?;
+    let enabled: i64 = row.try_get("enabled")?;
+    let transport_json: String = row.try_get("transport")?;
+    let request_timeout_ms: i64 = row.try_get("request_timeout_ms")?;
+    let created_at: String = row.try_get("created_at")?;
+    let updated_at: String = row.try_get("updated_at")?;
+    let transport: crate::mcp::McpTransportConfig = serde_json::from_str(&transport_json)?;
+    let has_secret = transport.has_secrets();
+    Ok(crate::mcp::McpServerRecord {
+        config: crate::mcp::McpServerConfig {
+            id,
+            name,
+            enabled: enabled != 0,
+            transport,
+            request_timeout_ms: request_timeout_ms as u64,
+            has_secret,
+        },
+        created_at,
+        updated_at,
+    })
+}
+
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn create_definition(&self, def: &Definition) -> Result<()> {
@@ -783,6 +808,73 @@ impl Storage for SqliteStorage {
         sqlx::query("DELETE FROM prompt_nodes WHERE owner_kind = 'pack' AND owner_id = ?").bind(id).execute(&mut *tx).await?;
         sqlx::query("DELETE FROM packs WHERE id = ?").bind(id).execute(&mut *tx).await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    async fn list_mcp_servers(&self) -> Result<Vec<crate::mcp::McpServerRecord>> {
+        let rows = sqlx::query(
+            "SELECT id, name, enabled, transport, request_timeout_ms, created_at, updated_at \
+             FROM mcp_servers ORDER BY name ASC, id ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter().map(mcp_record_from_row).collect()
+    }
+
+    async fn get_mcp_server(&self, id: &str) -> Result<Option<crate::mcp::McpServerRecord>> {
+        let row = sqlx::query(
+            "SELECT id, name, enabled, transport, request_timeout_ms, created_at, updated_at \
+             FROM mcp_servers WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        match row {
+            Some(row) => Ok(Some(mcp_record_from_row(&row)?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn create_mcp_server(&self, record: &crate::mcp::McpServerRecord) -> Result<()> {
+        let transport = serde_json::to_string(&record.config.transport)?;
+        sqlx::query(
+            "INSERT INTO mcp_servers (id, name, enabled, transport, request_timeout_ms, created_at, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(&record.config.id)
+        .bind(&record.config.name)
+        .bind(record.config.enabled as i64)
+        .bind(&transport)
+        .bind(record.config.request_timeout_ms as i64)
+        .bind(&record.created_at)
+        .bind(&record.updated_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn update_mcp_server(&self, record: &crate::mcp::McpServerRecord) -> Result<()> {
+        let transport = serde_json::to_string(&record.config.transport)?;
+        sqlx::query(
+            "UPDATE mcp_servers SET name = ?, enabled = ?, transport = ?, request_timeout_ms = ?, updated_at = ? \
+             WHERE id = ?",
+        )
+        .bind(&record.config.name)
+        .bind(record.config.enabled as i64)
+        .bind(&transport)
+        .bind(record.config.request_timeout_ms as i64)
+        .bind(&record.updated_at)
+        .bind(&record.config.id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    async fn delete_mcp_server(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM mcp_servers WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -2062,6 +2154,43 @@ mod tests {
         assert_eq!(orphans[0].id, rule2.id);
         s.delete_pack(&p.id, true).await.unwrap();
         assert!(s.get_definition(&rule2.id).await.unwrap().is_none(), "deleted when delete_orphans=true");
+    }
+
+    #[tokio::test]
+    async fn mcp_servers_crud_round_trip() {
+        let s = temp_storage().await;
+        let record = crate::mcp::McpServerRecord {
+            config: crate::mcp::McpServerConfig {
+                id: "demo".into(),
+                name: "Demo".into(),
+                enabled: true,
+                transport: crate::mcp::McpTransportConfig::StreamableHttp {
+                    url: "http://localhost:8080/mcp".into(),
+                    headers: vec![("x-api-key".into(), "s3cret".into())],
+                },
+                request_timeout_ms: 5000,
+                has_secret: true,
+            },
+            created_at: "t0".into(),
+            updated_at: "t0".into(),
+        };
+        s.create_mcp_server(&record).await.unwrap();
+        let got = s.get_mcp_server("demo").await.unwrap().unwrap();
+        assert_eq!(got.config.name, "Demo");
+        assert!(got.config.transport.has_secrets());
+        assert_eq!(got.created_at, "t0");
+
+        let mut updated = record.clone();
+        updated.config.name = "Demo 2".into();
+        updated.updated_at = "t1".into();
+        s.update_mcp_server(&updated).await.unwrap();
+        let got = s.get_mcp_server("demo").await.unwrap().unwrap();
+        assert_eq!(got.config.name, "Demo 2");
+        assert_eq!(got.updated_at, "t1");
+
+        assert_eq!(s.list_mcp_servers().await.unwrap().len(), 1);
+        s.delete_mcp_server("demo").await.unwrap();
+        assert!(s.get_mcp_server("demo").await.unwrap().is_none());
     }
 
     #[tokio::test]

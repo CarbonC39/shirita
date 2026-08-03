@@ -149,6 +149,10 @@ pub fn app(state: AppState) -> Router {
         .route("/settings", get(routes::settings::get_all).put(routes::settings::update_all))
         .route("/agent-settings", get(routes::agent_settings::get_global).put(routes::agent_settings::put_global).delete(routes::agent_settings::reset_global))
         .route("/sessions/{id}/agent-settings", get(routes::agent_settings::get_session).put(routes::agent_settings::put_session).delete(routes::agent_settings::reset_session))
+        .route("/mcp/servers", get(routes::mcp::list_servers).post(routes::mcp::create_server))
+        .route("/mcp/servers/{id}", get(routes::mcp::get_server).put(routes::mcp::update_server).delete(routes::mcp::delete_server))
+        .route("/mcp/servers/{id}/test", post(routes::mcp::test_server))
+        .route("/mcp/servers/{id}/refresh-tools", post(routes::mcp::refresh_tools))
         .route("/provider/test", post(routes::provider::test_connection))
         .route("/provider/models", get(routes::provider::list_models))
         // Image uploads routinely exceed axum's 2 MiB default; allow up to 16 MiB

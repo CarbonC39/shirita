@@ -49,8 +49,155 @@ pub struct McpServerConfig {
     pub enabled: bool,
     pub transport: McpTransportConfig,
     pub request_timeout_ms: u64,
-    /// Whether a secret is present (never the secret itself).
+    /// Whether a secret is present (never the secret itself); derived, so it is
+    /// not required on input.
+    #[serde(default)]
     pub has_secret: bool,
+}
+
+/// A persisted MCP server record: the full typed config (which may contain
+/// secret header/env values, never returned by the API) plus timestamps.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct McpServerRecord {
+    pub config: McpServerConfig,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl McpTransportConfig {
+    /// Whether any header/env value is non-empty (a stored secret is present).
+    pub fn has_secrets(&self) -> bool {
+        match self {
+            McpTransportConfig::Stdio { env, .. } => env.iter().any(|(_, v)| !v.is_empty()),
+            McpTransportConfig::StreamableHttp { headers, .. } => {
+                headers.iter().any(|(_, v)| !v.is_empty())
+            }
+        }
+    }
+
+    /// A redacted copy: header/env values are blanked so secrets never leave
+    /// the backend. Returns whether any value was redacted.
+    pub fn redacted(&self) -> (McpTransportConfig, bool) {
+        match self {
+            McpTransportConfig::Stdio { command, args, env } => {
+                let has = env.iter().any(|(_, v)| !v.is_empty());
+                let env = env.iter().map(|(k, _)| (k.clone(), String::new())).collect();
+                (
+                    McpTransportConfig::Stdio {
+                        command: command.clone(),
+                        args: args.clone(),
+                        env,
+                    },
+                    has,
+                )
+            }
+            McpTransportConfig::StreamableHttp { url, headers } => {
+                let has = headers.iter().any(|(_, v)| !v.is_empty());
+                let headers = headers.iter().map(|(k, _)| (k.clone(), String::new())).collect();
+                (
+                    McpTransportConfig::StreamableHttp {
+                        url: url.clone(),
+                        headers,
+                    },
+                    has,
+                )
+            }
+        }
+    }
+}
+
+impl McpServerConfig {
+    /// An API-facing copy with secrets blanked and `has_secret` computed.
+    pub fn redacted(&self) -> McpServerConfig {
+        let (transport, has) = self.transport.redacted();
+        McpServerConfig {
+            transport,
+            has_secret: has,
+            ..self.clone()
+        }
+    }
+
+    /// Merge an incoming (possibly redacted) config over the stored one: an
+    /// empty header/env value keeps the stored secret for that key.
+    pub fn merge_secrets(&self, incoming: &McpServerConfig) -> McpServerConfig {
+        let transport = match &incoming.transport {
+            McpTransportConfig::Stdio {
+                command,
+                args,
+                env,
+            } => {
+                let stored = match &self.transport {
+                    McpTransportConfig::Stdio { env, .. } => env.clone(),
+                    _ => Vec::new(),
+                };
+                McpTransportConfig::Stdio {
+                    command: command.clone(),
+                    args: args.clone(),
+                    env: merge_pairs(&stored, env),
+                }
+            }
+            McpTransportConfig::StreamableHttp { url, headers } => {
+                let stored = match &self.transport {
+                    McpTransportConfig::StreamableHttp { headers, .. } => headers.clone(),
+                    _ => Vec::new(),
+                };
+                McpTransportConfig::StreamableHttp {
+                    url: url.clone(),
+                    headers: merge_pairs(&stored, headers),
+                }
+            }
+        };
+        let has_secret = transport.has_secrets();
+        McpServerConfig {
+            id: incoming.id.clone(),
+            name: incoming.name.clone(),
+            enabled: incoming.enabled,
+            transport,
+            request_timeout_ms: incoming.request_timeout_ms,
+            has_secret,
+        }
+    }
+
+    /// Configuration validation at save time (connection-time revalidation is
+    /// performed separately by `McpSession::connect`).
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        if self.id.is_empty() || !self.id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') {
+            return Err("mcp server id must be alphanumeric, '-', '_', or '.'".into());
+        }
+        if self.name.trim().is_empty() {
+            return Err("mcp server name is required".into());
+        }
+        if self.request_timeout_ms == 0 || self.request_timeout_ms > 300_000 {
+            return Err("mcp request timeout must be between 1 and 300000 ms".into());
+        }
+        match &self.transport {
+            McpTransportConfig::Stdio { command, .. } => {
+                if command.trim().is_empty() {
+                    return Err("stdio command is required".into());
+                }
+            }
+            McpTransportConfig::StreamableHttp { url, .. } => http::validate_url(url)?,
+        }
+        Ok(())
+    }
+}
+
+fn merge_pairs(stored: &[(String, String)], incoming: &[(String, String)]) -> Vec<(String, String)> {
+    incoming
+        .iter()
+        .map(|(key, value)| {
+            if value.is_empty() {
+                let stored_value = stored
+                    .iter()
+                    .find(|(stored_key, _)| stored_key == key)
+                    .map(|(_, sv)| sv.clone())
+                    .unwrap_or_default();
+                (key.clone(), stored_value)
+            } else {
+                (key.clone(), value.clone())
+            }
+        })
+        .collect()
 }
 
 /// A normalized Tool from `tools/list`.

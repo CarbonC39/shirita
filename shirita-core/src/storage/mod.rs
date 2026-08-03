@@ -160,6 +160,13 @@ pub trait Storage: Send + Sync {
     /// is true, also delete the definitions reported by
     /// `orphaned_definitions_for_pack` (mirrors `delete_template`).
     async fn delete_pack(&self, id: &str, delete_orphans: bool) -> Result<()>;
+
+    // --- MCP servers ---
+    async fn list_mcp_servers(&self) -> Result<Vec<crate::mcp::McpServerRecord>>;
+    async fn get_mcp_server(&self, id: &str) -> Result<Option<crate::mcp::McpServerRecord>>;
+    async fn create_mcp_server(&self, record: &crate::mcp::McpServerRecord) -> Result<()>;
+    async fn update_mcp_server(&self, record: &crate::mcp::McpServerRecord) -> Result<()>;
+    async fn delete_mcp_server(&self, id: &str) -> Result<()>;
     /// Atomically persist an imported pack bundle in a single transaction:
     /// new asset rows, the pack, its definitions, then its nodes (which MUST be
     /// pre-ordered parent-before-child). Any failure rolls the whole import back.

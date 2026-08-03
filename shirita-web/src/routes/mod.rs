@@ -2,6 +2,7 @@ pub mod agent_settings;
 pub mod assets;
 pub mod auth;
 pub mod chat;
+pub mod mcp;
 pub mod definitions;
 pub mod export;
 pub mod health;

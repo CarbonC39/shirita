@@ -172,3 +172,76 @@ fn http_rejects_plain_http_outside_loopback() {
         assert!(err.to_string().contains("loopback"));
     });
 }
+
+#[test]
+fn redaction_blanks_secrets_and_merge_keeps_stored_values() {
+    let stored = McpServerConfig {
+        id: "demo".into(),
+        name: "Demo".into(),
+        enabled: true,
+        transport: McpTransportConfig::StreamableHttp {
+            url: "http://localhost:8080/mcp".into(),
+            headers: vec![
+                ("x-api-key".into(), "s3cret".into()),
+                ("X-Tenant".into(), "t1".into()),
+            ],
+        },
+        request_timeout_ms: 5000,
+        has_secret: true,
+    };
+    let redacted = stored.redacted();
+    assert!(redacted.has_secret);
+    let headers = match &redacted.transport {
+        McpTransportConfig::StreamableHttp { headers, .. } => headers,
+        _ => panic!("expected http transport"),
+    };
+    assert_eq!(headers[0].1, "");
+    assert_eq!(headers[1].1, "");
+
+    // Merge: an incoming blank value keeps the stored secret; a non-blank value
+    // wins.
+    let incoming = McpServerConfig {
+        id: "demo".into(),
+        name: "Demo".into(),
+        enabled: true,
+        transport: McpTransportConfig::StreamableHttp {
+            url: "http://localhost:8080/mcp".into(),
+            headers: vec![
+                ("x-api-key".into(), "".into()),
+                ("X-Tenant".into(), "t2".into()),
+            ],
+        },
+        request_timeout_ms: 5000,
+        has_secret: false,
+    };
+    let merged = stored.merge_secrets(&incoming);
+    let headers = match &merged.transport {
+        McpTransportConfig::StreamableHttp { headers, .. } => headers,
+        _ => panic!("expected http transport"),
+    };
+    assert_eq!(headers[0].1, "s3cret");
+    assert_eq!(headers[1].1, "t2");
+}
+
+#[test]
+fn validate_rejects_bad_ids_and_remote_plain_http() {
+    let mut config = McpServerConfig {
+        id: "bad id!".into(),
+        name: "Bad".into(),
+        enabled: true,
+        transport: McpTransportConfig::StreamableHttp {
+            url: "http://example.com/mcp".into(),
+            headers: vec![],
+        },
+        request_timeout_ms: 5000,
+        has_secret: false,
+    };
+    assert!(config.validate().is_err());
+    config.id = "ok-id".into();
+    assert!(config.validate().is_err(), "remote plain http must be rejected");
+    config.transport = McpTransportConfig::StreamableHttp {
+        url: "http://localhost:8080/mcp".into(),
+        headers: vec![],
+    };
+    assert!(config.validate().is_ok());
+}
