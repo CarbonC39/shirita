@@ -9,10 +9,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 pub mod http;
+pub mod registry;
 pub mod stdio;
 
 #[cfg(test)]
 mod tests;
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
 
 use crate::{Error, Result};
 
@@ -198,6 +203,144 @@ fn merge_pairs(stored: &[(String, String)], incoming: &[(String, String)]) -> Ve
             }
         })
         .collect()
+}
+
+/// Access policy for a registered MCP Tool.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpAccess {
+    /// Callable within run limits.
+    Allow,
+    /// Visible, but a call waits for user authorization.
+    Ask,
+}
+
+/// Effective per-Tool policy. A registered MCP tool name maps to an access
+/// level; tools not listed default to `disabled` (absent from the
+/// model-visible registry).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct McpPolicy {
+    #[serde(default)]
+    pub tools: std::collections::HashMap<String, McpAccess>,
+}
+
+impl McpPolicy {
+    /// From a settings map (`mcp.policy` key).
+    pub fn from_settings_map(map: &std::collections::HashMap<String, Value>) -> McpPolicy {
+        map.get("mcp.policy")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn to_settings_pair(&self) -> (String, Value) {
+        (
+            "mcp.policy".into(),
+            serde_json::to_value(self).unwrap_or_else(|_| json!({})),
+        )
+    }
+
+    /// Global policy merged with an optional conversation override (override
+    /// wins per tool).
+    pub fn effective(
+        global: Option<&McpPolicy>,
+        conversation_override: Option<&McpPolicy>,
+    ) -> McpPolicy {
+        let mut tools = global.map(|g| g.tools.clone()).unwrap_or_default();
+        if let Some(override_policy) = conversation_override {
+            for (name, access) in &override_policy.tools {
+                tools.insert(name.clone(), *access);
+            }
+        }
+        McpPolicy { tools }
+    }
+}
+
+/// Stable registered name for an MCP Tool: `mcp.<server>.<encoded_tool>`.
+/// The encoding is deterministic; normalization collisions are rejected at
+/// registration (the registry refuses duplicate names).
+pub fn mcp_tool_name(server_id: &str, tool_name: &str) -> String {
+    format!("mcp.{}.{}", encode_name_part(server_id), encode_name_part(tool_name))
+}
+
+fn encode_name_part(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '.' {
+            out.push(c);
+        } else if c.is_ascii_uppercase() {
+            out.push(c.to_ascii_lowercase());
+        } else {
+            out.push('_');
+            for byte in c.to_string().bytes() {
+                out.push_str(&format!("{byte:02x}"));
+            }
+            out.push('_');
+        }
+    }
+    out
+}
+
+/// Tool handler that calls back into a connected MCP session. Conversation code
+/// never branches on MCP source; this is just another `ToolHandler`.
+pub struct McpToolHandler {
+    server_id: String,
+    tool_name: String,
+    access: McpAccess,
+    session: Arc<tokio::sync::Mutex<McpSession>>,
+}
+
+#[async_trait]
+impl crate::tools::ToolHandler for McpToolHandler {
+    async fn execute(&self, call: &crate::tools::ToolCall) -> crate::tools::ToolExecution {
+        if self.access == McpAccess::Ask {
+            return crate::tools::ToolExecution {
+                result: crate::tools::ToolResult {
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    status: crate::tools::ToolResultStatus::Rejected,
+                    output: json!({}),
+                    error_code: Some("authorization_denied".into()),
+                },
+                control: crate::tools::ToolControl::None,
+            };
+        }
+        let result = match self
+            .session
+            .lock()
+            .await
+            .call_tool(&self.tool_name, call.arguments.clone())
+            .await
+        {
+            Ok(r) if !r.is_error => crate::tools::ToolResult {
+                call_id: call.id.clone(),
+                name: call.name.clone(),
+                status: crate::tools::ToolResultStatus::Ok,
+                output: r.structured.unwrap_or_else(|| json!({"text": r.text})),
+                error_code: None,
+            },
+            Ok(r) => crate::tools::ToolResult {
+                call_id: call.id.clone(),
+                name: call.name.clone(),
+                status: crate::tools::ToolResultStatus::Rejected,
+                output: json!({"text": r.text}),
+                error_code: Some("execution_failed".into()),
+            },
+            Err(e) => {
+                tracing::warn!(server = %self.server_id, tool = %self.tool_name, error = %e, "mcp tools/call failed");
+                crate::tools::ToolResult {
+                    call_id: call.id.clone(),
+                    name: call.name.clone(),
+                    status: crate::tools::ToolResultStatus::Failed,
+                    output: json!({}),
+                    error_code: Some("provider_unavailable".into()),
+                }
+            }
+        };
+        crate::tools::ToolExecution {
+            result,
+            control: crate::tools::ToolControl::None,
+        }
+    }
 }
 
 /// A normalized Tool from `tools/list`.

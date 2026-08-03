@@ -29,6 +29,11 @@ pub struct ToolSpec {
     pub output_schema: Option<Value>,
     pub source: ToolSource,
     pub required: bool,
+    /// Model-visible regardless of `enabled_tools` (e.g. policy-allowed MCP
+    /// Tools). Unlike `required`, it is not a run-control capability and is
+    /// excluded from the user-facing capability checklist.
+    #[serde(default)]
+    pub selected: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,7 +114,7 @@ impl ToolRegistry {
     pub fn capability_names(&self) -> Vec<String> {
         self.specs()
             .into_iter()
-            .filter(|s| !s.required)
+            .filter(|s| !s.required && !s.selected)
             .map(|s| s.name)
             .collect()
     }
@@ -125,7 +130,7 @@ impl ToolRegistry {
         let Some(spec) = self.specs.get(&call.name) else {
             return rejected(call, "unknown_tool");
         };
-        if !spec.required && !enabled.contains(&call.name) {
+        if !spec.required && !spec.selected && !enabled.contains(&call.name) {
             return rejected(call, "disabled_tool");
         }
         let Some(handler) = self.handlers.get(&call.name) else {
@@ -150,11 +155,23 @@ pub struct ToolRegistryBuilder {
 }
 
 impl ToolRegistryBuilder {
+    /// Consuming registration for builder chains (`.register(a).unwrap()
+    /// .register(b)...`).
     pub fn register(
         mut self,
         spec: ToolSpec,
         handler: Arc<dyn ToolHandler>,
     ) -> Result<Self, String> {
+        self.register_owned(spec, handler)?;
+        Ok(self)
+    }
+    /// In-place registration for loops (registry construction over discovered
+    /// MCP Tools); a rejected tool does not lose the builder.
+    pub fn register_owned(
+        &mut self,
+        spec: ToolSpec,
+        handler: Arc<dyn ToolHandler>,
+    ) -> Result<(), String> {
         if !valid_name(&spec.name) {
             return Err(format!("invalid tool name: {}", spec.name));
         }
@@ -163,7 +180,7 @@ impl ToolRegistryBuilder {
         }
         self.handlers.insert(spec.name.clone(), handler);
         self.specs.insert(spec.name.clone(), spec);
-        Ok(self)
+        Ok(())
     }
     pub fn build(self) -> ToolRegistry {
         ToolRegistry {
@@ -393,6 +410,12 @@ fn schema(properties: Value, required: &[&str]) -> Value {
     json!({"type":"object", "properties":properties, "required":required, "additionalProperties":false})
 }
 pub fn builtin_tool_registry() -> ToolRegistry {
+    builtin_tool_registry_builder().build()
+}
+
+/// The builtin harness/capability tools as an extendable builder, so MCP Tools
+/// can be registered into the same immutable registry at run setup.
+pub fn builtin_tool_registry_builder() -> ToolRegistryBuilder {
     let source = ToolSource::Builtin;
     ToolRegistry::builder()
         .register(
@@ -406,6 +429,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: true,
+                selected: false,
             },
             Arc::new(StatusTool),
         )
@@ -418,6 +442,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: true,
+                selected: false,
             },
             Arc::new(FinishTool),
         )
@@ -430,6 +455,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: true,
+                selected: false,
             },
             Arc::new(ReplaceResponseTool),
         )
@@ -452,6 +478,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: true,
+                selected: false,
             },
             Arc::new(PatchResponseTool),
         )
@@ -467,6 +494,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: false,
+                selected: false,
             },
             Arc::new(RandomNumberTool),
         )
@@ -482,6 +510,7 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source: source.clone(),
                 required: false,
+                selected: false,
             },
             Arc::new(RandomChooseTool),
         )
@@ -495,11 +524,11 @@ pub fn builtin_tool_registry() -> ToolRegistry {
                 output_schema: None,
                 source,
                 required: false,
+                selected: false,
             },
             Arc::new(MathTool),
         )
         .unwrap()
-        .build()
 }
 
 fn eval_math(input: &str) -> Option<f64> {

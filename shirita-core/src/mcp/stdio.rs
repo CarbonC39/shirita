@@ -23,6 +23,15 @@ struct StdioIo {
     stdout: BufReader<tokio::process::ChildStdout>,
 }
 
+impl Drop for StdioSession {
+    fn drop(&mut self) {
+        // Best-effort cleanup when the run's frozen registry (which owns the
+        // session through its Tool handlers) is dropped without a graceful
+        // shutdown: kill the child so it cannot linger.
+        let _ = self.child.start_kill();
+    }
+}
+
 impl StdioSession {
     /// Spawn the configured executable and start draining stderr.
     pub async fn spawn(

@@ -447,6 +447,20 @@ pub enum SendEvent {
     Error(String),
 }
 
+/// The frozen per-run Tool registry: builtins plus policy-allowed MCP Tools.
+/// Falls back to builtins if registry construction fails (e.g. storage error).
+async fn build_run_registry(
+    storage: &dyn Storage,
+    session: &crate::models::session::Session,
+) -> Arc<crate::tools::ToolRegistry> {
+    crate::mcp::registry::build_effective_tool_registry(storage, session)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::warn!(error = %e, "failed to build MCP-enabled registry; using builtin tools");
+            Arc::new(crate::tools::builtin_tool_registry())
+        })
+}
+
 async fn runtime_agent_settings(storage: &dyn Storage, session: &Session) -> (crate::agent::AgentSettings, bool) {
     let map: serde_json::Map<String, serde_json::Value> = storage.list_settings().await.unwrap_or_default().into_iter().collect();
     let global = crate::agent::AgentSettings::from_settings_map(&map);
@@ -488,11 +502,12 @@ enum RunStreamEvent {
 
 fn generation_stream(
     provider: Arc<dyn ModelProvider>, request: ChatRequest, settings: crate::agent::AgentSettings,
-    native_supported: bool, stop: StopToken, run_state: crate::agent::GenerationRun,
+    native_supported: bool, registry: Arc<crate::tools::ToolRegistry>, stop: StopToken,
+    run_state: crate::agent::GenerationRun,
 ) -> impl Stream<Item = RunStreamEvent> {
     async_stream::stream! {
         if settings.enabled {
-            let events = crate::agent_loop::run(provider, request, settings.clone(), native_supported, Arc::new(crate::tools::builtin_tool_registry()), stop, run_state);
+            let events = crate::agent_loop::run(provider, request, settings.clone(), native_supported, registry, stop, run_state);
             futures::pin_mut!(events);
             while let Some(event) = events.next().await {
                 match event {
@@ -692,7 +707,8 @@ pub fn send_message(
         //    we persist whatever was generated so far instead of discarding it.
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
         let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, Some(user_msg.id.as_str()), crate::agent::RunKind::Send);
-        let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
+        let registry = build_run_registry(storage.as_ref(), &session).await;
+        let run = generation_stream(provider, req, agent_settings, native_supported, registry, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {
             match run.next().await {
@@ -801,7 +817,8 @@ pub fn regenerate(
 
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
         let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, target.parent_id.as_deref(), crate::agent::RunKind::Regenerate);
-        let run = generation_stream(provider, req, agent_settings, native_supported, stop, run_state);
+        let registry = build_run_registry(storage.as_ref(), &session).await;
+        let run = generation_stream(provider, req, agent_settings, native_supported, registry, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {
             match run.next().await {

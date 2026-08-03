@@ -79,8 +79,8 @@ pub use storage::{sqlite::SqliteStorage, Storage};
 pub use summarize::fold_range;
 pub use summarize::run as run_summary;
 pub use mcp::{
-    McpCallResult, McpServerConfig, McpSession, McpToolDef, McpTransportConfig,
-    MCP_PROTOCOL_VERSION,
+    McpAccess, McpCallResult, McpPolicy, McpServerConfig, McpSession, McpToolDef,
+    McpToolHandler, McpTransportConfig, mcp_tool_name, MCP_PROTOCOL_VERSION,
 };
 pub use tokenizer::{tiktoken::TiktokenCounter, TokenCounter};
 pub use tools::{builtin_tool_registry, ToolCall, ToolCallTransport, ToolControl, ToolExecution, ToolRegistry, ToolResult, ToolResultStatus, ToolSource, ToolSpec};

@@ -46,7 +46,7 @@ fn selected_specs(registry: &ToolRegistry, enabled: &[String]) -> Vec<crate::too
     registry
         .specs()
         .into_iter()
-        .filter(|spec| spec.required || enabled.contains(&spec.name))
+        .filter(|spec| spec.required || spec.selected || enabled.contains(&spec.name))
         .collect()
 }
 
@@ -631,6 +631,7 @@ mod tests {
                         output_schema: None,
                         source: crate::tools::ToolSource::Builtin,
                         required: false,
+                        selected: false,
                     },
                     Arc::new(SlowTool),
                 )
