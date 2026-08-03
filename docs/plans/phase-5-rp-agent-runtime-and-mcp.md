@@ -1,6 +1,6 @@
 # Phase 5 implementation plan: response-centered RP Agent runtime and MCP Tools
 
-> Status: Phase 5A implemented; Phase 5B not started
+> Status: Phase 5A and 5B implemented
 > Date: 2026-08-02
 > Scope: complete the Phase 4 Agent foundation around a mutable response workspace, then connect explicitly configured MCP Tools to the same runtime
 
@@ -694,11 +694,11 @@ Before completion, update README/current direction/architecture/module docs; doc
 - [x] Provider, Tool-call, final-response, and MCP streaming boundaries are explicit and tested (MCP part deferred to 5B).
 - [x] Stop and finish prevent all later calls/rounds.
 - [x] Activity/status is structured, transient, compact, run-scoped, and gated.
-- [ ] MCP supports stdio and Streamable HTTP for Tools only.
-- [ ] MCP Tools share the immutable registry/executor with built-ins.
-- [ ] Tool identities cannot overwrite handlers.
-- [ ] Configuration/secrets are typed, validated, redacted, and revalidated.
-- [ ] Disabled/allow/ask policies do not prescribe Tool purpose.
+- [x] MCP supports stdio and Streamable HTTP for Tools only.
+- [x] MCP Tools share the immutable registry/executor with built-ins.
+- [x] Tool identities cannot overwrite handlers.
+- [x] Configuration/secrets are typed, validated, redacted, and revalidated.
+- [x] Disabled/allow/ask policies do not prescribe Tool purpose.
 - [x] Limits are centralized with no hidden retries or constraints.
 - [x] Agent-off and prior chat/runtime behavior remain intact.
 - [ ] Desktop and self-hosted modes share behavior (packaged-desktop check pending).
@@ -711,6 +711,8 @@ Live acceptance gate passed against the real model on 2026-08-02. Environment: `
 
 The live gate caught one real defect: with the XML transport, a retained capability call was serialized back into the next round as a native `tool_calls` field rather than the `<tool_call>` XML the model wrote, so the small model stopped continuing after a capability result (round-limit failure). Fixed by rendering retained calls into `<tool_call>` blocks in the assistant transcript for XML transport (`xml_tools::render_xml_tool_call` + `append_round`), with a round-trip test. After the fix, the XML capability-result-edit-finish flow completes.
 
-Packaged Tauri/WebKit checks and all Phase 5B MCP work remain open.
+Packaged Tauri/WebKit checks remain open.
 
 Post-review fixes (2026-08-02, after the live gate): a review round found and fixed gaps that the existing tests did not cover — finish is now a terminal fence by normalized call name even when its arguments are invalid; finish emits exactly one ToolFinished after commit validation with a `{committed,revision,bytes}` result; one-shot `finish(response)` obeys the response-workspace ceiling; round-control system messages (snapshot, receipts, unfinished instruction) stay in-sequence for Anthropic via a `control` flag instead of being promoted into the top-level `system` field; `response.patch` enforces a replacement-bytes ceiling; the activity SSE carries the round number structurally and the frontend renders from the run-scoped `AgentRunView` with deterministic clearing on success. All five live gate scenarios still pass after the fixes.
+
+Phase 5B implementation note (2026-08-02): MCP support is implemented and committed. A minimal Tools-only MCP client targets stable `2025-11-25` over stdio (explicit command/args/env, no shell, stdout reserved for JSON-RPC, bounded stderr diagnostics, child cleanup) and Streamable HTTP (JSON/SSE, session header, timeouts, bounded redirects; rejects embedded URL credentials and plain HTTP to remote hosts). Storage is typed/redacted with an `mcp_servers` table and a CRUD/test/refresh-tools API; secrets never leave the backend (`has_secret` + blank header/env values + secret-preserving merge). MCP Tools join the immutable registry with stable `mcp.<server>.<encoded>` names and collision rejection, gated by a global `mcp.policy` setting plus an optional per-conversation override frozen at run start (default disabled; `allow`/`ask`). `ask` Tools wait for a one-time approve/deny decision bound to the run/call/session with frozen arguments and a bounded redacted preview; stale decisions are rejected; Stop/expiry resolves the wait; decisions are never stored as policy. The chat UI polls pending authorizations and shows an approve/deny prompt; a settings UI covers server CRUD and per-tool policy with full locale parity. Deterministic mock servers (in-process HTTP responder + the `mcp_mock_stdio` binary) cover pagination, calls, `isError`, spawn failure, redaction, secret merge, policy gating, allow execution, and the ask wait/approve/deny/stale flows. Automated verification passes: the full Rust workspace suite, all UI tests, and the production UI build. Live-provider execution of an MCP Tool through the real `gemma-4-e4b` loop, and packaged Tauri/WebKit checks, remain open (recorded honestly).
