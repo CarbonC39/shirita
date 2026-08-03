@@ -27,7 +27,7 @@ async fn test_state() -> AppState {
     let config = Arc::new(Config::new("ignored", assets.to_str().unwrap()).unwrap());
     let provider: Arc<dyn ModelProvider> = Arc::new(EchoProvider);
     let token_counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-    AppState { storage, config, provider, token_counter, model: "m".into(), generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client() }
+    AppState { storage, config, provider, token_counter, model: "m".into(), generations: Arc::new(shirita_web::Generations::new()), http_client: shirita_web::new_http_client(), authorization: Arc::new(shirita_core::mcp::authorization::AuthorizationBroker::new()) }
 }
 
 async fn get(state: &AppState, uri: &str) -> (StatusCode, Value) {

@@ -33,7 +33,7 @@ async fn test_state() -> AppState {
         token_counter,
         model: "test-model".into(),
         generations: Arc::new(shirita_web::Generations::new()),
-        http_client: shirita_web::new_http_client(),
+        http_client: shirita_web::new_http_client(), authorization: Arc::new(shirita_core::mcp::authorization::AuthorizationBroker::new()),
     }
 }
 

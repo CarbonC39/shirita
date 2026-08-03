@@ -15,4 +15,6 @@ pub struct AppState {
     pub generations: Arc<Generations>,
     /// An HTTP client shared across all processes (cloning it shares the connection pool), reused by all providers, eliminating the need for `Client::new()` on every call.
     pub http_client: reqwest::Client,
+    /// Shared broker for `ask`-policy MCP Tool authorization decisions.
+    pub authorization: Arc<shirita_core::mcp::authorization::AuthorizationBroker>,
 }

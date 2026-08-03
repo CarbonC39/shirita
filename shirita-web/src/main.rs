@@ -67,6 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         model,
         generations: Arc::new(shirita_web::Generations::new()),
         http_client,
+        authorization: Arc::new(shirita_core::mcp::authorization::AuthorizationBroker::new()),
     };
 
     let bind_addr = std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8787".into());

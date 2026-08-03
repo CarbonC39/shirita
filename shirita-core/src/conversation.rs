@@ -452,8 +452,10 @@ pub enum SendEvent {
 async fn build_run_registry(
     storage: &dyn Storage,
     session: &crate::models::session::Session,
+    authorization: Arc<crate::mcp::authorization::AuthorizationBroker>,
+    run_id: &str,
 ) -> Arc<crate::tools::ToolRegistry> {
-    crate::mcp::registry::build_effective_tool_registry(storage, session)
+    crate::mcp::registry::build_effective_tool_registry(storage, session, authorization, run_id)
         .await
         .unwrap_or_else(|e| {
             tracing::warn!(error = %e, "failed to build MCP-enabled registry; using builtin tools");
@@ -637,6 +639,7 @@ pub fn send_message(
     user_text: String,
     assets_dir: String,
     attachment_ids: Vec<String>,
+    authorization: Arc<crate::mcp::authorization::AuthorizationBroker>,
     stop: StopToken,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
@@ -707,7 +710,7 @@ pub fn send_message(
         //    we persist whatever was generated so far instead of discarding it.
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
         let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, Some(user_msg.id.as_str()), crate::agent::RunKind::Send);
-        let registry = build_run_registry(storage.as_ref(), &session).await;
+        let registry = build_run_registry(storage.as_ref(), &session, authorization.clone(), &run_state.id).await;
         let run = generation_stream(provider, req, agent_settings, native_supported, registry, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {
@@ -764,6 +767,7 @@ pub fn regenerate(
     session_id: String,
     target_id: String,
     assets_dir: String,
+    authorization: Arc<crate::mcp::authorization::AuthorizationBroker>,
     stop: StopToken,
 ) -> impl Stream<Item = SendEvent> {
     async_stream::stream! {
@@ -817,7 +821,7 @@ pub fn regenerate(
 
         let (agent_settings, native_supported) = runtime_agent_settings(storage.as_ref(), &session).await;
         let run_state = crate::agent::GenerationRun::new(&uuid::Uuid::new_v4().to_string(), &session_id, target.parent_id.as_deref(), crate::agent::RunKind::Regenerate);
-        let registry = build_run_registry(storage.as_ref(), &session).await;
+        let registry = build_run_registry(storage.as_ref(), &session, authorization.clone(), &run_state.id).await;
         let run = generation_stream(provider, req, agent_settings, native_supported, registry, stop, run_state);
         futures::pin_mut!(run);
         let (full, stopped) = loop {
@@ -870,6 +874,10 @@ pub fn regenerate(
 
 #[cfg(test)]
 mod tests {
+    fn auth() -> std::sync::Arc<crate::mcp::authorization::AuthorizationBroker> {
+        std::sync::Arc::new(crate::mcp::authorization::AuthorizationBroker::new())
+    }
+
     use super::*;
     use crate::model::EchoProvider;
     use crate::models::session::Session;
@@ -911,7 +919,7 @@ mod tests {
         storage.create_session(&session).await.unwrap();
         storage.set_setting("agent.enabled", &serde_json::json!(true)).await.unwrap();
         let (handle, token) = StopHandle::new(); handle.stop();
-        let stream = send_message(storage.clone(), Arc::new(EchoProvider), Arc::new(TiktokenCounter::new()), "m".into(), session.id.clone(), "keep me".into(), "".into(), Vec::new(), token);
+        let stream = send_message(storage.clone(), Arc::new(EchoProvider), Arc::new(TiktokenCounter::new()), "m".into(), session.id.clone(), "keep me".into(), "".into(), Vec::new(), auth(), token);
         futures::pin_mut!(stream);
         let events = stream.collect::<Vec<_>>().await;
         assert!(events.iter().any(|event| matches!(event, SendEvent::Stopped { message_id: None })));
@@ -966,7 +974,7 @@ mod tests {
             session.id.clone(),
             "hello".into(),
             "".into(),
-            Vec::new(), StopToken::never());
+            Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
 
         let mut deltas = String::new();
@@ -1064,7 +1072,7 @@ mod tests {
 
         // first turn
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never())).await;
+            "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never())).await;
         let s1 = storage.get_session(&session.id).await.unwrap().unwrap();
         let msgs1 = storage.list_messages(&session.id).await.unwrap();
         assert_eq!(msgs1.len(), 2); // user + assistant
@@ -1073,7 +1081,7 @@ mod tests {
 
         // second turn chains under the previous assistant (the active leaf)
         drain(send_message(storage.clone(), provider.clone(), counter.clone(),
-            "m".into(), session.id.clone(), "again".into(), "".into(), Vec::new(), StopToken::never())).await;
+            "m".into(), session.id.clone(), "again".into(), "".into(), Vec::new(), auth(), StopToken::never())).await;
         let msgs2 = storage.list_messages(&session.id).await.unwrap();
         let user2 = msgs2.iter().find(|m| m.role == Role::User && m.raw_content == "again").unwrap();
         assert_eq!(user2.parent_id.as_deref(), Some(assistant1.id.as_str()));
@@ -1140,7 +1148,7 @@ mod tests {
             session.id.clone(),
             "hi".into(),
             "".into(),
-            Vec::new(), StopToken::never());
+            Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1174,7 +1182,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "user 2".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "user 2".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1222,7 +1230,7 @@ mod tests {
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
 
         // user says nothing about zion → A constant active, B only if recursion scans A's content.
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hello".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1245,7 +1253,7 @@ mod tests {
         let card = "<!DOCTYPE html>\n<html><body><p>HP: 100</p></body></html>";
         let seen1 = Arc::new(Mutex::new(None));
         let p1: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen1.clone(), reply: card.into() });
-        let s1 = send_message(storage.clone(), p1, counter.clone(), "m".into(), session.id.clone(), "draw".into(), "".into(), Vec::new(), StopToken::never());
+        let s1 = send_message(storage.clone(), p1, counter.clone(), "m".into(), session.id.clone(), "draw".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(s1);
         while s1.next().await.is_some() {}
         let req1 = seen1.lock().unwrap().clone().unwrap();
@@ -1260,7 +1268,7 @@ mod tests {
         let patch = "<<<<<<< SEARCH\n<p>HP: 100</p>\n=======\n<p>HP: 80</p>\n>>>>>>> REPLACE";
         let seen2 = Arc::new(Mutex::new(None));
         let p2: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen2.clone(), reply: patch.into() });
-        let s2 = send_message(storage.clone(), p2, counter, "m".into(), session.id.clone(), "hit".into(), "".into(), Vec::new(), StopToken::never());
+        let s2 = send_message(storage.clone(), p2, counter, "m".into(), session.id.clone(), "hit".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(s2);
         while s2.next().await.is_some() {}
 
@@ -1307,7 +1315,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1338,7 +1346,7 @@ mod tests {
 
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -1363,7 +1371,7 @@ mod tests {
 
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -1415,7 +1423,7 @@ mod tests {
         let seen = Arc::new(Mutex::new(None));
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "my dog".into(), "".into(), Vec::new(), StopToken::never());
+        let s = send_message(storage.clone(), provider, counter, "m".into(), session.id.clone(), "my dog".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(s);
         while s.next().await.is_some() {}
 
@@ -1441,7 +1449,7 @@ mod tests {
             "ghost-session".into(),
             "hi".into(),
             "".into(),
-            Vec::new(), StopToken::never());
+            Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
 
         match stream.next().await.unwrap() {
@@ -1542,7 +1550,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1591,7 +1599,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1636,7 +1644,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1672,7 +1680,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "hi".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1710,7 +1718,7 @@ mod tests {
             session.id.clone(),
             "look at this".into(),
             dir.path().to_str().unwrap().to_string(),
-            vec!["a1".to_string()], StopToken::never());
+            vec!["a1".to_string()], auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1750,7 +1758,7 @@ mod tests {
         // The window is set to a very small size → triggers cropping
         storage.set_setting("context.window", &serde_json::json!(20)).await.unwrap();
 
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "newest".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1785,7 +1793,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "ok".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into(), "".into(), Vec::new(), StopToken::never());
+        let stream = send_message(storage_dyn, provider, counter, "m".into(), session.id.clone(), "u3".into(), "".into(), Vec::new(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1828,7 +1836,7 @@ mod tests {
         });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), StopToken::never());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 
@@ -1859,7 +1867,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(RecordingProvider { seen: seen.clone(), reply: "retry".into() });
         let storage_dyn: Arc<dyn Storage> = storage.clone();
         let counter: Arc<dyn TokenCounter> = Arc::new(TiktokenCounter::new());
-        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), StopToken::never());
+        let stream = regenerate(storage_dyn, provider, counter, "m".into(), session.id.clone(), a1.id.clone(), "".into(), auth(), StopToken::never());
         futures::pin_mut!(stream);
         while stream.next().await.is_some() {}
 

@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+pub mod authorization;
 pub mod http;
 pub mod registry;
 pub mod stdio;
@@ -23,6 +24,10 @@ use crate::{Error, Result};
 
 /// The stable protocol version this client speaks.
 pub const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
+
+/// How long an `ask`-policy Tool call waits for a user decision before
+/// expiring (Stop also resolves the wait).
+pub const MCP_AUTHORIZATION_TIMEOUT_MS: u64 = 120_000;
 
 /// Transport configuration for one MCP server. Stored typed and revalidated by
 /// the runtime at connection time; never trusted from the save route alone.
@@ -287,22 +292,45 @@ pub struct McpToolHandler {
     tool_name: String,
     access: McpAccess,
     session: Arc<tokio::sync::Mutex<McpSession>>,
+    authorization: Arc<crate::mcp::authorization::AuthorizationBroker>,
+    run_id: String,
+    session_id: String,
+    authorization_timeout_ms: u64,
 }
 
 #[async_trait]
 impl crate::tools::ToolHandler for McpToolHandler {
     async fn execute(&self, call: &crate::tools::ToolCall) -> crate::tools::ToolExecution {
         if self.access == McpAccess::Ask {
-            return crate::tools::ToolExecution {
-                result: crate::tools::ToolResult {
-                    call_id: call.id.clone(),
-                    name: call.name.clone(),
-                    status: crate::tools::ToolResultStatus::Rejected,
-                    output: json!({}),
-                    error_code: Some("authorization_denied".into()),
-                },
-                control: crate::tools::ToolControl::None,
-            };
+            let decision = self
+                .authorization
+                .request_and_wait(
+                    &self.run_id,
+                    &self.session_id,
+                    &self.server_id,
+                    &self.tool_name,
+                    &call.id,
+                    call.arguments.clone(),
+                    self.authorization_timeout_ms,
+                )
+                .await;
+            match decision {
+                crate::mcp::authorization::AuthorizationDecision::Approved => {}
+                _ => {
+                    // Denied or expired (including Stop): a recoverable
+                    // rejection; the model may retry within normal limits.
+                    return crate::tools::ToolExecution {
+                        result: crate::tools::ToolResult {
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
+                            status: crate::tools::ToolResultStatus::Rejected,
+                            output: json!({}),
+                            error_code: Some("authorization_denied".into()),
+                        },
+                        control: crate::tools::ToolControl::None,
+                    };
+                }
+            }
         }
         let result = match self
             .session

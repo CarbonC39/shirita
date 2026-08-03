@@ -11,6 +11,9 @@ use axum::Json;
 use serde::Serialize;
 use serde_json::{json, Value};
 
+use shirita_core::mcp::authorization::{
+    AuthorizationDecision, PendingAuthorizationInfo,
+};
 use shirita_core::mcp::{McpServerConfig, McpServerRecord, McpSession, McpToolDef};
 
 use crate::AppState;
@@ -169,4 +172,44 @@ pub async fn refresh_tools(
         }
         Err(e) => Ok(Json(json!({"ok": false, "error": e.to_string()}))),
     }
+}
+
+/// Approve a pending `ask` Tool call. One-time: a stale or already-decided
+/// request returns 404. The frozen arguments recorded at request time are what
+/// execute on approval.
+pub async fn approve(
+    State(state): State<AppState>,
+    Path((run_id, call_id)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    match state
+        .authorization
+        .resolve(&run_id, &call_id, AuthorizationDecision::Approved)
+        .await
+    {
+        Some(_) => Ok(Json(json!({"ok": true}))),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+pub async fn deny(
+    State(state): State<AppState>,
+    Path((run_id, call_id)): Path<(String, String)>,
+) -> Result<Json<Value>, StatusCode> {
+    match state
+        .authorization
+        .resolve(&run_id, &call_id, AuthorizationDecision::Denied)
+        .await
+    {
+        Some(_) => Ok(Json(json!({"ok": true}))),
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Pending authorization requests for a session (drives the chat prompt).
+pub async fn pending(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<Vec<PendingAuthorizationInfo>>, StatusCode> {
+    let pending = state.authorization.pending_for_session(&session_id).await;
+    Ok(Json(pending))
 }

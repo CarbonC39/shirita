@@ -11,7 +11,8 @@ use crate::storage::Storage;
 use crate::tools::{ToolRegistry, ToolSpec, ToolSource};
 use crate::Result;
 
-use super::{McpPolicy, McpSession, McpToolHandler, mcp_tool_name};
+use super::authorization::AuthorizationBroker;
+use super::{McpPolicy, McpSession, McpToolHandler, mcp_tool_name, MCP_AUTHORIZATION_TIMEOUT_MS};
 
 /// Read the effective MCP policy: the global `mcp.policy` setting, optionally
 /// overridden per conversation by `session.override_config.mcp_policy`.
@@ -37,6 +38,8 @@ pub async fn effective_mcp_policy(storage: &dyn Storage, session: &Session) -> M
 pub async fn build_effective_tool_registry(
     storage: &dyn Storage,
     session: &Session,
+    authorization: Arc<AuthorizationBroker>,
+    run_id: &str,
 ) -> Result<Arc<ToolRegistry>> {
     let servers = storage.list_mcp_servers().await?;
     if !servers.iter().any(|s| s.config.enabled) {
@@ -78,6 +81,10 @@ pub async fn build_effective_tool_registry(
                 tool_name: tool.name.clone(),
                 access: *access,
                 session: session_handle.clone(),
+                authorization: authorization.clone(),
+                run_id: run_id.to_string(),
+                session_id: session.id.clone(),
+                authorization_timeout_ms: MCP_AUTHORIZATION_TIMEOUT_MS,
             };
             if let Err(e) = builder.register_owned(spec, Arc::new(handler)) {
                 // Collision or malformed name: never overwrite an existing handler.

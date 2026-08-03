@@ -72,6 +72,7 @@ pub async fn send(
         body.text,
         state.config.assets_dir.clone(),
         body.attachments,
+        state.authorization.clone(),
         stop_token,
     );
     // A newer generation for the same session aborts this one (no racing writes).
@@ -128,6 +129,7 @@ pub async fn regenerate_message(
         session_id,
         msg_id,
         state.config.assets_dir.clone(),
+        state.authorization.clone(),
         stop_token,
     );
     let (events, handle) = futures::stream::abortable(events);

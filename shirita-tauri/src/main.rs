@@ -130,6 +130,7 @@ async fn boot(
         model,
         generations: Arc::new(Generations::new()),
         http_client,
+        authorization: Arc::new(shirita_core::mcp::authorization::AuthorizationBroker::new()),
     };
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
